@@ -142,11 +142,11 @@ const config = {
             items: [
               {
                 label: 'Installation',
-                to: '/docs/next/installation',
+                to: '/docs/installation',
               },
               {
                 label: 'Resources',
-                to: '/docs/next/resources',
+                to: '/docs/resources',
               },
             ],
           },
