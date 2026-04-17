@@ -95,7 +95,7 @@ var dbaasDatabaseCreateCmd = &cobra.Command{
 The DBaaS instance must already exist and be in a ready state.
 Use 'acloud database dbaas get <dbaas-id>' to check its status.`,
 	Example: `  acloud database dbaas database create <dbaas-id> --name myapp_db`,
-	Args: cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 

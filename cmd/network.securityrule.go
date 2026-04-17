@@ -132,7 +132,7 @@ Example target values:
     --name allow-all-out --region IT-BG \
     --direction Egress --protocol ANY \
     --target-kind Ip --target-value 0.0.0.0/0`,
-	Args:  cobra.ExactArgs(2),
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		securityGroupID := args[1]

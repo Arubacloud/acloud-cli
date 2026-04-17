@@ -99,7 +99,7 @@ Both the backup and the target volume must already exist. The restore writes
 backup data into the specified volume; ensure the volume is detached or otherwise
 idle before starting a restore to avoid data corruption.`,
 	Example: `  acloud storage restore <backup-id> <volume-id> --name my-restore`,
-	Args: cobra.ExactArgs(2),
+	Args:    cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backupID := args[0]
 		volumeID := args[1]

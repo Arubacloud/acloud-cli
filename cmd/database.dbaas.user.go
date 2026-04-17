@@ -97,7 +97,7 @@ var dbaasUserCreateCmd = &cobra.Command{
 The user is granted access to the instance. Assign database-level privileges
 separately through your database client after the user is created.`,
 	Example: `  acloud database dbaas user create <dbaas-id> --username myuser --password mypassword`,
-	Args: cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 

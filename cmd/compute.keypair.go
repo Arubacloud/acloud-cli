@@ -94,7 +94,7 @@ var keypairCreateCmd = &cobra.Command{
 The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 (the content of your ~/.ssh/id_rsa.pub or similar file).`,
 	Example: `  acloud compute keypair create --name my-key --public-key "$(cat ~/.ssh/id_rsa.pub)"`,
-	Args:  cobra.NoArgs,
+	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
