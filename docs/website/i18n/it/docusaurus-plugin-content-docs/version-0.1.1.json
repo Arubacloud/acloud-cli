@@ -1,0 +1,54 @@
+{
+  "sidebar.tutorialSidebar.category.Use Cases": {
+    "message": "Casi d'Uso",
+    "description": "The label for category Use Cases in sidebar tutorialSidebar"
+  },
+  "version.label": {
+    "message": "0.1.1",
+    "description": "The label for the current version in the version dropdown"
+  },
+  "sidebar.tutorialSidebar.category.Management": {
+    "message": "Gestione",
+    "description": "The label for category Management in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Storage": {
+    "message": "Storage",
+    "description": "The label for category Storage in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Network": {
+    "message": "Rete",
+    "description": "The label for category Network in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Database": {
+    "message": "Database",
+    "description": "The label for category Database in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Schedule": {
+    "message": "Pianificazione",
+    "description": "The label for category Schedule in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Security": {
+    "message": "Sicurezza",
+    "description": "The label for category Security in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Compute": {
+    "message": "Compute",
+    "description": "The label for category Compute in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Container": {
+    "message": "Container",
+    "description": "The label for category Container in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Introduction": {
+    "message": "Introduzione",
+    "description": "The label for link Introduction in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Installation": {
+    "message": "Installazione",
+    "description": "The label for link Installation in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Resources": {
+    "message": "Risorse",
+    "description": "The label for link Resources in sidebar tutorialSidebar"
+  }
+}

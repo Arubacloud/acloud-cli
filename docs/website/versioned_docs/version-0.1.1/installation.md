@@ -146,23 +146,27 @@ The Aruba Cloud CLI requires API credentials to authenticate with Aruba Cloud se
 
 1. **Obtain API Credentials**: Get your Client ID and Client Secret from the Aruba Cloud console.
 
-2. **Configure the CLI**:
+2. **Configure the CLI** — pass `--client-id` on the command line; the secret is read securely with echo disabled:
    ```bash
-   acloud config set
+   acloud config set --client-id YOUR_CLIENT_ID
+   # Enter client secret: (hidden input, does not appear in shell history)
    ```
 
-3. **Enter your credentials** when prompted:
-   - Client ID
-   - Client Secret
+   For CI/automation where shell history is not a concern, both flags may be passed together:
+   ```bash
+   acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+   ```
 
-4. **Verify configuration**:
+   > **Security note**: Avoid passing `--client-secret` interactively — it will appear in your shell history. Omitting the flag causes the CLI to prompt for it with echo disabled.
+
+3. **Verify configuration**:
    ```bash
    acloud config show
    ```
 
 ### Configuration File
 
-Credentials are stored in `~/.acloud.yaml`:
+Credentials are stored in `~/.acloud.yaml` (file permissions `0600`):
 
 ```yaml
 clientId: your-client-id
@@ -170,15 +174,6 @@ clientSecret: your-client-secret
 ```
 
 **Security Note**: Keep your credentials secure. The configuration file contains sensitive information.
-
-### Environment Variables
-
-You can also set credentials via environment variables:
-
-```bash
-export ACLOUD_CLIENT_ID="your-client-id"
-export ACLOUD_CLIENT_SECRET="your-client-secret"
-```
 
 ## Configuration
 
@@ -188,9 +183,13 @@ The CLI configuration allows you to manage API credentials and optional settings
 
 **Required Settings:**
 
-Both `--client-id` and `--client-secret` are mandatory and must be set together:
+`--client-id` is required. `--client-secret` may be passed on the command line or omitted to be prompted securely with echo disabled (recommended for interactive use):
 
 ```bash
+# Recommended: secret entered via hidden prompt (does not appear in shell history)
+acloud config set --client-id YOUR_CLIENT_ID
+
+# CI/automation: pass both flags on the command line
 acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
 ```
 
@@ -262,7 +261,11 @@ acloud config set --client-secret NEW_SECRET
 acloud config set --base-url "https://custom-api.example.com"
 ```
 
-**Note**: Both `--client-id` and `--client-secret` must always be present in the configuration. If you're updating one, make sure the other is already set or provide both.
+**Note**: Both `--client-id` and `--client-secret` must always be present in the configuration. If you're updating one, make sure the other is already set or provide both. When updating the secret interactively, omit `--client-secret` to be prompted with echo disabled:
+
+```bash
+acloud config set --client-secret   # prompted securely
+```
 
 ## Context Management
 
@@ -502,6 +505,8 @@ The CLI provides a global `--debug` (or `-d`) flag that enables verbose logging 
 - **Request payloads**: JSON-formatted request bodies being sent to the API
 - **Error details**: Full error response bodies when requests fail
 
+> **Security Warning**: Debug output may include credentials and tokens from HTTP headers. Do not use `--debug` in shared terminal sessions or paste its output publicly.
+
 ### Usage
 
 Add the `--debug` flag to any command:
@@ -543,6 +548,48 @@ Request Payload:
 ```
 
 **Note**: Debug output is sent to `stderr`, so it won't interfere with normal command output and can be redirected separately if needed.
+
+## Output Format
+
+All list and get commands support a global `--output` (or `-o`) flag that controls the output format.
+
+| Value | Description |
+|-------|-------------|
+| `table` | Human-readable fixed-width table (default) |
+| `json` | JSON array, one object per row, keyed by column header |
+
+```bash
+# Default table output
+acloud network vpc list
+
+# Machine-readable JSON output
+acloud network vpc list --output json
+acloud network vpc list -o json
+```
+
+Useful for scripting with tools like `jq`:
+```bash
+acloud storage blockstorage list -o json | jq '.[].Name'
+```
+
+## Pagination
+
+All list commands support `--limit` and `--offset` flags to paginate large result sets.
+
+| Flag | Description |
+|------|-------------|
+| `--limit N` | Return at most N results |
+| `--offset N` | Skip the first N results |
+
+```bash
+# First page of 10 results
+acloud storage blockstorage list --limit 10
+
+# Second page
+acloud storage blockstorage list --limit 10 --offset 10
+```
+
+When neither flag is passed the API returns its default result set.
 
 ## Troubleshooting
 
