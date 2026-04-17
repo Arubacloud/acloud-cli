@@ -41,6 +41,7 @@ func init() {
 
 	jobDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	jobDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	jobDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	jobListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	jobListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -95,7 +96,22 @@ var jobCmd = &cobra.Command{
 var jobCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new scheduled job",
-	Args:  cobra.NoArgs,
+	Long: `Create a new scheduled job to automate tasks.
+
+Job types:
+  OneShot   — runs once at the time specified by --schedule-at (RFC3339 format)
+  Recurring — runs on a cron schedule specified by --cron
+
+For Recurring jobs, use --execute-until (RFC3339) to set an end date.
+The job is enabled by default; pass --enabled=false to create it disabled.`,
+	Example: `  # One-time job
+  acloud schedule job create --name my-job --region IT-BG \
+    --job-type OneShot --schedule-at 2026-06-01T10:00:00Z
+
+  # Recurring job (every day at midnight)
+  acloud schedule job create --name daily-job --region IT-BG \
+    --job-type Recurring --cron "0 0 * * *"`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -520,6 +536,17 @@ var jobDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromSchedule().Jobs().Get(ctx, projectID, jobID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: schedule job not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("schedule job", jobID))
+			return nil
+		}
+
 		_, err = client.FromSchedule().Jobs().Delete(ctx, projectID, jobID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting job: %w", err)

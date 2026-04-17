@@ -59,6 +59,7 @@ func init() {
 
 	cloudserverDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	cloudserverDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	cloudserverListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -153,7 +154,21 @@ var cloudserverCmd = &cobra.Command{
 var cloudserverCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new cloud server",
-	Args:  cobra.NoArgs,
+	Long: `Create a new cloud server in the specified region and VPC.
+
+The boot disk is specified as a URI referencing a compute template (image). Network
+resources (VPC, subnet, security group) must already exist; pass their URIs with
+--vpc-uri, --subnet-uri, and --security-group-uri.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud compute cloudserver create \
+    --name my-server --region IT-BG --zone IT-BG-1 \
+    --flavor <flavor-id> \
+    --boot-disk-uri /projects/<proj-id>/providers/Aruba.Compute/templates/<template-id> \
+    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
+    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
+    --security-group-uri /projects/<proj-id>/providers/Aruba.Network/securityGroups/<sg-id>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get new network flags
 		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
@@ -515,6 +530,17 @@ var cloudserverDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromCompute().CloudServers().Get(ctx, projectID, serverID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("cloud server", serverID))
+			return nil
+		}
+
 		response, err := client.FromCompute().CloudServers().Delete(ctx, projectID, serverID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting cloud server: %w", err)

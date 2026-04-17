@@ -35,6 +35,7 @@ func init() {
 
 	vpcpeeringDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcpeeringDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	vpcpeeringDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	vpcpeeringListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcpeeringListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -51,7 +52,14 @@ var vpcpeeringCmd = &cobra.Command{
 var vpcpeeringCreateCmd = &cobra.Command{
 	Use:   "create [vpc-id]",
 	Short: "Create a new VPC peering",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a VPC peering connection between two VPCs.
+
+Provide the ID of the peer VPC with --peer-vpc-id. Both VPCs must be in the
+same region. Add routes via 'acloud network vpcpeeringroute create' after the
+peering is established.`,
+	Example: `  acloud network vpcpeering create <vpc-id> \
+    --name my-peering --region IT-BG --peer-vpc-id <peer-vpc-id>`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		name, _ := cmd.Flags().GetString("name")
@@ -407,6 +415,17 @@ var vpcpeeringDeleteCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().VPCPeerings().Get(ctx, projectID, vpcID, peeringID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: VPC peering not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("VPC peering", peeringID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().VPCPeerings().Delete(ctx, projectID, vpcID, peeringID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting VPC peering: %w", err)

@@ -267,6 +267,11 @@ func msgAction(kind, name, verb string) string {
 	return fmt.Sprintf("%s '%s' %s successfully.", kind, name, verb)
 }
 
+// msgDryRun returns the dry-run output for a would-be delete (TD-019).
+func msgDryRun(kind, id string) string {
+	return fmt.Sprintf("[dry-run] Would delete %s '%s'. Resource exists and is accessible.", kind, id)
+}
+
 // listParams builds pagination RequestParameters from --limit and --offset flags (TD-017).
 // Returns nil when neither flag is set, preserving the existing nil-means-no-options contract.
 func listParams(cmd *cobra.Command) *types.RequestParameters {

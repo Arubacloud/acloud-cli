@@ -32,6 +32,7 @@ func init() {
 
 	// Add flags for project delete command
 	projectDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	projectDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	// Add flags for project update command
 	projectUpdateCmd.Flags().String("description", "", "New description for the project")
@@ -85,7 +86,13 @@ var projectCmd = &cobra.Command{
 var projectCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new project",
-	Args:  cobra.NoArgs,
+	Long: `Create a new project in your Aruba Cloud account.
+
+Pass --default to make this project the active default for subsequent commands.
+Use 'acloud context set-project' to switch the active project at any time.`,
+	Example: `  acloud management project create --name my-project --description "Production workloads"
+  acloud management project create --name dev-project --default`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get flags
 		name, _ := cmd.Flags().GetString("name")
@@ -391,9 +398,20 @@ var projectDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the project using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromProject().Get(ctx, projectID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("project", projectID))
+			return nil
+		}
+
+		// Delete the project using the SDK
 		resp, err := client.FromProject().Delete(ctx, projectID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting project: %w", err)

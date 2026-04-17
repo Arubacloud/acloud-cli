@@ -41,6 +41,7 @@ func init() {
 
 	vpcpeeringrouteDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcpeeringrouteDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	vpcpeeringrouteDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	vpcpeeringrouteListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcpeeringrouteListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -98,7 +99,17 @@ var vpcpeeringrouteCmd = &cobra.Command{
 var vpcpeeringrouteCreateCmd = &cobra.Command{
 	Use:   "create [vpc-id] [peering-id]",
 	Short: "Create a new VPC peering route",
-	Args:  cobra.ExactArgs(2),
+	Long: `Create a route that directs traffic through a VPC peering connection.
+
+Specify the local subnet CIDR with --local-network and the remote subnet CIDR
+with --remote-network. Both values should be valid CIDR blocks.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud network vpcpeeringroute create <vpc-id> <peering-id> \
+    --name my-route \
+    --local-network 10.0.0.0/24 \
+    --remote-network 10.1.0.0/24`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		peeringID := args[1]
@@ -455,6 +466,17 @@ var vpcpeeringrouteDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().VPCPeeringRoutes().Get(ctx, projectID, vpcID, peeringID, routeID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: VPC peering route not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("VPC peering route", routeID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().VPCPeeringRoutes().Delete(ctx, projectID, vpcID, peeringID, routeID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting VPC peering route: %w", err)

@@ -32,6 +32,7 @@ func init() {
 
 	dbaasUserDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasUserDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	dbaasUserDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	dbaasUserListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasUserListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -91,7 +92,12 @@ var dbaasUserCmd = &cobra.Command{
 var dbaasUserCreateCmd = &cobra.Command{
 	Use:   "create [dbaas-id]",
 	Short: "Create a new user in DBaaS",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a new database user inside an existing DBaaS instance.
+
+The user is granted access to the instance. Assign database-level privileges
+separately through your database client after the user is created.`,
+	Example: `  acloud database dbaas user create <dbaas-id> --username myuser --password mypassword`,
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 
@@ -331,6 +337,17 @@ var dbaasUserDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromDatabase().Users().Get(ctx, projectID, dbaasID, username, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: database user not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("database user", username))
+			return nil
+		}
+
 		_, err = client.FromDatabase().Users().Delete(ctx, projectID, dbaasID, username, nil)
 		if err != nil {
 			return fmt.Errorf("deleting user: %w", err)

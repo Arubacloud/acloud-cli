@@ -43,6 +43,7 @@ func init() {
 	subnetUpdateCmd.Flags().StringSlice("dhcp-dns", []string{}, "DHCP DNS servers for Advanced subnet type (optional)")
 	subnetDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	subnetDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	subnetDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 	subnetListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	subnetListCmd.Flags().String("vpc-id", "", "Parent VPC ID (required)")
 	subnetListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -59,8 +60,19 @@ var subnetCmd = &cobra.Command{
 var subnetCreateCmd = &cobra.Command{
 	Use:   "create [vpc-id]",
 	Short: "Create a new subnet",
-	Args:  cobra.ExactArgs(1),
-	Long:  `Create a new subnet in a VPC. Usage: acloud network subnet create <vpc-id> --name <name> --cidr <cidr>`,
+	Long: `Create a new subnet in the specified VPC.
+
+Without --cidr, a Basic subnet is created (the platform assigns the CIDR).
+With --cidr, an Advanced subnet is created; --dhcp-enabled is required in that case.
+
+DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
+	Example: `  # Basic subnet (platform assigns CIDR)
+  acloud network subnet create <vpc-id> --name my-subnet --region IT-BG
+
+  # Advanced subnet with explicit CIDR and DHCP
+  acloud network subnet create <vpc-id> --name my-subnet --region IT-BG \
+    --cidr 10.0.1.0/24 --dhcp-enabled \
+    --dhcp-dns 8.8.8.8,8.8.4.4`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		name, _ := cmd.Flags().GetString("name")
@@ -550,6 +562,17 @@ var subnetDeleteCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().Subnets().Get(ctx, projectID, vpcID, subnetID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: subnet not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("subnet", subnetID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().Subnets().Delete(ctx, projectID, vpcID, subnetID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting subnet: %w", err)

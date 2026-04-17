@@ -29,6 +29,7 @@ func init() {
 	securitygroupUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	securitygroupDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securitygroupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	securitygroupDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 	securitygroupListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securitygroupListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	securitygroupListCmd.Flags().Int32("offset", 0, "Number of results to skip")
@@ -44,7 +45,13 @@ var securitygroupCmd = &cobra.Command{
 var securitygroupCreateCmd = &cobra.Command{
 	Use:   "create [vpc-id]",
 	Short: "Create a new security group",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a new security group inside the specified VPC.
+
+Security groups act as virtual firewalls. Add rules with 'acloud network securityrule create'
+after the group is created.`,
+	Example: `  acloud network securitygroup create <vpc-id> --name web-sg --region IT-BG
+  acloud network securitygroup create <vpc-id> --name db-sg --region IT-BG --tags tier=db`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		name, _ := cmd.Flags().GetString("name")
@@ -367,6 +374,17 @@ var securitygroupDeleteCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().SecurityGroups().Get(ctx, projectID, vpcID, sgID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: security group not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("security group", sgID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().SecurityGroups().Delete(ctx, projectID, vpcID, sgID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting security group: %w", err)

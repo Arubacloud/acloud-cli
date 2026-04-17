@@ -35,6 +35,7 @@ func init() {
 	storageRestoreUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	storageRestoreDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageRestoreDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	storageRestoreDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	storageRestoreGetCmd.ValidArgsFunction = completeRestoreID
 	storageRestoreUpdateCmd.ValidArgsFunction = completeRestoreID
@@ -92,8 +93,13 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 var storageRestoreCmd = &cobra.Command{
 	Use:   "restore [backup-id] [volume-id]",
 	Short: "Restore a block storage volume from a backup",
-	Long:  `Create a restore operation (Aruba.Storage/restore) to restore a volume from a backup.`,
-	Args:  cobra.ExactArgs(2),
+	Long: `Create a restore operation to copy backup data back to a block storage volume.
+
+Both the backup and the target volume must already exist. The restore writes
+backup data into the specified volume; ensure the volume is detached or otherwise
+idle before starting a restore to avoid data corruption.`,
+	Example: `  acloud storage restore <backup-id> <volume-id> --name my-restore`,
+	Args:    cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backupID := args[0]
 		volumeID := args[1]
@@ -477,6 +483,17 @@ var storageRestoreDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromStorage().Restores().Get(ctx, projectID, backupID, restoreID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: restore operation not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("restore operation", restoreID))
+			return nil
+		}
+
 		_, err = client.FromStorage().Restores().Delete(ctx, projectID, backupID, restoreID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting restore: %w", err)

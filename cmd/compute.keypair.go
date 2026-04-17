@@ -34,6 +34,7 @@ func init() {
 
 	keypairDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	keypairDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	keypairDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	keypairListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	keypairListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -88,7 +89,12 @@ var keypairCmd = &cobra.Command{
 var keypairCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new keypair",
-	Args:  cobra.NoArgs,
+	Long: `Create a new SSH keypair by uploading your public key.
+
+The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
+(the content of your ~/.ssh/id_rsa.pub or similar file).`,
+	Example: `  acloud compute keypair create --name my-key --public-key "$(cat ~/.ssh/id_rsa.pub)"`,
+	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -268,6 +274,17 @@ var keypairDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromCompute().KeyPairs().Get(ctx, projectID, keypairName, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: key pair not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("key pair", keypairName))
+			return nil
+		}
+
 		response, err := client.FromCompute().KeyPairs().Delete(ctx, projectID, keypairName, nil)
 		if err != nil {
 			return fmt.Errorf("deleting keypair: %w", err)

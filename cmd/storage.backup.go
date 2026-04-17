@@ -39,6 +39,7 @@ func init() {
 	storageBackupUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	storageBackupDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageBackupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	storageBackupDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	storageBackupGetCmd.ValidArgsFunction = completeBackupID
 	storageBackupUpdateCmd.ValidArgsFunction = completeBackupID
@@ -86,8 +87,15 @@ func completeBackupID(cmd *cobra.Command, args []string, toComplete string) ([]s
 var storageBackupCmd = &cobra.Command{
 	Use:   "backup [volume-id]",
 	Short: "Create a storage backup of a block storage volume",
-	Long:  `Create a storage backup resource (Aruba.Storage/backup) for a block storage volume.`,
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a backup of the specified block storage volume.
+
+Backup types: Full or Incremental (default).
+Use --retention-days to set how many days the backup is retained.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud storage backup <volume-id> --name my-backup
+  acloud storage backup <volume-id> --name weekly-full --type Full --retention-days 30`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		volumeID := args[0]
 
@@ -489,6 +497,17 @@ var storageBackupDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromStorage().Backups().Get(ctx, projectID, backupID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: storage backup not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("storage backup", backupID))
+			return nil
+		}
+
 		_, err = client.FromStorage().Backups().Delete(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)

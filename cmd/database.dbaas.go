@@ -38,6 +38,7 @@ func init() {
 
 	dbaasDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	dbaasDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	dbaasListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -94,7 +95,18 @@ var dbaasCmd = &cobra.Command{
 var dbaasCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new DBaaS instance",
-	Args:  cobra.NoArgs,
+	Long: `Create a new managed database instance in the specified region.
+
+Use --engine-id to select the database engine (e.g., MySQL, PostgreSQL).
+Use --flavor to select the compute profile (CPU/RAM).
+
+After creation, add databases with 'acloud database dbaas database create'
+and users with 'acloud database dbaas user create'.`,
+	Example: `  acloud database dbaas create \
+    --name my-db --region IT-BG \
+    --engine-id <engine-id> \
+    --flavor <flavor-id>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -511,6 +523,17 @@ var dbaasDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromDatabase().DBaaS().Get(ctx, projectID, dbaasID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("DBaaS instance", dbaasID))
+			return nil
+		}
+
 		_, err = client.FromDatabase().DBaaS().Delete(ctx, projectID, dbaasID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting DBaaS instance: %w", err)

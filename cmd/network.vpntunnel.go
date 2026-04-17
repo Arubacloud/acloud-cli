@@ -60,6 +60,7 @@ func init() {
 	vpntunnelUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	vpntunnelDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	vpntunnelDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 	vpntunnelListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	vpntunnelListCmd.Flags().Int32("offset", 0, "Number of results to skip")
@@ -289,7 +290,23 @@ var vpntunnelGetCmd = &cobra.Command{
 var vpntunnelCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new VPN tunnel",
-	Args:  cobra.NoArgs,
+	Long: `Create a site-to-site VPN tunnel to an on-premises network.
+
+The VPC and Elastic IP must already exist. Specify the subnet the tunnel will
+use via --subnet-cidr (CIDR of existing subnet) or --subnet-name.
+
+VPN type defaults to Site-To-Site. Protocol defaults to ikev2.
+Billing period: Hour (default), Month, or Year.
+
+IKE and ESP settings are optional; the platform uses secure defaults when omitted.`,
+	Example: `  acloud network vpntunnel create \
+    --name my-tunnel --region IT-BG \
+    --peer-ip 203.0.113.1 \
+    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
+    --subnet-cidr 10.0.1.0/24 \
+    --elastic-ip-uri /projects/<proj-id>/providers/Aruba.Network/elasticIPs/<eip-id> \
+    --psk my-pre-shared-key`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get flags
 		name, _ := cmd.Flags().GetString("name")
@@ -632,9 +649,20 @@ var vpntunnelDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the VPN tunnel using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().VPNTunnels().Get(ctx, projectID, vpnTunnelID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: VPN tunnel not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("VPN tunnel", vpnTunnelID))
+			return nil
+		}
+
+		// Delete the VPN tunnel using the SDK
 		response, err := client.FromNetwork().VPNTunnels().Delete(ctx, projectID, vpnTunnelID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting VPN tunnel: %w", err)

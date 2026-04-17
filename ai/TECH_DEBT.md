@@ -24,6 +24,8 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-018 | Global client cache vars encapsulated in `clientState` struct with `resetClientState()` helper; all test reset blocks updated to use it |
 | TD-010 | Table-driven `RunE` tests added for all 23 testable command files (24 including pre-existing `network.vpc_test.go`); mock infrastructure in `cmd/mock_test.go` covers all sub-clients; `security.kms.go` skipped (concrete SDK type, cannot mock); nil-pointer bugs in `LocationResponse.Value` and `CreationDate.IsZero()` fixed as a side effect of test authoring; redundant double nil-check blocks left by AWK generation cleaned up in 5 files |
 | TD-020 | Six helper functions added to `cmd/root.go` (`msgCreated`, `msgCreatedAsync`, `msgUpdated`, `msgUpdatedAsync`, `msgDeleted`, `msgAction`); all ~91 success `fmt.Print*` calls replaced across 20 cmd files; one double-nil-check fixed in `container.containerregistry.go` as a side effect |
+| TD-021 | `Long` and `Example` fields added to all 23 create commands across 22 cmd files; subnet already had a minimal `Long` which was replaced with a richer version |
+| TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
 
 ---
 
@@ -39,20 +41,6 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ## Low
-
-### TD-019 · No `--dry-run` flag on destructive operations
-Users cannot validate that a delete command would succeed (permissions, resource existence) without actually deleting the resource.
-
-**Fix:** Add `--dry-run` to all delete commands. In dry-run mode, perform a `get` to validate the resource exists and the client has access, then print what would happen without calling `delete`.
-
----
-
-### TD-021 · Many commands missing `Long` descriptions
-Most leaf commands (get, create, update, delete) have only a `Short` description. `acloud <resource> create --help` provides minimal guidance on valid flag values or usage examples.
-
-**Fix:** Add `Long` and `Example` fields to at minimum all `create` commands, documenting flag valid values and a copy-paste example invocation.
-
----
 
 ### TD-022 · Pre-release SDK version (v0.1.x)
 `go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.21`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
