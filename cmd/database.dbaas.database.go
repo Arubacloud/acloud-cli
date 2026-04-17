@@ -30,6 +30,7 @@ func init() {
 
 	dbaasDatabaseDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasDatabaseDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	dbaasDatabaseDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	dbaasDatabaseListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasDatabaseListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -89,7 +90,12 @@ var dbaasDatabaseCmd = &cobra.Command{
 var dbaasDatabaseCreateCmd = &cobra.Command{
 	Use:   "create [dbaas-id]",
 	Short: "Create a new database in DBaaS",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a new database schema inside an existing DBaaS instance.
+
+The DBaaS instance must already exist and be in a ready state.
+Use 'acloud database dbaas get <dbaas-id>' to check its status.`,
+	Example: `  acloud database dbaas database create <dbaas-id> --name myapp_db`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 
@@ -326,6 +332,17 @@ var dbaasDatabaseDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromDatabase().Databases().Get(ctx, projectID, dbaasID, databaseName, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: database not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("database", databaseName))
+			return nil
+		}
+
 		_, err = client.FromDatabase().Databases().Delete(ctx, projectID, dbaasID, databaseName, nil)
 		if err != nil {
 			return fmt.Errorf("deleting database: %w", err)

@@ -47,6 +47,7 @@ func init() {
 
 	securityruleDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securityruleDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	securityruleDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	securityruleListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securityruleListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -109,6 +110,28 @@ var securityruleCmd = &cobra.Command{
 var securityruleCreateCmd = &cobra.Command{
 	Use:   "create [vpc-id] [securitygroup-id]",
 	Short: "Create a new security rule",
+	Long: `Create a new security rule in the specified security group.
+
+Valid values:
+  --direction   Ingress (inbound) or Egress (outbound)
+  --protocol    ANY, TCP, UDP, or ICMP
+  --target-kind Ip (CIDR block) or SecurityGroup (another security group ID)
+  --port        Port number or range (e.g., "80", "8000-8080"); omit for ANY/ICMP
+
+Example target values:
+  --target-kind Ip --target-value 10.0.0.0/8
+  --target-kind SecurityGroup --target-value <sg-id>`,
+	Example: `  # Allow inbound HTTP from any IP
+  acloud network securityrule create <vpc-id> <sg-id> \
+    --name allow-http --region IT-BG \
+    --direction Ingress --protocol TCP --port 80 \
+    --target-kind Ip --target-value 0.0.0.0/0
+
+  # Allow all outbound traffic
+  acloud network securityrule create <vpc-id> <sg-id> \
+    --name allow-all-out --region IT-BG \
+    --direction Egress --protocol ANY \
+    --target-kind Ip --target-value 0.0.0.0/0`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
@@ -581,6 +604,17 @@ var securityruleDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: security rule not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("security rule", securityRuleID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().SecurityGroupRules().Delete(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting security rule: %w", err)

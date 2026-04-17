@@ -33,6 +33,7 @@ func init() {
 	elasticipUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	elasticipDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	elasticipDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 	elasticipListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	elasticipListCmd.Flags().Int32("offset", 0, "Number of results to skip")
@@ -90,7 +91,14 @@ var elasticipCmd = &cobra.Command{
 var elasticipCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Elastic IP",
-	Args:  cobra.NoArgs,
+	Long: `Create a new static public IP address (Elastic IP) in the specified region.
+
+The IP can be attached to a cloud server or VPN tunnel after creation.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud network elasticip create --name my-eip --region IT-BG
+  acloud network elasticip create --name prod-eip --region IT-BG --billing-period Month`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get flags
 		name, _ := cmd.Flags().GetString("name")
@@ -445,9 +453,20 @@ var elasticipDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the Elastic IP using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().ElasticIPs().Get(ctx, projectID, eipID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: elastic IP not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("elastic IP", eipID))
+			return nil
+		}
+
+		// Delete the Elastic IP using the SDK
 		_, err = client.FromNetwork().ElasticIPs().Delete(ctx, projectID, eipID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting Elastic IP: %w", err)

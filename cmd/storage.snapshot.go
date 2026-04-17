@@ -37,6 +37,7 @@ func init() {
 
 	snapshotDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	snapshotDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	snapshotDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	snapshotListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	snapshotListCmd.Flags().String("volume-uri", "", "Block storage volume URI (required)")
@@ -98,7 +99,13 @@ var snapshotCmd = &cobra.Command{
 var snapshotCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new snapshot",
-	Args:  cobra.NoArgs,
+	Long: `Create a point-in-time snapshot of an existing block storage volume.
+
+The volume URI is required. Snapshots can later be used to create new volumes
+or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
+	Example: `  acloud storage snapshot create --name my-snap --region IT-BG \
+    --volume-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
@@ -413,9 +420,20 @@ var snapshotDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the snapshot using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromStorage().Snapshots().Get(ctx, projectID, snapshotID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: snapshot not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("snapshot", snapshotID))
+			return nil
+		}
+
+		// Delete the snapshot using the SDK
 		_, err = client.FromStorage().Snapshots().Delete(ctx, projectID, snapshotID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting snapshot: %w", err)

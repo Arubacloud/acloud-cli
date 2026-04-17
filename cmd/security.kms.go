@@ -35,6 +35,7 @@ func init() {
 
 	kmsDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kmsDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	kmsDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	kmsListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kmsListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -89,7 +90,12 @@ var kmsCmd = &cobra.Command{
 var kmsCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new KMS resource",
-	Args:  cobra.NoArgs,
+	Long: `Create a new Key Management System instance for storing and managing secrets.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud security kms create --name my-kms --region IT-BG
+  acloud security kms create --name prod-kms --region IT-BG --billing-period Month`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -437,6 +443,17 @@ var kmsDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromSecurity().KMS().Get(ctx, projectID, kmsID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: KMS not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("KMS", kmsID))
+			return nil
+		}
+
 		_, err = client.FromSecurity().KMS().Delete(ctx, projectID, kmsID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting KMS: %w", err)

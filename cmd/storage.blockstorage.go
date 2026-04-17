@@ -43,6 +43,7 @@ func init() {
 
 	blockstorageDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	blockstorageDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	blockstorageDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	blockstorageListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	blockstorageListCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
@@ -103,7 +104,21 @@ var blockstorageCmd = &cobra.Command{
 var blockstorageCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new block storage",
-	Args:  cobra.NoArgs,
+	Long: `Create a new block storage volume in the specified region.
+
+Volume size is specified in GB with --size. Type options: Standard or Performance.
+The volume can be initialised from a snapshot with --snapshot-uri, or from an
+image with --image. Pass --set-bootable to mark the volume as a boot disk.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  # Create an empty 50 GB Standard volume
+  acloud storage blockstorage create --name my-volume --size 50 --region IT-BG
+
+  # Create a Performance volume from a snapshot
+  acloud storage blockstorage create --name fast-vol --size 100 --region IT-BG \
+    --type Performance \
+    --snapshot-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>/snapshots/<snap-id>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
@@ -480,9 +495,20 @@ var blockstorageDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the block storage using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromStorage().Volumes().Get(ctx, projectID, volumeID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("block storage", volumeID))
+			return nil
+		}
+
+		// Delete the block storage using the SDK
 		_, err = client.FromStorage().Volumes().Delete(ctx, projectID, volumeID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting block storage: %w", err)

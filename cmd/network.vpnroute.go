@@ -42,6 +42,7 @@ func init() {
 
 	vpnrouteDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpnrouteDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	vpnrouteDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	vpnrouteListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpnrouteListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -102,7 +103,15 @@ var vpnrouteCmd = &cobra.Command{
 var vpnrouteCreateCmd = &cobra.Command{
 	Use:   "create [vpn-tunnel-id]",
 	Short: "Create a new VPN tunnel route",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a route that directs traffic through the specified VPN tunnel.
+
+Specify the cloud-side subnet with --cloud-subnet and the on-premises subnet
+with --onprem-subnet. Both values should be valid CIDR blocks.`,
+	Example: `  acloud network vpnroute create <vpn-tunnel-id> \
+    --name my-route --region IT-BG \
+    --cloud-subnet 10.0.0.0/24 \
+    --onprem-subnet 192.168.1.0/24`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpnTunnelID := args[0]
 
@@ -501,6 +510,17 @@ var vpnrouteDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().VPNRoutes().Get(ctx, projectID, vpnTunnelID, routeID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: VPN route not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("VPN route", routeID))
+			return nil
+		}
+
 		resp, err := client.FromNetwork().VPNRoutes().Delete(ctx, projectID, vpnTunnelID, routeID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting VPN route: %w", err)

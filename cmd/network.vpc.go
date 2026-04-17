@@ -32,6 +32,7 @@ func init() {
 	vpcUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	vpcDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	vpcDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 	vpcListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	vpcListCmd.Flags().Int32("offset", 0, "Number of results to skip")
@@ -89,7 +90,13 @@ var vpcCmd = &cobra.Command{
 var vpcCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new VPC",
-	Args:  cobra.NoArgs,
+	Long: `Create a new Virtual Private Cloud (VPC) in the specified region.
+
+A VPC is the top-level network boundary. Subnets, security groups, and other
+network resources are created within a VPC.`,
+	Example: `  acloud network vpc create --name my-vpc --region IT-BG
+  acloud network vpc create --name prod-vpc --region IT-BG --tags env=prod,team=infra`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get flags
 		name, _ := cmd.Flags().GetString("name")
@@ -373,9 +380,20 @@ var vpcDeleteCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Delete the VPC using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromNetwork().VPCs().Get(ctx, projectID, vpcID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("VPC", vpcID))
+			return nil
+		}
+
+		// Delete the VPC using the SDK
 		_, err = client.FromNetwork().VPCs().Delete(ctx, projectID, vpcID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting VPC: %w", err)

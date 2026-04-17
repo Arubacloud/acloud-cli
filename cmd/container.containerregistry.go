@@ -54,6 +54,7 @@ func init() {
 
 	containerregistryDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	containerregistryDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	containerregistryDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	containerregistryListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	containerregistryListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -116,7 +117,20 @@ var containerregistryCmd = &cobra.Command{
 var containerregistryCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new container registry",
-	Args:  cobra.NoArgs,
+	Long: `Create a new private container registry in the specified region.
+
+All network resources (VPC, subnet, security group, public IP, block storage)
+must already exist. Pass their URIs via the corresponding flags.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud container containerregistry create \
+    --name my-registry --region IT-BG \
+    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
+    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
+    --security-group-uri /projects/<proj-id>/providers/Aruba.Network/securityGroups/<sg-id> \
+    --public-ip-uri /projects/<proj-id>/providers/Aruba.Network/elasticIPs/<eip-id> \
+    --block-storage-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -508,6 +522,16 @@ var containerregistryDeleteCmd = &cobra.Command{
 		if registryClient == nil {
 			return fmt.Errorf("container Registry client returned nil — this may indicate that Container Registry is not available in your SDK version")
 		}
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = registryClient.Get(ctx, projectID, registryID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: container registry not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("container registry", registryID))
+			return nil
+		}
+
 		response, err := registryClient.Delete(ctx, projectID, registryID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting container registry: %w", err)

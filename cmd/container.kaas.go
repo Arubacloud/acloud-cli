@@ -91,6 +91,7 @@ func init() {
 
 	kaasDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kaasDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	kaasDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	kaasListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kaasListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -148,7 +149,26 @@ var kaasCmd = &cobra.Command{
 var kaasCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new KaaS cluster",
-	Args:  cobra.NoArgs,
+	Long: `Create a managed Kubernetes cluster in the specified region.
+
+The VPC and subnet must already exist. A node pool is required at creation time;
+specify its name, instance type, node count, and availability zone.
+
+Pass --ha to enable a highly available control plane (requires 3 control plane nodes).
+Use --node-pool-autoscaling to enable cluster autoscaler (requires --node-pool-min-count
+and --node-pool-max-count).
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud container kaas create \
+    --name my-cluster --region IT-BG \
+    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
+    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
+    --node-cidr-address 10.0.0.0/24 --node-cidr-name my-cidr \
+    --security-group-name my-sg \
+    --kubernetes-version 1.29 \
+    --node-pool-name workers --node-pool-nodes 3 \
+    --node-pool-instance <flavor-id> --node-pool-zone IT-BG-1`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -645,6 +665,17 @@ var kaasDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromContainer().KaaS().Get(ctx, projectID, kaasID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: KaaS cluster not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("KaaS cluster", kaasID))
+			return nil
+		}
+
 		response, err := client.FromContainer().KaaS().Delete(ctx, projectID, kaasID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting KaaS cluster: %w", err)

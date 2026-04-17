@@ -40,6 +40,7 @@ func init() {
 
 	backupDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	backupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	backupDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	backupListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	backupListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
@@ -94,7 +95,17 @@ var backupCmd = &cobra.Command{
 var backupCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new database backup",
-	Args:  cobra.NoArgs,
+	Long: `Create a backup of a database inside a DBaaS instance.
+
+Provide the DBaaS instance ID (--dbaas-id) and the database name (--database-name).
+The backup will be stored and can be restored later.
+
+Billing period: Hour (default), Month, or Year.`,
+	Example: `  acloud database backup create \
+    --name my-backup --region IT-BG \
+    --dbaas-id <dbaas-id> \
+    --database-name myapp_db`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -399,6 +410,17 @@ var backupDeleteCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
+
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			_, err = client.FromDatabase().Backups().Get(ctx, projectID, backupID, nil)
+			if err != nil {
+				return fmt.Errorf("dry-run: database backup not found or inaccessible: %w", err)
+			}
+			fmt.Println(msgDryRun("database backup", backupID))
+			return nil
+		}
+
 		_, err = client.FromDatabase().Backups().Delete(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)
