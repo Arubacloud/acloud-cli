@@ -7,18 +7,17 @@ import (
 )
 
 func TestLoadContext(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Test with non-existent context
 	ctx, err := LoadContext()
@@ -31,18 +30,17 @@ func TestLoadContext(t *testing.T) {
 }
 
 func TestSaveContext(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Create test context
 	testContext := &Context{
@@ -82,18 +80,17 @@ func TestSaveContext(t *testing.T) {
 }
 
 func TestGetCurrentProjectID(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Test with no context
 	projectID, err := GetCurrentProjectID()

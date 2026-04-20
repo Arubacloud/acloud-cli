@@ -7,18 +7,17 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Test with non-existent config
 	config, err := LoadConfig()
@@ -31,18 +30,17 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestSaveConfig(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Create test config
 	testConfig := &Config{
@@ -78,18 +76,17 @@ func TestSaveConfig(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
-	// Save original home dir
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE") // Windows
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
 
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+	}()
 
 	// Get config path
 	configPath, err := GetConfigPath()
