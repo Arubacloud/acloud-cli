@@ -13,6 +13,7 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 // clientState encapsulates the cached SDK client and its configuration (TD-018).
@@ -74,7 +75,7 @@ func init() {
 	// Add global debug flag (TD-012: description warns about credential exposure)
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
 	// Add global output format flag (TD-016)
-	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table, json, or yaml")
 }
 
 // GetArubaClient creates and returns an Aruba Cloud SDK client using stored credentials
@@ -298,6 +299,7 @@ type TableColumn struct {
 
 // PrintTable prints data in the format requested by the global --output flag (TD-016).
 // When --output=json the rows are serialised as a JSON array of objects keyed by column header.
+// When --output=yaml the same structure is emitted as YAML.
 // When --output=table (the default) the existing fixed-width table format is used.
 func PrintTable(headers []TableColumn, rows [][]string) {
 	// Check global --output flag via rootCmd (avoids changing signature across all call sites)
@@ -320,6 +322,24 @@ func PrintTable(headers []TableColumn, rows [][]string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(result)
+		return
+	}
+
+	if format == "yaml" {
+		result := make([]map[string]string, 0, len(rows))
+		for _, row := range rows {
+			obj := make(map[string]string, len(headers))
+			for i, col := range headers {
+				if i < len(row) {
+					obj[col.Header] = row[i]
+				}
+			}
+			result = append(result, obj)
+		}
+		enc := yaml.NewEncoder(os.Stdout)
+		enc.SetIndent(2)
+		_ = enc.Encode(result)
+		_ = enc.Close()
 		return
 	}
 
