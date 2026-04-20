@@ -82,10 +82,10 @@ test_project_output_formats() {
         echo -e "${YELLOW}⚠ --output json: no resources — format validation skipped${NC}"
     elif is_valid_json "$JSON_OUTPUT"; then
         echo -e "${GREEN}✓ --output json: valid JSON${NC}"
-        if echo "$JSON_OUTPUT" | grep -q '"NAME"'; then
-            echo -e "${GREEN}✓ --output json: 'NAME' key present${NC}"
+        if echo "$JSON_OUTPUT" | grep -q '"name"'; then
+            echo -e "${GREEN}✓ --output json: 'name' key present${NC}"
         else
-            echo -e "${RED}✗ --output json: 'NAME' key missing${NC}"
+            echo -e "${RED}✗ --output json: 'name' key missing${NC}"
         fi
     else
         echo -e "${RED}✗ --output json: output is not valid JSON${NC}"
@@ -102,10 +102,10 @@ test_project_output_formats() {
         echo -e "${YELLOW}⚠ --output yaml: no resources — format validation skipped${NC}"
     elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
         echo -e "${GREEN}✓ --output yaml: output looks like YAML${NC}"
-        if echo "$YAML_OUTPUT" | grep -q 'NAME:'; then
-            echo -e "${GREEN}✓ --output yaml: 'NAME' key present${NC}"
+        if echo "$YAML_OUTPUT" | grep -q 'name:'; then
+            echo -e "${GREEN}✓ --output yaml: 'name' key present${NC}"
         else
-            echo -e "${RED}✗ --output yaml: 'NAME' key missing${NC}"
+            echo -e "${RED}✗ --output yaml: 'name' key missing${NC}"
         fi
     else
         echo -e "${RED}✗ --output yaml: output does not look like YAML${NC}"

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -297,9 +298,61 @@ type TableColumn struct {
 	Width  int    // Column width for formatting
 }
 
+// normalizeHeaderKey converts a display-oriented table header (e.g. "RAM(GB)",
+// "CREATION DATE", "PUBLIC_KEY") into a snake_case key suitable for JSON/YAML
+// serialisation. Non-alphanumeric runs collapse into a single underscore.
+func normalizeHeaderKey(header string) string {
+	var sb strings.Builder
+	prevWasAlnum := false
+	for _, r := range header {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			sb.WriteRune(r + ('a' - 'A'))
+			prevWasAlnum = true
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			sb.WriteRune(r)
+			prevWasAlnum = true
+		default:
+			if prevWasAlnum {
+				sb.WriteRune('_')
+				prevWasAlnum = false
+			}
+		}
+	}
+	return strings.Trim(sb.String(), "_")
+}
+
+// rowsToRecords converts tabular headers+rows into an ordered list of field-preserving
+// records suitable for structured serialisation. Keys are normalised via normalizeHeaderKey.
+func rowsToRecords(headers []TableColumn, rows [][]string) []yaml.Node {
+	keys := make([]string, len(headers))
+	for i, col := range headers {
+		keys[i] = normalizeHeaderKey(col.Header)
+	}
+
+	records := make([]yaml.Node, 0, len(rows))
+	for _, row := range rows {
+		var mapping yaml.Node
+		mapping.Kind = yaml.MappingNode
+		for i, key := range keys {
+			if i >= len(row) {
+				break
+			}
+			var k, v yaml.Node
+			k.Kind = yaml.ScalarNode
+			k.Value = key
+			v.Kind = yaml.ScalarNode
+			v.Value = row[i]
+			mapping.Content = append(mapping.Content, &k, &v)
+		}
+		records = append(records, mapping)
+	}
+	return records
+}
+
 // PrintTable prints data in the format requested by the global --output flag (TD-016).
-// When --output=json the rows are serialised as a JSON array of objects keyed by column header.
-// When --output=yaml the same structure is emitted as YAML.
+// When --output=json the rows are serialised as a JSON array of objects keyed by
+// snake_case column header. When --output=yaml the same structure is emitted as YAML.
 // When --output=table (the default) the existing fixed-width table format is used.
 func PrintTable(headers []TableColumn, rows [][]string) {
 	// Check global --output flag via rootCmd (avoids changing signature across all call sites)
@@ -309,36 +362,47 @@ func PrintTable(headers []TableColumn, rows [][]string) {
 	}
 
 	if format == "json" {
-		result := make([]map[string]string, 0, len(rows))
-		for _, row := range rows {
-			obj := make(map[string]string, len(headers))
-			for i, col := range headers {
-				if i < len(row) {
-					obj[col.Header] = row[i]
-				}
-			}
-			result = append(result, obj)
+		keys := make([]string, len(headers))
+		for i, col := range headers {
+			keys[i] = normalizeHeaderKey(col.Header)
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(result)
+		// Emit as an ordered array to preserve column order in the JSON output.
+		fmt.Print("[")
+		for ri, row := range rows {
+			if ri > 0 {
+				fmt.Print(",")
+			}
+			fmt.Print("\n  {")
+			for ki, key := range keys {
+				if ki >= len(row) {
+					break
+				}
+				if ki > 0 {
+					fmt.Print(",")
+				}
+				keyJSON, _ := json.Marshal(key)
+				valJSON, _ := json.Marshal(row[ki])
+				fmt.Printf("\n    %s: %s", keyJSON, valJSON)
+			}
+			fmt.Print("\n  }")
+		}
+		if len(rows) > 0 {
+			fmt.Print("\n")
+		}
+		fmt.Println("]")
 		return
 	}
 
 	if format == "yaml" {
-		result := make([]map[string]string, 0, len(rows))
-		for _, row := range rows {
-			obj := make(map[string]string, len(headers))
-			for i, col := range headers {
-				if i < len(row) {
-					obj[col.Header] = row[i]
-				}
-			}
-			result = append(result, obj)
+		records := rowsToRecords(headers, rows)
+		var doc yaml.Node
+		doc.Kind = yaml.SequenceNode
+		for i := range records {
+			doc.Content = append(doc.Content, &records[i])
 		}
 		enc := yaml.NewEncoder(os.Stdout)
 		enc.SetIndent(2)
-		_ = enc.Encode(result)
+		_ = enc.Encode(&doc)
 		_ = enc.Close()
 		return
 	}

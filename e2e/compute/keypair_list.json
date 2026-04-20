@@ -1,8 +1,8 @@
 [
   {
-    "NAME": "my-keypair",
-    "ID": "xxxxxxxxxxxxxxxxxxxxxxxx",
-    "PUBLIC_KEY": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB...",
-    "STATUS": "active"
+    "name": "my-keypair",
+    "id": "xxxxxxxxxxxxxxxxxxxxxxxx",
+    "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB...",
+    "status": "active"
   }
 ]

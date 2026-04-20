@@ -1,17 +1,17 @@
 [
   {
-    "NAME": "default",
-    "ID": "xxxxxxxxxxxxxxxxxxxxx",
-    "CREATION DATE": "26-03-2026"
+    "name": "default",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
   },
   {
-    "NAME": "default-baremetal",
-    "ID": "xxxxxxxxxxxxxxxxxxxxx",
-    "CREATION DATE": "26-03-2026"
+    "name": "default-baremetal",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
   },
   {
-    "NAME": "cloud-v1",
-    "ID": "xxxxxxxxxxxxxxxxxxxxx",
-    "CREATION DATE": "26-03-2026"
+    "name": "cloud-v1",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
   }
 ]

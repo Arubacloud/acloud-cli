@@ -233,25 +233,47 @@ func TestPrintTable_MismatchedColumns(t *testing.T) {
 	PrintTable(headers, rows)
 }
 
+func TestNormalizeHeaderKey(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"NAME", "name"},
+		{"ID", "id"},
+		{"PUBLIC_KEY", "public_key"},
+		{"CREATION DATE", "creation_date"},
+		{"RAM(GB)", "ram_gb"},
+		{"HD(GB)", "hd_gb"},
+		{"CPU", "cpu"},
+		{"  spaced  ", "spaced"},
+		{"multi  space__key", "multi_space_key"},
+		{"abc123", "abc123"},
+	}
+	for _, c := range cases {
+		got := normalizeHeaderKey(c.in)
+		if got != c.want {
+			t.Errorf("normalizeHeaderKey(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestPrintTable_JSONFormat(t *testing.T) {
 	headers := []TableColumn{
 		{Header: "NAME", Width: 20},
 		{Header: "ID", Width: 30},
-		{Header: "STATUS", Width: 10},
+		{Header: "RAM(GB)", Width: 10},
 	}
 	rows := [][]string{
-		{"server-01", "abc123", "active"},
-		{"server-02", "def456", "inactive"},
+		{"server-01", "abc123", "4"},
+		{"server-02", "def456", "8"},
 	}
 
-	// Redirect stdout
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
 	rootCmd.PersistentFlags().Set("output", "json")
 	PrintTable(headers, rows)
-	rootCmd.PersistentFlags().Set("output", "table") // restore
+	rootCmd.PersistentFlags().Set("output", "table")
 
 	w.Close()
 	os.Stdout = old
@@ -265,11 +287,40 @@ func TestPrintTable_JSONFormat(t *testing.T) {
 	if len(result) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(result))
 	}
-	if result[0]["NAME"] != "server-01" {
-		t.Errorf("expected NAME=server-01, got %q", result[0]["NAME"])
+	if result[0]["name"] != "server-01" {
+		t.Errorf("expected name=server-01, got %q", result[0]["name"])
 	}
-	if result[1]["STATUS"] != "inactive" {
-		t.Errorf("expected STATUS=inactive, got %q", result[1]["STATUS"])
+	if result[0]["ram_gb"] != "4" {
+		t.Errorf("expected ram_gb=4, got %q", result[0]["ram_gb"])
+	}
+	if result[1]["id"] != "def456" {
+		t.Errorf("expected id=def456, got %q", result[1]["id"])
+	}
+}
+
+func TestPrintTable_JSONFormat_Empty(t *testing.T) {
+	headers := []TableColumn{{Header: "NAME", Width: 10}}
+	rows := [][]string{}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	rootCmd.PersistentFlags().Set("output", "json")
+	PrintTable(headers, rows)
+	rootCmd.PersistentFlags().Set("output", "table")
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	var result []map[string]string
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("empty output is not valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty array, got %d items", len(result))
 	}
 }
 
@@ -277,20 +328,20 @@ func TestPrintTable_YAMLFormat(t *testing.T) {
 	headers := []TableColumn{
 		{Header: "NAME", Width: 20},
 		{Header: "ID", Width: 30},
+		{Header: "CREATION DATE", Width: 15},
 	}
 	rows := [][]string{
-		{"project-a", "id-001"},
-		{"project-b", "id-002"},
+		{"project-a", "id-001", "26-03-2026"},
+		{"project-b", "id-002", "27-03-2026"},
 	}
 
-	// Redirect stdout
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
 	rootCmd.PersistentFlags().Set("output", "yaml")
 	PrintTable(headers, rows)
-	rootCmd.PersistentFlags().Set("output", "table") // restore
+	rootCmd.PersistentFlags().Set("output", "table")
 
 	w.Close()
 	os.Stdout = old
@@ -298,11 +349,14 @@ func TestPrintTable_YAMLFormat(t *testing.T) {
 	io.Copy(&buf, r)
 
 	out := buf.String()
-	if !strings.Contains(out, "NAME: project-a") && !strings.Contains(out, "NAME: project-b") {
-		t.Errorf("YAML output missing expected NAME keys:\n%s", out)
+	if !strings.Contains(out, "name: project-a") {
+		t.Errorf("YAML output missing 'name: project-a':\n%s", out)
 	}
-	if !strings.Contains(out, "ID: id-001") && !strings.Contains(out, "ID: id-002") {
-		t.Errorf("YAML output missing expected ID keys:\n%s", out)
+	if !strings.Contains(out, "id: id-001") {
+		t.Errorf("YAML output missing 'id: id-001':\n%s", out)
+	}
+	if !strings.Contains(out, "creation_date: 26-03-2026") {
+		t.Errorf("YAML output missing 'creation_date: 26-03-2026':\n%s", out)
 	}
 	if !strings.Contains(out, "- ") {
 		t.Errorf("YAML output missing list indicators:\n%s", out)
