@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,6 +231,82 @@ func TestPrintTable_MismatchedColumns(t *testing.T) {
 
 	// Should not panic with mismatched columns
 	PrintTable(headers, rows)
+}
+
+func TestPrintTable_JSONFormat(t *testing.T) {
+	headers := []TableColumn{
+		{Header: "NAME", Width: 20},
+		{Header: "ID", Width: 30},
+		{Header: "STATUS", Width: 10},
+	}
+	rows := [][]string{
+		{"server-01", "abc123", "active"},
+		{"server-02", "def456", "inactive"},
+	}
+
+	// Redirect stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	rootCmd.PersistentFlags().Set("output", "json")
+	PrintTable(headers, rows)
+	rootCmd.PersistentFlags().Set("output", "table") // restore
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	var result []map[string]string
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(result))
+	}
+	if result[0]["NAME"] != "server-01" {
+		t.Errorf("expected NAME=server-01, got %q", result[0]["NAME"])
+	}
+	if result[1]["STATUS"] != "inactive" {
+		t.Errorf("expected STATUS=inactive, got %q", result[1]["STATUS"])
+	}
+}
+
+func TestPrintTable_YAMLFormat(t *testing.T) {
+	headers := []TableColumn{
+		{Header: "NAME", Width: 20},
+		{Header: "ID", Width: 30},
+	}
+	rows := [][]string{
+		{"project-a", "id-001"},
+		{"project-b", "id-002"},
+	}
+
+	// Redirect stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	rootCmd.PersistentFlags().Set("output", "yaml")
+	PrintTable(headers, rows)
+	rootCmd.PersistentFlags().Set("output", "table") // restore
+
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	out := buf.String()
+	if !strings.Contains(out, "NAME: project-a") && !strings.Contains(out, "NAME: project-b") {
+		t.Errorf("YAML output missing expected NAME keys:\n%s", out)
+	}
+	if !strings.Contains(out, "ID: id-001") && !strings.Contains(out, "ID: id-002") {
+		t.Errorf("YAML output missing expected ID keys:\n%s", out)
+	}
+	if !strings.Contains(out, "- ") {
+		t.Errorf("YAML output missing list indicators:\n%s", out)
+	}
 }
 
 func TestGetArubaClient_DebugFlagChange(t *testing.T) {
