@@ -49,6 +49,19 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockLoadBalancersClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.LoadBalancerList], error) {
+					return &types.Response[types.LoadBalancerList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +104,19 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockLoadBalancersClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.LoadBalancerResponse], error) {
+					return &types.Response[types.LoadBalancerResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 		{
 			name: "nil data",

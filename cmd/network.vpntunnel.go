@@ -139,6 +139,9 @@ var vpntunnelListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing VPN tunnels: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			// Define table columns
@@ -214,6 +217,9 @@ var vpntunnelGetCmd = &cobra.Command{
 		response, err := client.FromNetwork().VPNTunnels().Get(ctx, projectID, vpnID, nil)
 		if err != nil {
 			return fmt.Errorf("getting VPN tunnel details: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		if response != nil && response.Data != nil {

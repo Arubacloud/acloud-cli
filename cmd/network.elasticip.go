@@ -193,6 +193,9 @@ var elasticipListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing Elastic IPs: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			// Define table columns
@@ -269,6 +272,9 @@ var elasticipGetCmd = &cobra.Command{
 		response, err := client.FromNetwork().ElasticIPs().Get(ctx, projectID, eipID, nil)
 		if err != nil {
 			return fmt.Errorf("getting Elastic IP details: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		if response != nil && response.Data != nil {
@@ -467,9 +473,12 @@ var elasticipDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the Elastic IP using the SDK
-		_, err = client.FromNetwork().ElasticIPs().Delete(ctx, projectID, eipID, nil)
+		deleteResp, err := client.FromNetwork().ElasticIPs().Delete(ctx, projectID, eipID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting Elastic IP: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Elastic IP", eipID))

@@ -348,9 +348,12 @@ var dbaasUserDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromDatabase().Users().Delete(ctx, projectID, dbaasID, username, nil)
+		deleteResp, err := client.FromDatabase().Users().Delete(ctx, projectID, dbaasID, username, nil)
 		if err != nil {
 			return fmt.Errorf("deleting user: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("User", username))

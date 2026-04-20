@@ -49,6 +49,19 @@ func TestKaaSListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKaaSClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
+					return &types.Response[types.KaaSList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +104,19 @@ func TestKaaSGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKaaSClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
+					return &types.Response[types.KaaSResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {
@@ -160,6 +186,20 @@ func TestKaaSCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: baseArgs,
+			setupMock: func(m *mockKaaSClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.KaaSRequest, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
+					return &types.Response[types.KaaSResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,6 +238,19 @@ func TestKaaSDeleteCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "deleting",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKaaSClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -229,6 +282,19 @@ func TestKaaSConnectCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "downloading kubeconfig",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKaaSClient) {
+				m.downloadKubeconfigFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSKubeconfigResponse], error) {
+					return &types.Response[types.KaaSKubeconfigResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {

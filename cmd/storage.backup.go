@@ -234,6 +234,9 @@ var storageBackupListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing backups: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			headers := []TableColumn{
@@ -296,6 +299,9 @@ var storageBackupGetCmd = &cobra.Command{
 		response, err := client.FromStorage().Backups().Get(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("getting backup details: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		if response != nil && response.Data != nil {
@@ -508,9 +514,12 @@ var storageBackupDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromStorage().Backups().Delete(ctx, projectID, backupID, nil)
+		deleteResp, err := client.FromStorage().Backups().Delete(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

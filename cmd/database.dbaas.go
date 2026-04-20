@@ -534,9 +534,12 @@ var dbaasDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromDatabase().DBaaS().Delete(ctx, projectID, dbaasID, nil)
+		deleteResp, err := client.FromDatabase().DBaaS().Delete(ctx, projectID, dbaasID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting DBaaS instance: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("DBaaS instance", dbaasID))

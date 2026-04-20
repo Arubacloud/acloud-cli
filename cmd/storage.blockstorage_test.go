@@ -49,6 +49,19 @@ func TestBlockStorageListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVolumesClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.BlockStorageList], error) {
+					return &types.Response[types.BlockStorageList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +104,19 @@ func TestBlockStorageGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVolumesClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.BlockStorageResponse], error) {
+					return &types.Response[types.BlockStorageResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {
@@ -150,6 +176,20 @@ func TestBlockStorageCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: []string{"storage", "blockstorage", "create", "--project-id", "proj-123", "--name", "my-vol", "--region", "ITBG-Bergamo", "--size", "10"},
+			setupMock: func(m *mockVolumesClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.BlockStorageRequest, _ *types.RequestParameters) (*types.Response[types.BlockStorageResponse], error) {
+					return &types.Response[types.BlockStorageResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,6 +227,19 @@ func TestBlockStorageDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVolumesClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {

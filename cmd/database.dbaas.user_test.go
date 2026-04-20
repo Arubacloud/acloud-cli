@@ -48,6 +48,19 @@ func TestDBaaSUserListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockUsersClient) {
+				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.UserList], error) {
+					return &types.Response[types.UserList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,6 +102,19 @@ func TestDBaaSUserGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockUsersClient) {
+				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.UserResponse], error) {
+					return &types.Response[types.UserResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {
@@ -147,6 +173,20 @@ func TestDBaaSUserCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: []string{"database", "dbaas", "user", "create", "dbaas-001", "--project-id", "proj-123", "--username", "myuser", "--password", "Pass1!"},
+			setupMock: func(m *mockUsersClient) {
+				m.createFn = func(_ context.Context, _, _ string, _ types.UserRequest, _ *types.RequestParameters) (*types.Response[types.UserResponse], error) {
+					return &types.Response[types.UserResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,6 +224,19 @@ func TestDBaaSUserDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockUsersClient) {
+				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {

@@ -547,9 +547,12 @@ var jobDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromSchedule().Jobs().Delete(ctx, projectID, jobID, nil)
+		deleteResp, err := client.FromSchedule().Jobs().Delete(ctx, projectID, jobID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting job: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Job", jobID))

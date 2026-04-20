@@ -93,6 +93,9 @@ var loadbalancerListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing Load Balancers: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			// Define table columns
@@ -169,6 +172,9 @@ var loadbalancerGetCmd = &cobra.Command{
 		response, err := client.FromNetwork().LoadBalancers().Get(ctx, projectID, lbID, nil)
 		if err != nil {
 			return fmt.Errorf("getting Load Balancer details: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		if response != nil && response.Data != nil {

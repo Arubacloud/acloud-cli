@@ -52,6 +52,19 @@ func TestVPCListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing VPCs",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCsClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPCList], error) {
+					return &types.Response[types.VPCList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 
 	for _, tc := range tests {
@@ -105,6 +118,19 @@ func TestVPCGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting VPC details",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCsClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCResponse], error) {
+					return &types.Response[types.VPCResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 		{
 			name: "nil data — not found message",
@@ -183,6 +209,20 @@ func TestVPCCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating VPC",
 		},
+		{
+			name: "API error propagates",
+			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "IT-BG"},
+			setupMock: func(m *mockVPCsClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.VPCRequest, _ *types.RequestParameters) (*types.Response[types.VPCResponse], error) {
+					return &types.Response[types.VPCResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 
 	for _, tc := range tests {
@@ -230,6 +270,19 @@ func TestVPCDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting VPC",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 

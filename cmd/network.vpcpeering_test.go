@@ -49,6 +49,19 @@ func TestVPCPeeringListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCPeeringsClient) {
+				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
+					return &types.Response[types.VPCPeeringList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +104,19 @@ func TestVPCPeeringGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCPeeringsClient) {
+				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
+					return &types.Response[types.VPCPeeringResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {
@@ -144,6 +170,20 @@ func TestVPCPeeringCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: []string{"network", "vpcpeering", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-peering", "--peer-vpc-id", "vpc-002", "--region", "IT-BG"},
+			setupMock: func(m *mockVPCPeeringsClient) {
+				m.createFn = func(_ context.Context, _, _ string, _ types.VPCPeeringRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
+					return &types.Response[types.VPCPeeringResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +221,19 @@ func TestVPCPeeringDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockVPCPeeringsClient) {
+				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {

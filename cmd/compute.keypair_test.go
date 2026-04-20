@@ -49,6 +49,19 @@ func TestKeyPairListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKeyPairsClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
+					return &types.Response[types.KeyPairListResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,6 +104,19 @@ func TestKeyPairGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKeyPairsClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
+					return &types.Response[types.KeyPairResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {
@@ -150,6 +176,20 @@ func TestKeyPairCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			setupMock: func(m *mockKeyPairsClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.KeyPairRequest, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
+					return &types.Response[types.KeyPairResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,6 +227,19 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockKeyPairsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error",
 		},
 	}
 	for _, tc := range tests {

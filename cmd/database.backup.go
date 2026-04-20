@@ -421,9 +421,12 @@ var backupDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromDatabase().Backups().Delete(ctx, projectID, backupID, nil)
+		deleteResp, err := client.FromDatabase().Backups().Delete(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

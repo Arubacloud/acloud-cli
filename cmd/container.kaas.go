@@ -711,6 +711,9 @@ var kaasListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing KaaS clusters: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			headers := []TableColumn{

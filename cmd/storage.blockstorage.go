@@ -279,6 +279,9 @@ var blockstorageGetCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting block storage details: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil {
 			volume := response.Data
@@ -509,9 +512,12 @@ var blockstorageDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the block storage using the SDK
-		_, err = client.FromStorage().Volumes().Delete(ctx, projectID, volumeID, nil)
+		deleteResp, err := client.FromStorage().Volumes().Delete(ctx, projectID, volumeID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting block storage: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Block storage", volumeID))
@@ -545,6 +551,9 @@ var blockstorageListCmd = &cobra.Command{
 		response, err := client.FromStorage().Volumes().List(ctx, projectID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing block storage: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		// Debug output

@@ -212,6 +212,9 @@ var snapshotGetCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting snapshot details: %w", err)
 		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		}
 
 		if response != nil && response.Data != nil {
 			snapshot := response.Data
@@ -434,9 +437,12 @@ var snapshotDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the snapshot using the SDK
-		_, err = client.FromStorage().Snapshots().Delete(ctx, projectID, snapshotID, nil)
+		deleteResp, err := client.FromStorage().Snapshots().Delete(ctx, projectID, snapshotID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting snapshot: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
+			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
 		}
 
 		fmt.Println(msgDeleted("Snapshot", snapshotID))
@@ -470,6 +476,9 @@ var snapshotListCmd = &cobra.Command{
 		response, err := client.FromStorage().Snapshots().List(ctx, projectID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing snapshots: %w", err)
+		}
+		if response != nil && response.IsError() && response.Error != nil {
+			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
 		}
 
 		// Check verbose flag
