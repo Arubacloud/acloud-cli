@@ -181,8 +181,8 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating backup: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -250,8 +250,8 @@ var backupGetCmd = &cobra.Command{
 			return fmt.Errorf("getting backup: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -318,8 +318,8 @@ var backupListCmd = &cobra.Command{
 			return fmt.Errorf("listing backups: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
@@ -425,8 +425,8 @@ var backupDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)
 		}
-		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
-			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

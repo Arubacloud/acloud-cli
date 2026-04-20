@@ -204,6 +204,15 @@ func fmtAPIError(statusCode int, title, detail *string) error {
 	return fmt.Errorf("%s", msg)
 }
 
+// apiErrFromResp returns an error whenever the response status is 4xx/5xx,
+// safely handling the case where the SDK did not populate an error body.
+func apiErrFromResp(statusCode int, errResp *types.ErrorResponse) error {
+	if errResp != nil {
+		return fmtAPIError(statusCode, errResp.Title, errResp.Detail)
+	}
+	return fmtAPIError(statusCode, nil, nil)
+}
+
 // confirmDelete prompts the user for confirmation before a destructive operation.
 // Returns true if the user confirmed, false if they declined or stdin is non-interactive (TD-005).
 func confirmDelete(resourceType, id string) (bool, error) {

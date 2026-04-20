@@ -122,8 +122,8 @@ Use 'acloud database dbaas get <dbaas-id>' to check its status.`,
 			return fmt.Errorf("creating database: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -164,8 +164,8 @@ var dbaasDatabaseGetCmd = &cobra.Command{
 			return fmt.Errorf("getting database: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -213,8 +213,8 @@ var dbaasDatabaseListCmd = &cobra.Command{
 			return fmt.Errorf("listing databases: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
@@ -286,8 +286,8 @@ var dbaasDatabaseUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating database: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -347,8 +347,8 @@ var dbaasDatabaseDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("deleting database: %w", err)
 		}
-		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
-			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("Database", databaseName))

@@ -163,8 +163,8 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 		if err != nil {
 			return fmt.Errorf("creating subnet: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil && resp.Data.Metadata.ID != nil {
 			headers := []TableColumn{
@@ -229,8 +229,8 @@ var subnetGetCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting subnet: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil {
 			subnet := resp.Data
@@ -308,8 +308,8 @@ var subnetListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing subnets: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
 			headers := []TableColumn{
@@ -496,8 +496,8 @@ var subnetUpdateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("updating subnet: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil {
 			headers := []TableColumn{
@@ -577,8 +577,8 @@ var subnetDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("deleting subnet: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},

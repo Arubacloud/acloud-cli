@@ -144,8 +144,8 @@ network resources are created within a VPC.`,
 			return fmt.Errorf("creating VPC: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -194,8 +194,8 @@ var vpcGetCmd = &cobra.Command{
 			return fmt.Errorf("getting VPC details: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -398,8 +398,8 @@ var vpcDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("deleting VPC: %w", err)
 		}
-		if deleteResp != nil && deleteResp.IsError() && deleteResp.Error != nil {
-			return fmtAPIError(deleteResp.StatusCode, deleteResp.Error.Title, deleteResp.Error.Detail)
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("VPC", vpcID))
@@ -431,8 +431,8 @@ var vpcListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing VPCs: %w", err)
 		}
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
