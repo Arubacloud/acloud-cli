@@ -18,13 +18,13 @@ func TestKeyPairListCmd(t *testing.T) {
 		{
 			name: "success with results",
 			setupMock: func(m *mockKeyPairsClient) {
-				kpName := "my-kp"
+				kpID, kpName := "kp-001", "my-kp"
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
 					return &types.Response[types.KeyPairListResponse]{
 						StatusCode: 200,
 						Data: &types.KeyPairListResponse{
 							Values: []types.KeyPairResponse{
-								{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
+								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
 							},
 						},
 					}, nil
@@ -36,6 +36,23 @@ func TestKeyPairListCmd(t *testing.T) {
 			setupMock: func(m *mockKeyPairsClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
 					return &types.Response[types.KeyPairListResponse]{StatusCode: 200, Data: &types.KeyPairListResponse{}}, nil
+				}
+			},
+		},
+		{
+			name: "skips entries with nil ID",
+			setupMock: func(m *mockKeyPairsClient) {
+				kpID, kpName := "kp-001", "my-kp"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
+					return &types.Response[types.KeyPairListResponse]{
+						StatusCode: 200,
+						Data: &types.KeyPairListResponse{
+							Values: []types.KeyPairResponse{
+								{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
+								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
+							},
+						},
+					}, nil
 				}
 			},
 		},

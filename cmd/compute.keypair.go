@@ -329,39 +329,16 @@ var keypairListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 10},
 			}
 
-			// Extract IDs from raw JSON response if available
-			// The SDK type definition uses Request types but actual response has ID fields
-			idMap := make(map[int]string) // Map keypair index to ID
-			if response.RawBody != nil {
-				var rawResponse map[string]interface{}
-				if err := json.Unmarshal(response.RawBody, &rawResponse); err == nil {
-					if values, ok := rawResponse["values"].([]interface{}); ok {
-						for i, val := range values {
-							if keypairMap, ok := val.(map[string]interface{}); ok {
-								if metadata, ok := keypairMap["metadata"].(map[string]interface{}); ok {
-									if idVal, ok := metadata["id"].(string); ok && idVal != "" {
-										idMap[i] = idVal
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
 			var rows [][]string
-			for idx, keypair := range response.Data.Values {
+			for _, keypair := range response.Data.Values {
+				if keypair.Metadata.ID == nil || *keypair.Metadata.ID == "" {
+					continue
+				}
+				id := *keypair.Metadata.ID
 				name := ""
 				if keypair.Metadata.Name != nil {
 					name = *keypair.Metadata.Name
 				}
-
-				// Get ID from raw JSON map, fallback to name
-				id := idMap[idx]
-				if id == "" {
-					id = name
-				}
-
 				publicKey := ""
 				if keypair.Properties.Value != "" {
 					publicKey = keypair.Properties.Value
@@ -369,12 +346,14 @@ var keypairListCmd = &cobra.Command{
 						publicKey = publicKey[:50] + "..."
 					}
 				}
-
-				// Show status as 'Active' for all keypairs (API does not provide status)
 				status := "Active"
 				rows = append(rows, []string{name, id, publicKey, status})
 			}
 
+			if len(rows) == 0 {
+				fmt.Println("No keypairs found")
+				return nil
+			}
 			PrintTable(headers, rows)
 		} else {
 			fmt.Println("No keypairs found")

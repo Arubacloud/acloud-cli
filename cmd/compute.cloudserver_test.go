@@ -41,6 +41,23 @@ func TestCloudServerListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "skips entries with nil ID",
+			setupMock: func(m *mockCloudServersClient) {
+				id, name := "cs-001", "my-server"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
+					return &types.Response[types.CloudServerList]{
+						StatusCode: 200,
+						Data: &types.CloudServerList{
+							Values: []types.CloudServerResponse{
+								{Metadata: types.ResourceMetadataResponse{Name: &name}},
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+		},
+		{
 			name: "SDK error propagates",
 			setupMock: func(m *mockCloudServersClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
