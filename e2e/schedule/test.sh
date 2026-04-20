@@ -63,6 +63,49 @@ extract_id() {
     fi
 }
 
+# Check if string is valid JSON
+is_valid_json() {
+    local input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    elif command -v python >/dev/null 2>&1; then
+        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Test --output flag for schedule list commands
+test_output_formats() {
+    echo -e "${BLUE}--- Testing schedule list --output flag ---${NC}"
+
+    echo -e "${YELLOW}Testing schedule job list --output json...${NC}"
+    JSON_OUTPUT=$($ACLOUD_CMD schedule job list --project-id "$PROJECT_ID" --output json 2>&1)
+    JSON_EXIT=$?
+    if [ $JSON_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ schedule job list --output json: command failed (exit $JSON_EXIT)${NC}"
+    elif echo "$JSON_OUTPUT" | grep -qF "No "; then
+        echo -e "${YELLOW}⚠ schedule job list --output json: no resources — format validation skipped${NC}"
+    elif is_valid_json "$JSON_OUTPUT"; then
+        echo -e "${GREEN}✓ schedule job list --output json: valid JSON${NC}"
+    else
+        echo -e "${RED}✗ schedule job list --output json: output is not valid JSON${NC}"
+    fi
+
+    echo -e "${YELLOW}Testing schedule job list --output yaml...${NC}"
+    YAML_OUTPUT=$($ACLOUD_CMD schedule job list --project-id "$PROJECT_ID" --output yaml 2>&1)
+    YAML_EXIT=$?
+    if [ $YAML_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ schedule job list --output yaml: command failed (exit $YAML_EXIT)${NC}"
+    elif echo "$YAML_OUTPUT" | grep -qF "No "; then
+        echo -e "${YELLOW}⚠ schedule job list --output yaml: no resources — format validation skipped${NC}"
+    elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+        echo -e "${GREEN}✓ schedule job list --output yaml: output looks like YAML${NC}"
+    else
+        echo -e "${RED}✗ schedule job list --output yaml: output does not look like YAML${NC}"
+    fi
+    echo ""
+}
+
 # Helper function to validate resource ID
 is_valid_id() {
     local id="$1"
@@ -244,6 +287,7 @@ echo -e "${BLUE}Starting Schedule Resources E2E Tests...${NC}\n"
 
 test_oneshot_job
 test_recurring_job
+test_output_formats
 
 # Test summary
 echo -e "${BLUE}=== Test Summary ===${NC}"

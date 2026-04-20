@@ -48,6 +48,63 @@ extract_id() {
     echo "$output" | grep -oE '[a-f0-9]{24}' | tail -1 || echo ""
 }
 
+# Check if string is valid JSON
+is_valid_json() {
+    local input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    elif command -v python >/dev/null 2>&1; then
+        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Test --output flag for compute list commands
+test_output_formats() {
+    echo -e "${BLUE}--- Testing compute list --output flag ---${NC}"
+
+    for resource in "cloudserver" "keypair"; do
+        echo -e "${YELLOW}Testing $resource --output json...${NC}"
+        if [ "$resource" = "cloudserver" ]; then
+            JSON_OUTPUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output json 2>&1)
+        else
+            JSON_OUTPUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output json 2>&1)
+        fi
+        JSON_EXIT=$?
+        if [ $JSON_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $resource --output json: command failed (exit $JSON_EXIT)${NC}"
+            echo "$JSON_OUTPUT"
+        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $resource --output json: no resources — format validation skipped${NC}"
+        elif is_valid_json "$JSON_OUTPUT"; then
+            echo -e "${GREEN}✓ $resource --output json: valid JSON${NC}"
+        else
+            echo -e "${RED}✗ $resource --output json: output is not valid JSON${NC}"
+            echo "$JSON_OUTPUT"
+        fi
+
+        echo -e "${YELLOW}Testing $resource --output yaml...${NC}"
+        if [ "$resource" = "cloudserver" ]; then
+            YAML_OUTPUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output yaml 2>&1)
+        else
+            YAML_OUTPUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output yaml 2>&1)
+        fi
+        YAML_EXIT=$?
+        if [ $YAML_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $resource --output yaml: command failed (exit $YAML_EXIT)${NC}"
+            echo "$YAML_OUTPUT"
+        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $resource --output yaml: no resources — format validation skipped${NC}"
+        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+            echo -e "${GREEN}✓ $resource --output yaml: output looks like YAML${NC}"
+        else
+            echo -e "${RED}✗ $resource --output yaml: output does not look like YAML${NC}"
+            echo "$YAML_OUTPUT"
+        fi
+    done
+    echo ""
+}
+
 # Function to test Cloud Server operations
 test_cloudserver() {
     local server_name="${RESOURCE_PREFIX}-server"
@@ -257,6 +314,7 @@ trap cleanup EXIT
 # Run tests
 test_cloudserver
 test_keypair
+test_output_formats
 
 # Summary
 echo -e "${BLUE}=== Test Summary ===${NC}"

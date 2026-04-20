@@ -67,6 +67,52 @@ extract_id() {
     echo "$output" | grep -oE '[a-f0-9]{24}' | tail -1 || echo ""
 }
 
+# Check if string is valid JSON
+is_valid_json() {
+    local input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    elif command -v python >/dev/null 2>&1; then
+        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Test --output flag for container list commands
+test_output_formats() {
+    echo -e "${BLUE}--- Testing container list --output flag ---${NC}"
+
+    for resource_cmd in "kaas list" "containerregistry list"; do
+        local label="container $resource_cmd"
+        echo -e "${YELLOW}Testing $label --output json...${NC}"
+        JSON_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
+        JSON_EXIT=$?
+        if [ $JSON_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $label --output json: command failed (exit $JSON_EXIT)${NC}"
+        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
+        elif is_valid_json "$JSON_OUTPUT"; then
+            echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
+        else
+            echo -e "${RED}✗ $label --output json: output is not valid JSON${NC}"
+        fi
+
+        echo -e "${YELLOW}Testing $label --output yaml...${NC}"
+        YAML_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
+        YAML_EXIT=$?
+        if [ $YAML_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $label --output yaml: command failed (exit $YAML_EXIT)${NC}"
+        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
+        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+            echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
+        else
+            echo -e "${RED}✗ $label --output yaml: output does not look like YAML${NC}"
+        fi
+    done
+    echo ""
+}
+
 # Function to test KaaS operations
 test_kaas() {
     local cluster_name="${RESOURCE_PREFIX}-kaas"
@@ -302,6 +348,7 @@ trap cleanup EXIT
 # Run tests
 test_kaas
 test_containerregistry
+test_output_formats
 
 # Summary
 echo -e "${BLUE}=== Test Summary ===${NC}"

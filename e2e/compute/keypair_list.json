@@ -1,0 +1,8 @@
+[
+  {
+    "NAME": "my-keypair",
+    "ID": "xxxxxxxxxxxxxxxxxxxxxxxx",
+    "PUBLIC_KEY": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB...",
+    "STATUS": "active"
+  }
+]

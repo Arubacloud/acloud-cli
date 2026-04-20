@@ -39,6 +39,82 @@ extract_id() {
     echo "$output" | grep -oE '[a-f0-9]{24}' | head -1
 }
 
+# Check if string is valid JSON
+is_valid_json() {
+    local input="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    elif command -v python >/dev/null 2>&1; then
+        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Test --output flag for project list
+test_project_output_formats() {
+    echo -e "${BLUE}--- Testing management project list --output flag ---${NC}"
+
+    for fmt in "" table; do
+        local label="--output \"$fmt\""
+        [ -z "$fmt" ] && label="(default, no --output)"
+        echo -e "${YELLOW}Testing $label...${NC}"
+        if [ -z "$fmt" ]; then
+            OUT=$($ACLOUD_CMD management project list 2>&1)
+        else
+            OUT=$($ACLOUD_CMD management project list --output "$fmt" 2>&1)
+        fi
+        EXIT=$?
+        if [ $EXIT -eq 0 ]; then
+            echo -e "${GREEN}✓ $label: command succeeded${NC}"
+        else
+            echo -e "${RED}✗ $label: command failed (exit $EXIT)${NC}"
+            echo "$OUT"
+        fi
+    done
+
+    echo -e "${YELLOW}Testing --output json...${NC}"
+    JSON_OUTPUT=$($ACLOUD_CMD management project list --output json 2>&1)
+    JSON_EXIT=$?
+    if [ $JSON_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ --output json: command failed (exit $JSON_EXIT)${NC}"
+        echo "$JSON_OUTPUT"
+    elif echo "$JSON_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output json: no resources — format validation skipped${NC}"
+    elif is_valid_json "$JSON_OUTPUT"; then
+        echo -e "${GREEN}✓ --output json: valid JSON${NC}"
+        if echo "$JSON_OUTPUT" | grep -q '"NAME"'; then
+            echo -e "${GREEN}✓ --output json: 'NAME' key present${NC}"
+        else
+            echo -e "${RED}✗ --output json: 'NAME' key missing${NC}"
+        fi
+    else
+        echo -e "${RED}✗ --output json: output is not valid JSON${NC}"
+        echo "$JSON_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output yaml...${NC}"
+    YAML_OUTPUT=$($ACLOUD_CMD management project list --output yaml 2>&1)
+    YAML_EXIT=$?
+    if [ $YAML_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ --output yaml: command failed (exit $YAML_EXIT)${NC}"
+        echo "$YAML_OUTPUT"
+    elif echo "$YAML_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output yaml: no resources — format validation skipped${NC}"
+    elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+        echo -e "${GREEN}✓ --output yaml: output looks like YAML${NC}"
+        if echo "$YAML_OUTPUT" | grep -q 'NAME:'; then
+            echo -e "${GREEN}✓ --output yaml: 'NAME' key present${NC}"
+        else
+            echo -e "${RED}✗ --output yaml: 'NAME' key missing${NC}"
+        fi
+    else
+        echo -e "${RED}✗ --output yaml: output does not look like YAML${NC}"
+        echo "$YAML_OUTPUT"
+    fi
+
+    echo ""
+}
+
 # Function to test Project CRUD
 test_project() {
     local project_name="${PROJECT_NAME_PREFIX}-project"
@@ -125,6 +201,11 @@ if test_project; then
     TEST_PASSED=true
 fi
 
+FORMAT_PASSED=false
+if test_project_output_formats; then
+    FORMAT_PASSED=true
+fi
+
 echo -e "${GREEN}=== All Management Tests Completed! ===${NC}\n"
 
 # Print summary
@@ -137,9 +218,14 @@ if [ "$TEST_PASSED" = true ]; then
 else
     echo -e "${RED}✗ Project CRUD: Failed${NC}"
 fi
+if [ "$FORMAT_PASSED" = true ]; then
+    echo -e "${GREEN}✓ Project output formats: Passed${NC}"
+else
+    echo -e "${RED}✗ Project output formats: Failed${NC}"
+fi
 echo ""
 
-if [ "$TEST_PASSED" = true ]; then
+if [ "$TEST_PASSED" = true ] && [ "$FORMAT_PASSED" = true ]; then
     exit 0
 else
     exit 1
