@@ -120,23 +120,16 @@ func completeCloudServerID(cmd *cobra.Command, args []string, toComplete string)
 	var completions []string
 	if response != nil && response.Data != nil {
 		for _, server := range response.Data.Values {
+			if server.Metadata.ID == nil || *server.Metadata.ID == "" {
+				continue
+			}
+			id := *server.Metadata.ID
 			var name string
 			if server.Metadata.Name != nil {
 				name = *server.Metadata.Name
 			}
-			// Try to extract ID from BootVolume URI or other URI fields
-			id := name // Default to name
-			if server.Properties.BootVolume.URI != "" {
-				// Try to extract from a URI pattern if available
-				// For now, use name as identifier
-				id = name
-			}
-			if name != "" {
-				// For completion, we can use name or try to extract ID from URI if available
-				// The response structure may vary, so we'll use name as the primary identifier
-				if toComplete == "" || strings.HasPrefix(name, toComplete) || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\tCloud Server", id))
-				}
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -236,7 +229,7 @@ Billing period: Hour (default), Month, or Year.`,
 
 		// Optionally set Elastic IP
 		if elasticIPURI != "" {
-			createRequest.Properties.ElastcIP = types.ReferenceResource{URI: elasticIPURI}
+			createRequest.Properties.ElasticIP = types.ReferenceResource{URI: elasticIPURI}
 		}
 
 		if keypairURI != "" {
@@ -277,12 +270,12 @@ Billing period: Hour (default), Month, or Year.`,
 				{Header: "HD(GB)", Width: 15},
 				{Header: "REGION", Width: 20},
 			}
-			// CloudServer response may not expose ID in metadata
-			// Use name or extract from URI if needed
 			var id, name string
+			if response.Data.Metadata.ID != nil {
+				id = *response.Data.Metadata.ID
+			}
 			if response.Data.Metadata.Name != nil {
 				name = *response.Data.Metadata.Name
-				id = name // Fallback to name for display
 			}
 			flavorName := response.Data.Properties.Flavor.Name
 			cpu := response.Data.Properties.Flavor.CPU
@@ -343,8 +336,9 @@ var cloudserverGetCmd = &cobra.Command{
 			fmt.Println("\nCloud Server Details:")
 			fmt.Println("====================")
 
-			// CloudServer response metadata may not expose ID directly
-			// ID can be extracted from URI if needed
+			if server.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *server.Metadata.ID)
+			}
 			if server.Metadata.Name != nil {
 				fmt.Printf("Name:            %s\n", *server.Metadata.Name)
 			}
@@ -586,28 +580,12 @@ var cloudserverListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 15},
 			}
 
-			// Extract IDs from raw JSON response if available
-			// The SDK type definition uses Request types but actual response has ID fields
-			idMap := make(map[int]string) // Map server index to ID
-			if response.RawBody != nil {
-				var rawResponse map[string]interface{}
-				if err := json.Unmarshal(response.RawBody, &rawResponse); err == nil {
-					if values, ok := rawResponse["values"].([]interface{}); ok {
-						for i, val := range values {
-							if serverMap, ok := val.(map[string]interface{}); ok {
-								if metadata, ok := serverMap["metadata"].(map[string]interface{}); ok {
-									if idVal, ok := metadata["id"].(string); ok && idVal != "" {
-										idMap[i] = idVal
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
 			var rows [][]string
-			for idx, server := range response.Data.Values {
+			for _, server := range response.Data.Values {
+				if server.Metadata.ID == nil || *server.Metadata.ID == "" {
+					continue
+				}
+				id := *server.Metadata.ID
 				var name string
 				if server.Metadata.Name != nil {
 					name = *server.Metadata.Name
@@ -621,13 +599,6 @@ var cloudserverListCmd = &cobra.Command{
 				if server.Status.State != nil {
 					status = *server.Status.State
 				}
-
-				// Get ID from raw JSON map, fallback to name
-				id := idMap[idx]
-				if id == "" {
-					id = name
-				}
-
 				rows = append(rows, []string{
 					name,
 					id,
@@ -637,6 +608,10 @@ var cloudserverListCmd = &cobra.Command{
 				})
 			}
 
+			if len(rows) == 0 {
+				fmt.Println("No cloud servers found")
+				return nil
+			}
 			PrintTable(headers, rows)
 		} else {
 			fmt.Println("No cloud servers found")
