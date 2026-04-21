@@ -312,7 +312,7 @@ test_snapshot() {
     
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing snapshots..."
-    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list 2>&1) || {
+    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list --volume-uri "$VOLUME_URI" 2>&1) || {
         echo -e "${RED}LIST failed:${NC}"
         echo "$LIST_OUTPUT"
         return 1
