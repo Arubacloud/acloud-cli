@@ -204,9 +204,12 @@ func fmtAPIError(statusCode int, title, detail *string) error {
 	return fmt.Errorf("%s", msg)
 }
 
-// apiErrFromResp returns an error whenever the response status is 4xx/5xx,
-// safely handling the case where the SDK did not populate an error body.
+// apiErrFromResp returns an error for 4xx/5xx status codes, safely handling
+// the case where the SDK did not populate an error body. Returns nil for 2xx/3xx.
 func apiErrFromResp(statusCode int, errResp *types.ErrorResponse) error {
+	if statusCode < 400 {
+		return nil
+	}
 	if errResp != nil {
 		return fmtAPIError(statusCode, errResp.Title, errResp.Detail)
 	}

@@ -356,6 +356,10 @@ func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
 			want:    "API error (status 404)",
 		},
 		{
+			name: "apiErrFromResp 2xx returns nil",
+			errFunc: func() error { return apiErrFromResp(200, nil) },
+		},
+		{
 			name: "apiErrFromResp with errResp",
 			errFunc: func() error {
 				return apiErrFromResp(404, &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")})
@@ -366,6 +370,12 @@ func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.errFunc()
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("expected nil error, got %q", err.Error())
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("expected non-nil error")
 			}
