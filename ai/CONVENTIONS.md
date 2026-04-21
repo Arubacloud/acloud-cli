@@ -14,14 +14,17 @@ All flags use **kebab-case** (not camelCase or snake_case).
 
 **Standard flags reused across commands:**
 
-| Flag | Short | Type | Purpose |
-|------|-------|------|---------|
-| `--project-id` | — | string | Target project (always optional; context is fallback) |
-| `--name` | — | string | Resource name (marked required on create) |
-| `--region` | — | string | Region code (marked required on create) |
-| `--tags` | — | string slice | Comma-separated tags |
-| `--yes` | `-y` | bool | Skip delete confirmation |
-| `--verbose` | `-v` | bool | Print full JSON response |
+| Flag | Short | Type | Scope | Purpose |
+|------|-------|------|-------|---------|
+| `--project-id` | — | string | all | Target project (always optional; context is fallback) |
+| `--name` | — | string | create/update | Resource name (marked required on create) |
+| `--region` | — | string | create | Region code (marked required on create) |
+| `--tags` | — | string slice | create/update | Comma-separated tags |
+| `--output` | `-o` | string | all | Output format: `table` (default), `table-json`, `table-yaml`, `json`, `yaml` |
+| `--limit` | — | int | list | Maximum number of results to return |
+| `--offset` | — | int | list | Number of results to skip (for pagination) |
+| `--yes` | `-y` | bool | delete | Skip interactive confirmation prompt |
+| `--dry-run` | — | bool | delete | Validate existence without deleting; prints `[dry-run] Would delete …` |
 
 Flag descriptions follow this style:
 - `"Project ID (uses context if not specified)"`
@@ -32,14 +35,15 @@ Flag descriptions follow this style:
 
 ## Cobra Command Struct Fields
 
-**Always set:** `Use`, `Short`, `Run`
+**Always set:** `Use`, `Short`, `RunE`
 
 **Set when needed:**
 - `Args` — use `cobra.ExactArgs(N)` or `cobra.NoArgs` for validation
-- `Long` — set on parent/category commands, sometimes on leaf commands
+- `Long` — set on parent/category commands and all create commands
+- `Example` — set on all create commands (multi-line `backtick` string)
 - `ValidArgsFunction` — set on get/update/delete commands that accept a resource ID
 
-**Never set:** `Aliases`, `Deprecated`, `Hidden`, `Example`, `PreRun`, `PostRun`
+**Never set:** `Aliases`, `Deprecated`, `Hidden`, `PreRun`, `PostRun`
 
 ```go
 var blockstorageGetCmd = &cobra.Command{
@@ -247,20 +251,26 @@ PrintOutput(response.Data, headers, [][]string{row})
 
 ### delete
 ```go
-// Confirmation first (before GetArubaClient):
-confirm, _ := cmd.Flags().GetBool("yes")
-if !confirm {
-    fmt.Printf("Are you sure you want to delete %s? (yes/no): ", id)
-    var r string; fmt.Scanln(&r)
-    if r != "yes" && r != "y" { fmt.Println("Delete cancelled"); return }
+// 1. --dry-run: call Get to validate existence, print msgDryRun, return nil
+dryRun, _ := cmd.Flags().GetBool("dry-run")
+if dryRun {
+    // GetProjectID, GetArubaClient, call .Get() to validate
+    if err != nil { return fmt.Errorf("getting <resource>: %w", err) }
+    fmt.Println(msgDryRun("<resource type>", id))
+    return nil
 }
-// Then GetProjectID, GetArubaClient, .Delete(ctx, projectID, id, nil)
-// Pass an ad-hoc struct so -o json / -o yaml produce valid structured output
-PrintOutput(struct {
-    ID     string `json:"id"`
-    Status string `json:"status"`
-}{resourceID, "deleted"}, headers, [][]string{row})
+
+// 2. Confirmation (before GetArubaClient in the non-dry-run path):
+confirmed, err := confirmDelete("<resource type>", id)
+if err != nil { return err }
+if !confirmed { return nil }
+
+// 3. GetProjectID, GetArubaClient, .Delete(ctx, projectID, id, nil)
+// 4. Success message:
+fmt.Println(msgDeleted("<resource type>", id))
 ```
+
+`confirmDelete(resourceType, id string) (bool, error)` is a helper in `cmd/root.go` that detects non-interactive stdin and skips the prompt when `--yes` is set or when stdin is not a terminal. Use it — do not inline the prompt.
 
 ---
 
@@ -270,11 +280,7 @@ PrintOutput(struct {
 - Use `t.TempDir()` for isolated file paths; override `HOME` (or `USERPROFILE` on Windows) to redirect config/context files.
 - Clear the client cache after each test:
   ```go
-  clientCacheLock.Lock()
-  clientCache = nil
-  cachedClientID, cachedSecret = "", ""
-  cachedDebug = false
-  clientCacheLock.Unlock()
+  resetClientState()  // helper in cmd/root.go (TD-018)
   ```
 - Use `defer cleanup()` to restore environment variables.
 - Skip live-API tests with `ACLOUD_TEST_SKIP_CLIENT=true`.

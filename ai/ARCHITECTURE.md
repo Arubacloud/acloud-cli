@@ -208,23 +208,35 @@ if format == OutputFormatJSON || format == OutputFormatYAML {
 
 ## Destructive Operation Pattern (Delete)
 
-Every delete command follows this exact flow:
+Every delete command supports two safety mechanisms:
+
+1. **`--dry-run`** — calls `Get` to validate existence, prints `msgDryRun(kind, id)`, and returns without deleting.
+2. **`--yes` / `-y`** — skips the interactive confirmation prompt (also skipped when stdin is not a terminal).
 
 ```go
-confirm, _ := cmd.Flags().GetBool("yes")
-if !confirm {
-    fmt.Printf("Are you sure you want to delete %s? (yes/no): ", id)
-    var response string
-    fmt.Scanln(&response)          // blocks on stdin
-    if response != "yes" && response != "y" {
-        fmt.Println("Delete cancelled")
-        return
-    }
+// --dry-run: validate, report, return
+dryRun, _ := cmd.Flags().GetBool("dry-run")
+if dryRun {
+    // GetProjectID, GetArubaClient, call .Get() ...
+    fmt.Println(msgDryRun("<resource type>", id))
+    return nil
 }
+
+// Confirmation (uses confirmDelete helper from root.go):
+confirmed, err := confirmDelete("<resource type>", id)
+if err != nil { return err }
+if !confirmed { return nil }
+
 // proceed with SDK delete call
 ```
 
-The flag is registered as `BoolP("yes", "y", false, "Skip confirmation prompt")`.
+Flags registered in `init()`:
+```go
+resourceDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+resourceDeleteCmd.Flags().Bool("dry-run", false, "Validate existence without deleting")
+```
+
+`confirmDelete(resourceType, id string) (bool, error)` in `cmd/root.go` detects non-interactive stdin, respects `--yes`, and prompts when appropriate — never inline the prompt.
 
 ---
 

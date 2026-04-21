@@ -164,15 +164,35 @@ Debug output is sent to stderr and does not interfere with command output.
 
 All list and get commands accept a global `--output` (`-o`) flag:
 
+| Value | Description |
+|-------|-------------|
+| `table` | Human-readable fixed-width table (default) |
+| `table-json` | JSON array of flat snake_case objects (one per row) |
+| `table-yaml` | YAML sequence of flat snake_case mappings (one per row) |
+| `json` | Full SDK response object as indented JSON |
+| `yaml` | Full SDK response object as YAML |
+
 ```bash
-acloud network vpc list            # table (default)
-acloud network vpc list -o json    # JSON array, one object per row
+acloud network vpc list                  # table (default)
+acloud network vpc list -o table-json    # flat JSON array — easy to pipe to jq
+acloud network vpc list -o json          # full SDK response envelope
 ```
 
-Useful for scripting with tools like `jq`:
+Use `table-json` for scripting with tools like `jq`:
 ```bash
-acloud storage blockstorage list -o json | jq '.[].Name'
+acloud storage blockstorage list -o table-json | jq '.[].name'
 ```
+
+## Safe Delete (Dry Run)
+
+Every delete command supports `--dry-run` to validate existence without deleting:
+
+```bash
+acloud storage blockstorage delete <volume-id> --dry-run
+# [dry-run] Would delete block storage '<volume-id>'. Resource exists and is accessible.
+```
+
+Pass `--yes` (or `-y`) to skip the interactive confirmation prompt.
 
 ## Pagination
 
