@@ -7,37 +7,19 @@
 # Don't use set -e - we want to continue testing even if one test fails
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration - UPDATE THESE VALUES
+# Network-specific env overrides MUST come before sourcing common.sh so
+# that common.sh picks up the correct PROJECT_ID default for this suite.
 PROJECT_ID="${ACLOUD_PROJECT_ID:-68398923fb2cb026400d4d31}"
 VPC_ID="${ACLOUD_VPC_ID:-69495ef64d0cdc87949b71ec}"
 PEER_VPC_ID="${ACLOUD_PEER_VPC_ID:-689307f4745108d3c6343b5a}"
 REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
 ELASTIC_IP_URI="${ACLOUD_ELASTIC_IP_URI:-/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/elasticIps/694914e94d0cdc87949b70f1}"
 
-# Determine acloud command path - try relative to script location first, then current dir, then PATH
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ -f "$PROJECT_ROOT/acloud" ]; then
-    ACLOUD_CMD="${ACLOUD_CMD:-$PROJECT_ROOT/acloud}"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="${ACLOUD_CMD:-acloud}"
-else
-    echo -e "${RED}Error: acloud binary not found. Please build it first with 'go build -o acloud .'${NC}" >&2
-    exit 1
-fi
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-# Derived values
+# Derived values (depend on PROJECT_ID resolved above).
 PEER_VPC_URI="${ACLOUD_PEER_VPC_URI:-/projects/${PROJECT_ID}/providers/Aruba.Network/vpcs/${PEER_VPC_ID}}"
-RESOURCE_PREFIX="e2e-test-$(date +%s)"
 # Per-run subnet CIDR: derive the second octet from the timestamp so each run
 # uses a unique /24 (10.10.0.0/24 – 10.209.0.0/24), avoiding conflicts with
 # orphaned subnets left by previous test runs.
@@ -56,85 +38,7 @@ CREATED_PEERING_ROUTES=()
 CREATED_VPN_TUNNELS=()
 CREATED_VPN_ROUTES=()
 
-# Failure tracking — every sub-check that prints a red ✗ calls fail() to
-# increment this counter. The final exit code is non-zero iff FAILURES>0.
-FAILURES=0
-fail() {
-    FAILURES=$((FAILURES + 1))
-    echo -e "${RED}✗ $*${NC}"
-}
-
-echo -e "${BLUE}=== Network Resources E2E Test ===${NC}\n"
-echo "Project ID: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Test prefix: $RESOURCE_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
-
-# Function to extract resource ID from output
-# This function tries multiple strategies to find the correct resource ID:
-# 1. Extract all IDs and filter out known parent IDs (like VPC_ID), take the last one
-# 2. Look for ID in table format (in the ID column)
-# 3. Fallback to first ID found (if no exclude_id provided)
-extract_id() {
-    local output="$1"
-    local exclude_id="${2:-}"  # Optional ID to exclude (e.g., VPC_ID)
-    
-    # Strategy 1: Extract all IDs, filter out exclude_id, take the last one
-    # (Resource IDs are usually printed last in successful create operations)
-    if [ -n "$exclude_id" ]; then
-        local filtered_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}' | grep -v "^${exclude_id}$")
-        if [ -n "$filtered_ids" ]; then
-            echo "$filtered_ids" | tail -1
-            return 0
-        fi
-    fi
-    
-    # Strategy 2: Look for ID in table format (in the ID column)
-    # Table format: NAME    ID                          REGION    STATUS
-    #                name    694bb9767712ac0032dbe640    region    status
-    # Try to find lines that look like table rows (have multiple space-separated fields)
-    local table_id=$(echo "$output" | awk '
-        /^[A-Z ]+ID[ A-Z]*$/ { 
-            getline
-            if (NF >= 2 && $2 ~ /^[a-f0-9]{24}$/) {
-                print $2
-            }
-        }
-    ' | head -1)
-    if [ -n "$table_id" ] && [ "$table_id" != "$exclude_id" ]; then
-        echo "$table_id"
-        return 0
-    fi
-    
-    # Strategy 3: Extract all IDs and take the last one
-    local all_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}')
-    if [ -n "$all_ids" ]; then
-        if [ -n "$exclude_id" ]; then
-            echo "$all_ids" | grep -v "^${exclude_id}$" | tail -1
-        else
-            echo "$all_ids" | tail -1
-        fi
-    fi
-}
-
-# Helper function to validate resource ID
-is_valid_id() {
-    local id="$1"
-    # Check if it's a 24-character hex string (MongoDB ObjectID format)
-    [[ "$id" =~ ^[a-f0-9]{24}$ ]]
-}
-
-# Check if string is valid JSON
-is_valid_json() {
-    local input="$1"
-    if command -v python3 >/dev/null 2>&1; then
-        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    elif command -v python >/dev/null 2>&1; then
-        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    fi
-    return 1
-}
+print_banner "Network"
 
 # Poll a resource via a get command until Status: matches ready_regex or timeout elapses.
 # Usage: wait_for_status "<get-cmd>" "<ready-regex>" [timeout-seconds]
@@ -823,11 +727,7 @@ test_vpn_route() {
     fi
 }
 
-# Set up context for project ID (so we don't need --project-id flag on every command)
-echo -e "${BLUE}Setting up context for project ID...${NC}"
-$ACLOUD_CMD context set e2e-test-context --project-id "$PROJECT_ID" >/dev/null 2>&1 || true
-$ACLOUD_CMD context use e2e-test-context >/dev/null 2>&1 || true
-echo ""
+setup_context
 
 # Run tests
 echo -e "${BLUE}Starting Network Resources E2E Tests...${NC}\n"

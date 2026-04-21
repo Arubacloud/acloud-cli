@@ -6,49 +6,16 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-# Configuration
-PROJECT_NAME_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path - try relative to script location first, then current dir, then PATH
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# Management suite uses a name prefix instead of RESOURCE_PREFIX.
+PROJECT_NAME_PREFIX="$RESOURCE_PREFIX"
 
 echo -e "${BLUE}=== Management Resources E2E Test ===${NC}\n"
 echo "Test prefix: $PROJECT_NAME_PREFIX"
 echo "ACLOUD command: $ACLOUD_CMD"
 echo ""
-
-# Function to extract resource ID from output
-extract_id() {
-    local output="$1"
-    echo "$output" | grep -oE '[a-f0-9]{24}' | head -1
-}
-
-# Check if string is valid JSON
-is_valid_json() {
-    local input="$1"
-    if command -v python3 >/dev/null 2>&1; then
-        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    elif command -v python >/dev/null 2>&1; then
-        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    fi
-    return 1
-}
 
 # Test --output flag for project list
 test_project_output_formats() {

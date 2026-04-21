@@ -6,29 +6,8 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-PROJECT_ID="${ACLOUD_PROJECT_ID:-your-project-id}"
-REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-RESOURCE_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path - try relative to script location first, then current dir, then PATH
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
 # Cleanup tracking
 CREATED_VOLUMES=()
@@ -37,59 +16,7 @@ CREATED_BACKUPS=()
 CREATED_RESTORES=()
 BACKUP_ID=""  # Track backup ID for restore operations
 
-# Failure tracking — every sub-check that prints a red ✗ calls fail() to
-# increment this counter. The final exit code is non-zero iff FAILURES>0.
-FAILURES=0
-fail() {
-    FAILURES=$((FAILURES + 1))
-    echo -e "${RED}✗ $*${NC}"
-}
-
-echo -e "${BLUE}=== Storage Resources E2E Test ===${NC}\n"
-echo "Project ID: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Test prefix: $RESOURCE_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
-
-# Function to extract resource ID from output
-# This function tries multiple strategies to find the correct resource ID:
-# 1. Extract all IDs and take the last one (resource IDs are usually printed last)
-# 2. Look for ID in table format (in the ID column)
-extract_id() {
-    local output="$1"
-    local exclude_id="${2:-}"  # Optional ID to exclude
-    
-    # Strategy 1: Extract all IDs, filter out exclude_id, take the last one
-    if [ -n "$exclude_id" ]; then
-        local filtered_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}' | grep -v "^${exclude_id}$")
-        if [ -n "$filtered_ids" ]; then
-            echo "$filtered_ids" | tail -1
-            return 0
-        fi
-    fi
-    
-    # Strategy 2: Extract all IDs and take the last one
-    local all_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}')
-    if [ -n "$all_ids" ]; then
-        if [ -n "$exclude_id" ]; then
-            echo "$all_ids" | grep -v "^${exclude_id}$" | tail -1
-        else
-            echo "$all_ids" | tail -1
-        fi
-    fi
-}
-
-# Check if string is valid JSON
-is_valid_json() {
-    local input="$1"
-    if command -v python3 >/dev/null 2>&1; then
-        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    elif command -v python >/dev/null 2>&1; then
-        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    fi
-    return 1
-}
+print_banner "Storage"
 
 # Test --output flag for storage list commands
 test_output_formats() {
@@ -97,40 +24,14 @@ test_output_formats() {
 
     for resource_cmd in "blockstorage list" "backup list"; do
         local label="storage $resource_cmd"
-        echo -e "${YELLOW}Testing $label --output json...${NC}"
-        JSON_OUTPUT=$($ACLOUD_CMD storage $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
-        JSON_EXIT=$?
-        if [ $JSON_EXIT -ne 0 ]; then
-            fail "$label --output json: command failed (exit $JSON_EXIT)"
-        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
-        elif is_valid_json "$JSON_OUTPUT"; then
-            echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
-        else
-            fail "$label --output json: output is not valid JSON"
-        fi
-
-        echo -e "${YELLOW}Testing $label --output yaml...${NC}"
-        YAML_OUTPUT=$($ACLOUD_CMD storage $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
-        YAML_EXIT=$?
-        if [ $YAML_EXIT -ne 0 ]; then
-            fail "$label --output yaml: command failed (exit $YAML_EXIT)"
-        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
-        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
-            echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
-        else
-            fail "$label --output yaml: output does not look like YAML"
-        fi
+        local cmd="$ACLOUD_CMD storage $resource_cmd --project-id \"$PROJECT_ID\""
+        for fmt in json yaml; do
+            echo -e "${YELLOW}Testing $label --output $fmt...${NC}"
+            OUT=$(eval "$cmd --output $fmt" 2>&1)
+            validate_list_output "$label" "$fmt" "$OUT" $?
+        done
     done
     echo ""
-}
-
-# Helper function to validate resource ID
-is_valid_id() {
-    local id="$1"
-    # Check if it's a 24-character hex string (MongoDB ObjectID format)
-    [[ "$id" =~ ^[a-f0-9]{24}$ ]]
 }
 
 # Poll a block-storage volume until it leaves transient states (InCreation, Creating, Pending),
@@ -361,13 +262,7 @@ test_restore() {
     echo -e "${GREEN}✓ Restore test placeholder${NC}\n"
 }
 
-# Set up context for project ID (so we don't need --project-id flag on every command)
-if [ "$PROJECT_ID" != "your-project-id" ]; then
-    echo -e "${BLUE}Setting up context for project ID...${NC}"
-    $ACLOUD_CMD context set e2e-test-context --project-id "$PROJECT_ID" >/dev/null 2>&1 || true
-    $ACLOUD_CMD context use e2e-test-context >/dev/null 2>&1 || true
-    echo ""
-fi
+setup_context
 
 # Run tests
 echo -e "${BLUE}Starting Storage Resources E2E Tests...${NC}\n"

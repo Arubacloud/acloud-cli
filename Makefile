@@ -208,7 +208,7 @@ deps-tidy: ## Tidy go.mod and go.sum
 e2e-test: ## Run all E2E tests (requires credentials)
 	@echo "$(GREEN)Running E2E tests...$(NC)"
 	@echo "$(YELLOW)Note: This requires ACLOUD_PROJECT_ID and other env vars to be set$(NC)"
-	@chmod +x e2e/management/test.sh e2e/storage/test.sh e2e/network/test.sh
+	@chmod +x e2e/common.sh e2e/management/test.sh e2e/storage/test.sh e2e/network/test.sh
 	@EC=0; \
 	./e2e/management/test.sh || EC=1; \
 	./e2e/storage/test.sh    || EC=1; \

@@ -6,40 +6,14 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-PROJECT_ID="${ACLOUD_PROJECT_ID:-your-project-id}"
-REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-RESOURCE_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
 # Cleanup tracking
 CREATED_CLUSTERS=()
 CREATED_REGISTRIES=()
 
-echo -e "${BLUE}=== Container Resources E2E Test ===${NC}\n"
-echo "Project ID: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Test prefix: $RESOURCE_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
+print_banner "Container"
 echo "Note: KaaS tests require the following environment variables:"
 echo "  - ACLOUD_VPC_URI (required)"
 echo "  - ACLOUD_SUBNET_URI (required)"
@@ -59,24 +33,6 @@ echo "  - ACLOUD_SUBNET_URI (required)"
 echo "  - ACLOUD_SECURITY_GROUP_URI (required)"
 echo "  - ACLOUD_BLOCK_STORAGE_URI (required)"
 echo ""
-
-# Function to extract resource ID from output
-extract_id() {
-    local output="$1"
-    # Try to extract ID from table output or JSON
-    echo "$output" | grep -oE '[a-f0-9]{24}' | tail -1 || echo ""
-}
-
-# Check if string is valid JSON
-is_valid_json() {
-    local input="$1"
-    if command -v python3 >/dev/null 2>&1; then
-        echo "$input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    elif command -v python >/dev/null 2>&1; then
-        echo "$input" | python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && return 0
-    fi
-    return 1
-}
 
 # Test --output flag for container list commands
 test_output_formats() {
