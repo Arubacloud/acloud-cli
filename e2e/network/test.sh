@@ -130,14 +130,59 @@ is_valid_json() {
     return 1
 }
 
+# Poll a resource via a get command until Status: matches ready_regex or timeout elapses.
+# Usage: wait_for_status "<get-cmd>" "<ready-regex>" [timeout-seconds]
+wait_for_status() {
+    local get_cmd="$1"
+    local ready_regex="$2"
+    local timeout="${3:-180}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$(eval "$get_cmd" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        if [[ "$status" =~ $ready_regex ]]; then
+            echo "  → ready (status=$status)"
+            return 0
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    echo -e "${YELLOW}wait_for_status: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
+}
+
+wait_for_vpc_ready() {
+    wait_for_status "$ACLOUD_CMD network vpc get $1" '^(Active|Ready)$' "${2:-180}"
+}
+
+# Accept an Elastic IP ID or URI; strips the trailing path segment to get the id.
+wait_for_elastic_ip_ready() {
+    local eip_ref="$1"
+    local eip_id="${eip_ref##*/}"
+    wait_for_status "$ACLOUD_CMD network elasticip get $eip_id" '^(Active|NotUsed|Ready)$' "${2:-180}"
+}
+
 # Test --output flag for network list commands
 test_output_formats() {
     echo -e "${BLUE}--- Testing network list --output flag ---${NC}"
 
     for resource_cmd in "vpc list" "subnet list" "securitygroup list" "elasticip list"; do
         local label="network $resource_cmd"
+        local extra=""
+        case "$resource_cmd" in
+            "subnet list"|"securitygroup list")
+                if [ -z "$VPC_ID" ] || ! is_valid_id "$VPC_ID"; then
+                    echo -e "${YELLOW}⚠ skipping $label (no valid VPC_ID)${NC}"
+                    continue
+                fi
+                extra="$VPC_ID"
+                ;;
+        esac
+
         echo -e "${YELLOW}Testing $label --output json...${NC}"
-        JSON_OUTPUT=$($ACLOUD_CMD network $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
+        JSON_OUTPUT=$($ACLOUD_CMD network $resource_cmd $extra --project-id "$PROJECT_ID" --output json 2>&1)
         JSON_EXIT=$?
         if [ $JSON_EXIT -ne 0 ]; then
             fail "$label --output json: command failed (exit $JSON_EXIT)"
@@ -150,7 +195,7 @@ test_output_formats() {
         fi
 
         echo -e "${YELLOW}Testing $label --output yaml...${NC}"
-        YAML_OUTPUT=$($ACLOUD_CMD network $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
+        YAML_OUTPUT=$($ACLOUD_CMD network $resource_cmd $extra --project-id "$PROJECT_ID" --output yaml 2>&1)
         YAML_EXIT=$?
         if [ $YAML_EXIT -ne 0 ]; then
             fail "$label --output yaml: command failed (exit $YAML_EXIT)"
@@ -593,6 +638,12 @@ test_vpc_peering() {
     fi
     
     echo -e "${YELLOW}=== 6. VPC Peering CRUD Test ===${NC}\n"
+
+    echo "Waiting for parent VPC $VPC_ID..."
+    wait_for_vpc_ready "$VPC_ID" || { fail "vpcpeering: VPC $VPC_ID not ready after 180s"; return 1; }
+    echo "Waiting for peer VPC $PEER_VPC_ID..."
+    wait_for_vpc_ready "$PEER_VPC_ID" || { fail "vpcpeering: peer VPC $PEER_VPC_ID not ready after 180s"; return 1; }
+
     local output
     output=$(test_resource "VPC Peering" \
         "$ACLOUD_CMD network vpcpeering create $VPC_ID --name ${RESOURCE_PREFIX}-peering --peer-vpc-id $PEER_VPC_ID --region $REGION" \
@@ -663,6 +714,12 @@ test_vpn_tunnel() {
     fi
     
     echo -e "${YELLOW}=== 8. VPN Tunnel CRUD Test ===${NC}\n"
+
+    echo "Waiting for VPC $VPC_ID..."
+    wait_for_vpc_ready "$VPC_ID" || { fail "vpntunnel: VPC $VPC_ID not ready after 180s"; return 1; }
+    echo "Waiting for Elastic IP $ELASTIC_IP_URI..."
+    wait_for_elastic_ip_ready "$ELASTIC_IP_URI" || { fail "vpntunnel: elastic IP not ready after 180s"; return 1; }
+
     local output
     output=$(test_resource "VPN Tunnel" \
         "$ACLOUD_CMD network vpntunnel create --name ${RESOURCE_PREFIX}-vpn --region $REGION --peer-ip 203.0.113.1 --vpc-uri /projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID --subnet-cidr 10.0.1.0/24 --elastic-ip-uri $ELASTIC_IP_URI --billing-period Hour" \
