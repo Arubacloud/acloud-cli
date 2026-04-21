@@ -26,7 +26,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-020 | Six helper functions added to `cmd/root.go` (`msgCreated`, `msgCreatedAsync`, `msgUpdated`, `msgUpdatedAsync`, `msgDeleted`, `msgAction`); all ~91 success `fmt.Print*` calls replaced across 20 cmd files; one double-nil-check fixed in `container.containerregistry.go` as a side effect |
 | TD-021 | `Long` and `Example` fields added to all 23 create commands across 22 cmd files; subnet already had a minimal `Long` which was replaced with a richer version |
 | TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
-| TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.25) |
+| TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 
 ---
 
@@ -40,6 +40,6 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ### TD-022 · Pre-release SDK version (v0.1.x)
-`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.25`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
+`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.26`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
 
 **Fix:** Track the SDK release roadmap. When a `v1.0.0` is released, migrate and pin to it. Until then, pin to a specific minor version and treat any upgrade as potentially breaking.

@@ -3,7 +3,7 @@ module acloud
 go 1.25.0
 
 require (
-	github.com/Arubacloud/sdk-go v0.1.25
+	github.com/Arubacloud/sdk-go v0.1.26
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/term v0.42.0
