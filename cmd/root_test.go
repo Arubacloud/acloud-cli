@@ -356,7 +356,7 @@ func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
 			want:    "API error (status 404)",
 		},
 		{
-			name: "apiErrFromResp 2xx returns nil",
+			name:    "apiErrFromResp 2xx returns nil",
 			errFunc: func() error { return apiErrFromResp(200, nil) },
 		},
 		{
