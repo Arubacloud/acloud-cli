@@ -60,7 +60,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -116,7 +116,7 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -198,7 +198,7 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -249,7 +249,7 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

@@ -61,7 +61,7 @@ func TestCloudServerListCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -116,7 +116,7 @@ func TestCloudServerGetCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -200,7 +200,7 @@ func TestCloudServerCreateCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -251,7 +251,7 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -302,7 +302,7 @@ func TestCloudServerPowerOnCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -353,7 +353,7 @@ func TestCloudServerPowerOffCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -404,7 +404,7 @@ func TestCloudServerSetPasswordCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

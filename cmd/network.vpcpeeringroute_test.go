@@ -57,7 +57,7 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -112,7 +112,7 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -194,7 +194,7 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -245,7 +245,7 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

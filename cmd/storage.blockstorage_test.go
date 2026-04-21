@@ -60,7 +60,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -116,7 +116,7 @@ func TestBlockStorageGetCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -188,7 +188,7 @@ func TestBlockStorageCreateCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -239,7 +239,7 @@ func TestBlockStorageDeleteCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

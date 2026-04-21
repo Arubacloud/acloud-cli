@@ -60,7 +60,7 @@ func TestElasticIPListCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -116,7 +116,7 @@ func TestElasticIPGetCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -188,7 +188,7 @@ func TestElasticIPCreateCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -239,7 +239,7 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 				}
 			},
 			wantErr:     true,
-			errContains: "API error",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
