@@ -38,6 +38,12 @@ fi
 # Derived values
 PEER_VPC_URI="${ACLOUD_PEER_VPC_URI:-/projects/${PROJECT_ID}/providers/Aruba.Network/vpcs/${PEER_VPC_ID}}"
 RESOURCE_PREFIX="e2e-test-$(date +%s)"
+# Per-run subnet CIDR: derive the second octet from the timestamp so each run
+# uses a unique /24 (10.10.0.0/24 – 10.209.0.0/24), avoiding conflicts with
+# orphaned subnets left by previous test runs.
+_RESOURCE_TS="${RESOURCE_PREFIX##*-}"
+SUBNET_CIDR="10.$(( (_RESOURCE_TS % 200) + 10 )).0.0/24"
+VPN_SUBNET_CIDR="10.$(( (_RESOURCE_TS % 44) + 210 )).0.0/24"
 
 # Cleanup tracking
 CREATED_VPCS=()
@@ -158,10 +164,27 @@ wait_for_vpc_ready() {
 }
 
 # Accept an Elastic IP ID or URI; strips the trailing path segment to get the id.
+# Uses elasticip list (more reliable than get for status extraction).
+# Returns 1 immediately if the IP is not found — prevents infinite loop on stale IDs.
 wait_for_elastic_ip_ready() {
     local eip_ref="$1"
     local eip_id="${eip_ref##*/}"
-    wait_for_status "$ACLOUD_CMD network elasticip get $eip_id" '^(Active|NotUsed|Ready)$' "${2:-180}"
+    local timeout="${2:-30}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        status=$($ACLOUD_CMD network elasticip list 2>&1 | awk -v id="$eip_id" '$2 == id {print $NF}')
+        if [ -z "$status" ]; then
+            echo -e "${YELLOW}  ⚠ elastic IP $eip_id not found in list — cannot wait for readiness${NC}"
+            return 1
+        fi
+        case "$status" in
+            Active|NotUsed|Ready) echo "  → elastic IP $eip_id ready (status=$status)"; return 0;;
+            *) sleep 5; elapsed=$((elapsed + 5));;
+        esac
+    done
+    echo -e "${YELLOW}wait_for_elastic_ip_ready: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
 }
 
 # Test --output flag for network list commands
@@ -495,7 +518,7 @@ test_subnet() {
     echo -e "${YELLOW}=== 2. Subnet CRUD Test ===${NC}\n"
     local output
     output=$(test_resource "Subnet" \
-        "$ACLOUD_CMD network subnet create $VPC_ID --name ${RESOURCE_PREFIX}-subnet --cidr 10.150.0.0/24 --dhcp-enabled --region $REGION" \
+        "$ACLOUD_CMD network subnet create $VPC_ID --name ${RESOURCE_PREFIX}-subnet --cidr $SUBNET_CIDR --dhcp-enabled --region $REGION" \
         "$ACLOUD_CMD network subnet list $VPC_ID" \
         "$ACLOUD_CMD network subnet get $VPC_ID \$RESOURCE_ID" \
         "$ACLOUD_CMD network subnet update $VPC_ID \$RESOURCE_ID --name ${RESOURCE_PREFIX}-subnet-updated --tags updated" \
@@ -646,7 +669,7 @@ test_vpc_peering() {
 
     local output
     output=$(test_resource "VPC Peering" \
-        "$ACLOUD_CMD network vpcpeering create $VPC_ID --name ${RESOURCE_PREFIX}-peering --peer-vpc-id $PEER_VPC_ID --region $REGION" \
+        "$ACLOUD_CMD network vpcpeering create $VPC_ID --name ${RESOURCE_PREFIX}-peering --peer-vpc-id $PEER_VPC_URI --region $REGION" \
         "$ACLOUD_CMD network vpcpeering list $VPC_ID" \
         "$ACLOUD_CMD network vpcpeering get $VPC_ID \$RESOURCE_ID" \
         "$ACLOUD_CMD network vpcpeering update $VPC_ID \$RESOURCE_ID --name ${RESOURCE_PREFIX}-peering-updated --tags updated" \
@@ -718,11 +741,29 @@ test_vpn_tunnel() {
     echo "Waiting for VPC $VPC_ID..."
     wait_for_vpc_ready "$VPC_ID" || { fail "vpntunnel: VPC $VPC_ID not ready after 180s"; return 1; }
     echo "Waiting for Elastic IP $ELASTIC_IP_URI..."
-    wait_for_elastic_ip_ready "$ELASTIC_IP_URI" || { fail "vpntunnel: elastic IP not ready after 180s"; return 1; }
+    wait_for_elastic_ip_ready "$ELASTIC_IP_URI" || { fail "vpntunnel: elastic IP not found or not ready"; return 1; }
+
+    # Create a dedicated subnet for the VPN tunnel (test_subnet's subnet is deleted by its CRUD cycle).
+    echo "Creating prerequisite VPN subnet ($VPN_SUBNET_CIDR)..."
+    local vpn_sub_out vpn_sub_id
+    vpn_sub_out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
+        --name "${RESOURCE_PREFIX}-vpn-subnet" \
+        --cidr "$VPN_SUBNET_CIDR" \
+        --dhcp-enabled \
+        --region "$REGION" 2>&1)
+    vpn_sub_id=$(extract_id "$vpn_sub_out" "$VPC_ID")
+    if [ -z "$vpn_sub_id" ] || ! is_valid_id "$vpn_sub_id"; then
+        fail "vpntunnel: could not create prerequisite subnet ($VPN_SUBNET_CIDR): $vpn_sub_out"
+        return 1
+    fi
+    CREATED_SUBNETS+=("$vpn_sub_id")
+    echo "  → subnet $vpn_sub_id created, waiting for Active..."
+    wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $vpn_sub_id" '^(Active|Ready)$' 120 || \
+        echo -e "${YELLOW}  ⚠ VPN subnet may not be Active yet${NC}"
 
     local output
     output=$(test_resource "VPN Tunnel" \
-        "$ACLOUD_CMD network vpntunnel create --name ${RESOURCE_PREFIX}-vpn --region $REGION --peer-ip 203.0.113.1 --vpc-uri /projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID --subnet-cidr 10.0.1.0/24 --elastic-ip-uri $ELASTIC_IP_URI --billing-period Hour" \
+        "$ACLOUD_CMD network vpntunnel create --name ${RESOURCE_PREFIX}-vpn --region $REGION --peer-ip 203.0.113.1 --vpc-uri /projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID --subnet-cidr $VPN_SUBNET_CIDR --elastic-ip-uri $ELASTIC_IP_URI --billing-period Hour" \
         "$ACLOUD_CMD network vpntunnel list" \
         "$ACLOUD_CMD network vpntunnel get \$RESOURCE_ID" \
         "$ACLOUD_CMD network vpntunnel update \$RESOURCE_ID --name ${RESOURCE_PREFIX}-vpn-updated --tags updated" \
