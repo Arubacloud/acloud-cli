@@ -176,7 +176,7 @@ test_block_storage() {
         --size 10 \
         --type Standard \
         --billing-period Hour \
-        --tags "e2e,test,storage" 2>&1) || {
+        --tags "e2e-test,storage" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         # Check for common error patterns
@@ -225,7 +225,7 @@ test_block_storage() {
     echo -e "${GREEN}[UPDATE]${NC} Updating block storage..."
     UPDATE_OUTPUT=$($ACLOUD_CMD storage blockstorage update "$VOLUME_ID" \
         --name "${volume_name}-updated" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
@@ -264,7 +264,7 @@ test_snapshot() {
         --name "$snapshot_name" \
         --region "$REGION" \
         --volume-uri "$VOLUME_URI" \
-        --tags "e2e,test,snapshot" 2>&1) || {
+        --tags "e2e-test,snapshot" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         return 1
@@ -305,7 +305,7 @@ test_snapshot() {
     echo -e "${GREEN}[UPDATE]${NC} Updating snapshot..."
     UPDATE_OUTPUT=$($ACLOUD_CMD storage snapshot update "$SNAPSHOT_ID" \
         --name "${snapshot_name}-updated" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1

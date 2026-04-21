@@ -166,7 +166,7 @@ test_project() {
     CREATE_OUTPUT=$($ACLOUD_CMD management project create \
         --name "$project_name" \
         --description "E2E test project" \
-        --tags "e2e,test,management" 2>&1) || {
+        --tags "e2e-test,management" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         # Check for common error patterns
@@ -212,7 +212,7 @@ test_project() {
     echo -e "${GREEN}[UPDATE]${NC} Updating project..."
     UPDATE_OUTPUT=$($ACLOUD_CMD management project update "$PROJECT_ID" \
         --description "Updated E2E test project" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
