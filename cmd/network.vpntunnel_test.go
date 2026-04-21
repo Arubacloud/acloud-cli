@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -59,6 +60,43 @@ func TestVPNTunnelListCmd(t *testing.T) {
 			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})),
 				[]string{"network", "vpntunnel", "list", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+		})
+	}
+}
+
+func TestVPNTunnelListCmd_RedactsPSKSecret(t *testing.T) {
+	const secret = "super-secret-psk-value"
+	id, name := "tun-001", "my-tunnel"
+	s := secret
+	m := &mockVPNTunnelsClient{
+		listFn: func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
+			return &types.Response[types.VPNTunnelList]{
+				StatusCode: 200,
+				Data: &types.VPNTunnelList{
+					Values: []types.VPNTunnelResponse{{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Properties: types.VPNTunnelPropertiesResponse{
+							VPNClientSettings: &types.VPNClientSettings{
+								PSK: &types.PSKSettings{Secret: &s},
+							},
+						},
+					}},
+				},
+			}, nil
+		},
+	}
+
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			out := captureStdout(func() {
+				rootCmd.PersistentFlags().Set("output", format)
+				_ = runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})),
+					[]string{"network", "vpntunnel", "list", "--project-id", "proj-123"})
+				rootCmd.PersistentFlags().Set("output", "table")
+			})
+			if strings.Contains(out, secret) {
+				t.Fatalf("PSK secret leaked to --output %s:\n%s", format, out)
+			}
 		})
 	}
 }

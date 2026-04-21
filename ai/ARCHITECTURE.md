@@ -147,12 +147,32 @@ No `PreRun`, `PostRun`, or middleware hooks exist anywhere in the codebase.
 
 ## Output Patterns
 
-### Table output (primary)
+The global `--output / -o` flag (declared once on `rootCmd`, inherited by every command) controls the output format. Five canonical modes are supported:
 
-`PrintTable(headers []TableColumn, rows [][]string)` in `cmd/root.go`:
-- Left-justifies columns using `%-Ns` format strings.
-- Truncates values longer than `Width` with `"..."`.
-- Used in every `list` command and most `create`/`update` responses.
+| Mode | Aliases | Shape |
+|------|---------|-------|
+| `table` | `std`, `standard` | Fixed-width text table (default) |
+| `table-json` | `std-json`, `standard-json` | JSON array of flat snake_case row objects |
+| `table-yaml` | `std-yaml`, `standard-yaml` | YAML sequence of flat snake_case mappings |
+| `json` | — | Full SDK response object as indented JSON |
+| `yaml` | — | Full SDK response object as YAML |
+
+### Unified output (`PrintOutput`)
+
+`PrintOutput(obj any, headers []TableColumn, rows [][]string)` in `cmd/root.go`:
+- Pure dispatcher: calls `resolveOutputFormat()` and delegates to one of five private functions.
+- `table` / `table-json` / `table-yaml` branches use `headers` + `rows` (flat, pre-formatted strings).
+- `json` / `yaml` branches use `obj` (the full SDK response); `obj=nil` emits `{}`.
+
+| Private function | Format | Notes |
+|---|---|---|
+| `printJSON(obj)` | `json` | `json.MarshalIndent`; nil → `{}` |
+| `printYAML(obj)` | `yaml` | JSON → `interface{}` → `yaml.Encoder` round-trip (SDK structs have `json` tags but no `yaml` tags; keeps camelCase keys) |
+| `printTableJSON(headers, rows)` | `table-json` | Hand-built ordered JSON array — `json.Marshal` of a map loses column order |
+| `printTableYAML(headers, rows)` | `table-yaml` | `yaml.Node` sequence — preserves column order |
+| `printTable(headers, rows)` | `table` (default) | Fixed-width `%-Ns` printf; values longer than Width truncated with `"..."` |
+
+`PrintTable(headers, rows)` is a thin shim around `PrintOutput(nil, headers, rows)` kept for backward compatibility; it will be removed in a follow-up.
 
 ```go
 headers := []TableColumn{
@@ -160,24 +180,13 @@ headers := []TableColumn{
     {Header: "ID",      Width: 26},
     {Header: "STATUS",  Width: 15},
 }
-PrintTable(headers, rows)
+// list: pass full response so -o json / -o yaml emit the SDK envelope
+PrintOutput(response.Data, headers, rows)
 ```
-
-### Verbose JSON output (secondary)
-
-Only present on a few compute commands via `--verbose / -v`:
-```go
-if verbose {
-    jsonData, _ := json.MarshalIndent(resource, "", "  ")
-    fmt.Println(string(jsonData))
-}
-```
-
-There is no global `--output=json` flag — JSON is only a debug aid.
 
 ### `get` command output
 
-Detail views use `fmt.Printf` with labeled fields, not `PrintTable`:
+For `table` mode, detail views use `fmt.Printf` with labeled fields:
 ```
 Resource Details:
 =================
@@ -185,27 +194,49 @@ ID:    <value>
 Name:  <value>
 ```
 
+For `json` / `yaml` modes, get commands have an early-return that emits the full SDK data object:
+```go
+format := resolveOutputFormat()
+if format == OutputFormatJSON || format == OutputFormatYAML {
+    PrintOutput(resp.Data, nil, nil)
+    return nil
+}
+// … fmt.Printf labeled-field block for table modes …
+```
+
 ---
 
 ## Destructive Operation Pattern (Delete)
 
-Every delete command follows this exact flow:
+Every delete command supports two safety mechanisms:
+
+1. **`--dry-run`** — calls `Get` to validate existence, prints `msgDryRun(kind, id)`, and returns without deleting.
+2. **`--yes` / `-y`** — skips the interactive confirmation prompt (also skipped when stdin is not a terminal).
 
 ```go
-confirm, _ := cmd.Flags().GetBool("yes")
-if !confirm {
-    fmt.Printf("Are you sure you want to delete %s? (yes/no): ", id)
-    var response string
-    fmt.Scanln(&response)          // blocks on stdin
-    if response != "yes" && response != "y" {
-        fmt.Println("Delete cancelled")
-        return
-    }
+// --dry-run: validate, report, return
+dryRun, _ := cmd.Flags().GetBool("dry-run")
+if dryRun {
+    // GetProjectID, GetArubaClient, call .Get() ...
+    fmt.Println(msgDryRun("<resource type>", id))
+    return nil
 }
+
+// Confirmation (uses confirmDelete helper from root.go):
+confirmed, err := confirmDelete("<resource type>", id)
+if err != nil { return err }
+if !confirmed { return nil }
+
 // proceed with SDK delete call
 ```
 
-The flag is registered as `BoolP("yes", "y", false, "Skip confirmation prompt")`.
+Flags registered in `init()`:
+```go
+resourceDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+resourceDeleteCmd.Flags().Bool("dry-run", false, "Validate existence without deleting")
+```
+
+`confirmDelete(resourceType, id string) (bool, error)` in `cmd/root.go` detects non-interactive stdin, respects `--yes`, and prompts when appropriate — never inline the prompt.
 
 ---
 

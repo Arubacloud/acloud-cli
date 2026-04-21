@@ -6,37 +6,124 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-# Configuration
-PROJECT_NAME_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path - try relative to script location first, then current dir, then PATH
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# Management suite uses a name prefix instead of RESOURCE_PREFIX.
+PROJECT_NAME_PREFIX="$RESOURCE_PREFIX"
 
 echo -e "${BLUE}=== Management Resources E2E Test ===${NC}\n"
 echo "Test prefix: $PROJECT_NAME_PREFIX"
 echo "ACLOUD command: $ACLOUD_CMD"
 echo ""
 
-# Function to extract resource ID from output
-extract_id() {
-    local output="$1"
-    echo "$output" | grep -oE '[a-f0-9]{24}' | head -1
+# Test --output flag for project list
+test_project_output_formats() {
+    local fn_fail=0
+    _fn_fail() { fn_fail=$((fn_fail + 1)); echo -e "${RED}✗ $*${NC}"; }
+
+    echo -e "${BLUE}--- Testing management project list --output flag ---${NC}"
+
+    for fmt in "" table std standard; do
+        local label="--output \"$fmt\""
+        [ -z "$fmt" ] && label="(default, no --output)"
+        echo -e "${YELLOW}Testing $label...${NC}"
+        if [ -z "$fmt" ]; then
+            OUT=$($ACLOUD_CMD management project list 2>&1)
+        else
+            OUT=$($ACLOUD_CMD management project list --output "$fmt" 2>&1)
+        fi
+        EXIT=$?
+        if [ $EXIT -eq 0 ]; then
+            echo -e "${GREEN}✓ $label: command succeeded${NC}"
+        else
+            _fn_fail "$label: command failed (exit $EXIT)"
+            echo "$OUT"
+        fi
+    done
+
+    echo -e "${YELLOW}Testing --output table-json...${NC}"
+    TABLE_JSON_OUTPUT=$($ACLOUD_CMD management project list --output table-json 2>&1)
+    TABLE_JSON_EXIT=$?
+    if [ $TABLE_JSON_EXIT -ne 0 ]; then
+        _fn_fail "--output table-json: command failed (exit $TABLE_JSON_EXIT)"
+        echo "$TABLE_JSON_OUTPUT"
+    elif echo "$TABLE_JSON_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output table-json: no resources — format validation skipped${NC}"
+    elif is_valid_json "$TABLE_JSON_OUTPUT"; then
+        echo -e "${GREEN}✓ --output table-json: valid JSON${NC}"
+        if echo "$TABLE_JSON_OUTPUT" | grep -q '"name"'; then
+            echo -e "${GREEN}✓ --output table-json: 'name' key present${NC}"
+        else
+            _fn_fail "--output table-json: 'name' key missing"
+        fi
+    else
+        _fn_fail "--output table-json: output is not valid JSON"
+        echo "$TABLE_JSON_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output table-yaml...${NC}"
+    TABLE_YAML_OUTPUT=$($ACLOUD_CMD management project list --output table-yaml 2>&1)
+    TABLE_YAML_EXIT=$?
+    if [ $TABLE_YAML_EXIT -ne 0 ]; then
+        _fn_fail "--output table-yaml: command failed (exit $TABLE_YAML_EXIT)"
+        echo "$TABLE_YAML_OUTPUT"
+    elif echo "$TABLE_YAML_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output table-yaml: no resources — format validation skipped${NC}"
+    elif echo "$TABLE_YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+        echo -e "${GREEN}✓ --output table-yaml: output looks like YAML${NC}"
+        if echo "$TABLE_YAML_OUTPUT" | grep -q 'name:'; then
+            echo -e "${GREEN}✓ --output table-yaml: 'name' key present${NC}"
+        else
+            _fn_fail "--output table-yaml: 'name' key missing"
+        fi
+    else
+        _fn_fail "--output table-yaml: output does not look like YAML"
+        echo "$TABLE_YAML_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output json (full SDK response)...${NC}"
+    JSON_OUTPUT=$($ACLOUD_CMD management project list --output json 2>&1)
+    JSON_EXIT=$?
+    if [ $JSON_EXIT -ne 0 ]; then
+        _fn_fail "--output json: command failed (exit $JSON_EXIT)"
+        echo "$JSON_OUTPUT"
+    elif echo "$JSON_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output json: no resources — format validation skipped${NC}"
+    elif is_valid_json "$JSON_OUTPUT"; then
+        echo -e "${GREEN}✓ --output json: valid JSON${NC}"
+        if echo "$JSON_OUTPUT" | grep -q '"values"'; then
+            echo -e "${GREEN}✓ --output json: 'values' key present (full SDK response)${NC}"
+        else
+            echo -e "${YELLOW}⚠ --output json: 'values' key not found (empty list or different shape)${NC}"
+        fi
+    else
+        _fn_fail "--output json: output is not valid JSON"
+        echo "$JSON_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output yaml (full SDK response)...${NC}"
+    YAML_OUTPUT=$($ACLOUD_CMD management project list --output yaml 2>&1)
+    YAML_EXIT=$?
+    if [ $YAML_EXIT -ne 0 ]; then
+        _fn_fail "--output yaml: command failed (exit $YAML_EXIT)"
+        echo "$YAML_OUTPUT"
+    elif echo "$YAML_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output yaml: no resources — format validation skipped${NC}"
+    elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+        echo -e "${GREEN}✓ --output yaml: output looks like YAML (full SDK response)${NC}"
+        if echo "$YAML_OUTPUT" | grep -q 'values:'; then
+            echo -e "${GREEN}✓ --output yaml: 'values' key present (full SDK response)${NC}"
+        else
+            echo -e "${YELLOW}⚠ --output yaml: 'values' key not found (empty list or different shape)${NC}"
+        fi
+    else
+        _fn_fail "--output yaml: output does not look like YAML"
+        echo "$YAML_OUTPUT"
+    fi
+
+    echo ""
+    return $fn_fail
 }
 
 # Function to test Project CRUD
@@ -50,7 +137,7 @@ test_project() {
     CREATE_OUTPUT=$($ACLOUD_CMD management project create \
         --name "$project_name" \
         --description "E2E test project" \
-        --tags "e2e,test,management" 2>&1) || {
+        --tags "e2e-test,management" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         # Check for common error patterns
@@ -96,7 +183,7 @@ test_project() {
     echo -e "${GREEN}[UPDATE]${NC} Updating project..."
     UPDATE_OUTPUT=$($ACLOUD_CMD management project update "$PROJECT_ID" \
         --description "Updated E2E test project" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
@@ -125,6 +212,11 @@ if test_project; then
     TEST_PASSED=true
 fi
 
+FORMAT_PASSED=false
+if test_project_output_formats; then
+    FORMAT_PASSED=true
+fi
+
 echo -e "${GREEN}=== All Management Tests Completed! ===${NC}\n"
 
 # Print summary
@@ -137,9 +229,14 @@ if [ "$TEST_PASSED" = true ]; then
 else
     echo -e "${RED}✗ Project CRUD: Failed${NC}"
 fi
+if [ "$FORMAT_PASSED" = true ]; then
+    echo -e "${GREEN}✓ Project output formats: Passed${NC}"
+else
+    echo -e "${RED}✗ Project output formats: Failed${NC}"
+fi
 echo ""
 
-if [ "$TEST_PASSED" = true ]; then
+if [ "$TEST_PASSED" = true ] && [ "$FORMAT_PASSED" = true ]; then
     exit 0
 else
     exit 1

@@ -1,5 +1,11 @@
 # Makefile for acloud-cli local development
 
+# Use bash with xpg_echo so plain `echo` interprets ANSI escape sequences
+# (\033[...]) without needing `-e`. Required for the colorised output below
+# on systems where /bin/sh is bash but `echo` defaults to POSIX behaviour.
+SHELL := /bin/bash
+.SHELLFLAGS := -O xpg_echo -c
+
 # Variables
 BINARY_NAME=acloud
 BINARY_WIN=$(BINARY_NAME).exe
@@ -202,10 +208,17 @@ deps-tidy: ## Tidy go.mod and go.sum
 e2e-test: ## Run all E2E tests (requires credentials)
 	@echo "$(GREEN)Running E2E tests...$(NC)"
 	@echo "$(YELLOW)Note: This requires ACLOUD_PROJECT_ID and other env vars to be set$(NC)"
-	@chmod +x e2e/management/test.sh e2e/storage/test.sh e2e/network/test.sh
-	@./e2e/management/test.sh
-	@./e2e/storage/test.sh
-	@./e2e/network/test.sh
+	@chmod +x e2e/common.sh e2e/management/test.sh e2e/storage/test.sh e2e/network/test.sh
+	@EC=0; \
+	./e2e/management/test.sh || EC=1; \
+	./e2e/storage/test.sh    || EC=1; \
+	./e2e/network/test.sh    || EC=1; \
+	if [ $$EC -eq 0 ]; then \
+	    echo "$(GREEN)✓ E2E: all suites passed$(NC)"; \
+	else \
+	    echo "$(RED)✗ E2E: one or more suites failed (see above)$(NC)"; \
+	fi; \
+	exit $$EC
 
 e2e-management: ## Run management E2E tests
 	@echo "$(GREEN)Running management E2E tests...$(NC)"

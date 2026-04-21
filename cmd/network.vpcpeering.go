@@ -126,7 +126,7 @@ peering is established.`,
 					}
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPC peering", name))
 		}
@@ -252,7 +252,7 @@ var vpcpeeringListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, peerVPC, region, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No VPC peerings found.")
 		}
@@ -375,7 +375,7 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC peering", peeringID))
 		}
@@ -438,7 +438,11 @@ var vpcpeeringDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{peeringID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{peeringID, status}
+		PrintOutput(result, headers, [][]string{{peeringID, status}})
 		return nil
 	},
 }

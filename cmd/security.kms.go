@@ -171,7 +171,7 @@ Billing period: Hour (default), Month, or Year.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("KMS", name))
 		}
@@ -209,6 +209,12 @@ var kmsGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			kms := resp.Data
+
+			format := resolveOutputFormat()
+			if format == OutputFormatJSON || format == OutputFormatYAML {
+				PrintOutput(kms, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nKMS Details:")
 			fmt.Println("============")
@@ -313,7 +319,7 @@ var kmsListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No KMS resources found")
 		}

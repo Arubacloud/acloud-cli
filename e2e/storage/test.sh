@@ -6,29 +6,8 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-PROJECT_ID="${ACLOUD_PROJECT_ID:-your-project-id}"
-REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-RESOURCE_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path - try relative to script location first, then current dir, then PATH
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
 # Cleanup tracking
 CREATED_VOLUMES=()
@@ -37,46 +16,61 @@ CREATED_BACKUPS=()
 CREATED_RESTORES=()
 BACKUP_ID=""  # Track backup ID for restore operations
 
-echo -e "${BLUE}=== Storage Resources E2E Test ===${NC}\n"
-echo "Project ID: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Test prefix: $RESOURCE_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
+print_banner "Storage"
 
-# Function to extract resource ID from output
-# This function tries multiple strategies to find the correct resource ID:
-# 1. Extract all IDs and take the last one (resource IDs are usually printed last)
-# 2. Look for ID in table format (in the ID column)
-extract_id() {
-    local output="$1"
-    local exclude_id="${2:-}"  # Optional ID to exclude
-    
-    # Strategy 1: Extract all IDs, filter out exclude_id, take the last one
-    if [ -n "$exclude_id" ]; then
-        local filtered_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}' | grep -v "^${exclude_id}$")
-        if [ -n "$filtered_ids" ]; then
-            echo "$filtered_ids" | tail -1
-            return 0
-        fi
-    fi
-    
-    # Strategy 2: Extract all IDs and take the last one
-    local all_ids=$(echo "$output" | grep -oE '[a-f0-9]{24}')
-    if [ -n "$all_ids" ]; then
-        if [ -n "$exclude_id" ]; then
-            echo "$all_ids" | grep -v "^${exclude_id}$" | tail -1
-        else
-            echo "$all_ids" | tail -1
-        fi
-    fi
+# Test --output flag for storage list commands
+test_output_formats() {
+    echo -e "${BLUE}--- Testing storage list --output flag ---${NC}"
+
+    for resource_cmd in "blockstorage list" "backup list"; do
+        local label="storage $resource_cmd"
+        local cmd="$ACLOUD_CMD storage $resource_cmd --project-id \"$PROJECT_ID\""
+        for fmt in json yaml; do
+            echo -e "${YELLOW}Testing $label --output $fmt...${NC}"
+            OUT=$(eval "$cmd --output $fmt" 2>&1)
+            validate_list_output "$label" "$fmt" "$OUT" $?
+        done
+    done
+    echo ""
 }
 
-# Helper function to validate resource ID
-is_valid_id() {
-    local id="$1"
-    # Check if it's a 24-character hex string (MongoDB ObjectID format)
-    [[ "$id" =~ ^[a-f0-9]{24}$ ]]
+# Poll a block-storage volume until it leaves transient states (InCreation, Creating, Pending),
+# or until timeout elapses. Returns 0 on ready, 1 on timeout or get failure.
+wait_for_volume_ready() {
+    local volume_id="$1"
+    local timeout="${2:-180}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$($ACLOUD_CMD storage blockstorage get "$volume_id" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        case "$status" in
+            ""|InCreation|Creating|Pending) sleep 5; elapsed=$((elapsed + 5));;
+            *) echo "  → volume $volume_id ready (status=$status)"; return 0;;
+        esac
+    done
+    echo -e "${YELLOW}wait_for_volume_ready: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
+}
+
+# Poll a snapshot until it leaves transient states, or until timeout elapses.
+wait_for_snapshot_ready() {
+    local snapshot_id="$1"
+    local timeout="${2:-180}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$($ACLOUD_CMD storage snapshot get "$snapshot_id" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        case "$status" in
+            ""|InCreation|Creating|Pending) sleep 5; elapsed=$((elapsed + 5));;
+            *) echo "  → snapshot $snapshot_id ready (status=$status)"; return 0;;
+        esac
+    done
+    echo -e "${YELLOW}wait_for_snapshot_ready: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
 }
 
 # Cleanup function
@@ -130,7 +124,7 @@ test_block_storage() {
         --size 10 \
         --type Standard \
         --billing-period Hour \
-        --tags "e2e,test,storage" 2>&1) || {
+        --tags "e2e-test,storage" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         # Check for common error patterns
@@ -151,9 +145,10 @@ test_block_storage() {
     CREATED_VOLUMES+=("$VOLUME_ID")
     echo -e "${GREEN}Created volume ID: $VOLUME_ID${NC}\n"
     
-    # Wait for volume to be ready (optional, depends on API)
+    # Wait for volume to leave InCreation before attempting UPDATE
     echo "Waiting for volume to be ready..."
-    sleep 5
+    wait_for_volume_ready "$VOLUME_ID" 180 || \
+        echo -e "${YELLOW}Warning: volume not ready after 180s — UPDATE may still fail${NC}"
     
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing block storage..."
@@ -179,7 +174,7 @@ test_block_storage() {
     echo -e "${GREEN}[UPDATE]${NC} Updating block storage..."
     UPDATE_OUTPUT=$($ACLOUD_CMD storage blockstorage update "$VOLUME_ID" \
         --name "${volume_name}-updated" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
@@ -218,7 +213,7 @@ test_snapshot() {
         --name "$snapshot_name" \
         --region "$REGION" \
         --volume-uri "$VOLUME_URI" \
-        --tags "e2e,test,snapshot" 2>&1) || {
+        --tags "e2e-test,snapshot" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
         return 1
@@ -234,10 +229,15 @@ test_snapshot() {
     fi
     CREATED_SNAPSHOTS+=("$SNAPSHOT_ID")
     echo -e "${GREEN}Created snapshot ID: $SNAPSHOT_ID${NC}\n"
-    
+
+    # Wait for snapshot to leave InCreation before attempting UPDATE
+    echo "Waiting for snapshot to be ready..."
+    wait_for_snapshot_ready "$SNAPSHOT_ID" 180 || \
+        echo -e "${YELLOW}Warning: snapshot not ready after 180s — UPDATE may still fail${NC}"
+
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing snapshots..."
-    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list 2>&1) || {
+    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list --volume-uri "$VOLUME_URI" 2>&1) || {
         echo -e "${RED}LIST failed:${NC}"
         echo "$LIST_OUTPUT"
         return 1
@@ -259,7 +259,7 @@ test_snapshot() {
     echo -e "${GREEN}[UPDATE]${NC} Updating snapshot..."
     UPDATE_OUTPUT=$($ACLOUD_CMD storage snapshot update "$SNAPSHOT_ID" \
         --name "${snapshot_name}-updated" \
-        --tags "e2e,test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1) || {
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
@@ -286,13 +286,7 @@ test_restore() {
     echo -e "${GREEN}✓ Restore test placeholder${NC}\n"
 }
 
-# Set up context for project ID (so we don't need --project-id flag on every command)
-if [ "$PROJECT_ID" != "your-project-id" ]; then
-    echo -e "${BLUE}Setting up context for project ID...${NC}"
-    $ACLOUD_CMD context set e2e-test-context --project-id "$PROJECT_ID" >/dev/null 2>&1 || true
-    $ACLOUD_CMD context use e2e-test-context >/dev/null 2>&1 || true
-    echo ""
-fi
+setup_context
 
 # Run tests
 echo -e "${BLUE}Starting Storage Resources E2E Tests...${NC}\n"
@@ -305,14 +299,17 @@ if test_block_storage; then
         VOLUME_ID="${CREATED_VOLUMES[0]}"
     fi
     if [ -n "$VOLUME_ID" ]; then
-        test_snapshot "$VOLUME_ID"
+        test_snapshot "$VOLUME_ID" || FAILURES=$((FAILURES + 1))
     else
         echo -e "${YELLOW}Skipping snapshot test (no volume ID available)${NC}\n"
     fi
+else
+    FAILURES=$((FAILURES + 1))
 fi
 
-test_backup
-test_restore
+test_backup || FAILURES=$((FAILURES + 1))
+test_restore || FAILURES=$((FAILURES + 1))
+test_output_formats
 
 echo -e "${GREEN}=== All Storage Tests Completed! ===${NC}\n"
 
@@ -341,3 +338,10 @@ else
 fi
 echo ""
 
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Storage E2E: all checks passed ===${NC}"
+    exit 0
+else
+    echo -e "${RED}=== Storage E2E: $FAILURES check(s) failed ===${NC}"
+    exit 1
+fi

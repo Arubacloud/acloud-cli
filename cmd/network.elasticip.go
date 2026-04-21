@@ -236,7 +236,7 @@ var elasticipListCmd = &cobra.Command{
 			}
 
 			// Print the table
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No Elastic IPs found")
 		}

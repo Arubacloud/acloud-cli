@@ -525,7 +525,7 @@ var snapshotListCmd = &cobra.Command{
 			}
 
 			// Print the table
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No snapshots found")
 		}

@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,6 +231,237 @@ func TestPrintTable_MismatchedColumns(t *testing.T) {
 
 	// Should not panic with mismatched columns
 	PrintTable(headers, rows)
+}
+
+func TestNormalizeHeaderKey(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"NAME", "name"},
+		{"ID", "id"},
+		{"PUBLIC_KEY", "public_key"},
+		{"CREATION DATE", "creation_date"},
+		{"RAM(GB)", "ram_gb"},
+		{"HD(GB)", "hd_gb"},
+		{"CPU", "cpu"},
+		{"  spaced  ", "spaced"},
+		{"multi  space__key", "multi_space_key"},
+		{"abc123", "abc123"},
+	}
+	for _, c := range cases {
+		got := normalizeHeaderKey(c.in)
+		if got != c.want {
+			t.Errorf("normalizeHeaderKey(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// captureStdout captures os.Stdout during f() and returns the output.
+func captureStdout(f func()) string {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	f()
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
+}
+
+func TestResolveOutputFormat(t *testing.T) {
+	cases := []struct {
+		flag string
+		want string
+	}{
+		{"table", "table"},
+		{"std", "table"},
+		{"standard", "table"},
+		{"", "table"},
+		{"TABLE", "table"},
+		{"table-json", "table-json"},
+		{"std-json", "table-json"},
+		{"standard-json", "table-json"},
+		{"TABLE-JSON", "table-json"},
+		{"table-yaml", "table-yaml"},
+		{"std-yaml", "table-yaml"},
+		{"standard-yaml", "table-yaml"},
+		{"json", "json"},
+		{"JSON", "json"},
+		{"yaml", "yaml"},
+		{"YAML", "yaml"},
+	}
+	for _, c := range cases {
+		rootCmd.PersistentFlags().Set("output", c.flag)
+		got := resolveOutputFormat()
+		if got != c.want {
+			t.Errorf("resolveOutputFormat() with flag=%q = %q, want %q", c.flag, got, c.want)
+		}
+	}
+	rootCmd.PersistentFlags().Set("output", "table")
+}
+
+func TestPrintTable_TableJSONFormat(t *testing.T) {
+	headers := []TableColumn{
+		{Header: "NAME", Width: 20},
+		{Header: "ID", Width: 30},
+		{Header: "RAM(GB)", Width: 10},
+	}
+	rows := [][]string{
+		{"server-01", "abc123", "4"},
+		{"server-02", "def456", "8"},
+	}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "table-json")
+		PrintTable(headers, rows)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	var result []map[string]string
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(result))
+	}
+	if result[0]["name"] != "server-01" {
+		t.Errorf("expected name=server-01, got %q", result[0]["name"])
+	}
+	if result[0]["ram_gb"] != "4" {
+		t.Errorf("expected ram_gb=4, got %q", result[0]["ram_gb"])
+	}
+	if result[1]["id"] != "def456" {
+		t.Errorf("expected id=def456, got %q", result[1]["id"])
+	}
+}
+
+func TestPrintTable_TableJSONFormat_Empty(t *testing.T) {
+	headers := []TableColumn{{Header: "NAME", Width: 10}}
+	rows := [][]string{}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "table-json")
+		PrintTable(headers, rows)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	var result []map[string]string
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("empty output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty array, got %d items", len(result))
+	}
+}
+
+func TestPrintTable_TableYAMLFormat(t *testing.T) {
+	headers := []TableColumn{
+		{Header: "NAME", Width: 20},
+		{Header: "ID", Width: 30},
+		{Header: "CREATION DATE", Width: 15},
+	}
+	rows := [][]string{
+		{"project-a", "id-001", "26-03-2026"},
+		{"project-b", "id-002", "27-03-2026"},
+	}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "table-yaml")
+		PrintTable(headers, rows)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	if !strings.Contains(out, "name: project-a") {
+		t.Errorf("YAML output missing 'name: project-a':\n%s", out)
+	}
+	if !strings.Contains(out, "id: id-001") {
+		t.Errorf("YAML output missing 'id: id-001':\n%s", out)
+	}
+	if !strings.Contains(out, "creation_date: 26-03-2026") {
+		t.Errorf("YAML output missing 'creation_date: 26-03-2026':\n%s", out)
+	}
+	if !strings.Contains(out, "- ") {
+		t.Errorf("YAML output missing list indicators:\n%s", out)
+	}
+}
+
+func TestPrintOutput_FullJSON(t *testing.T) {
+	type testProject struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	obj := testProject{ID: "proj-001", Name: "my-project"}
+	headers := []TableColumn{{Header: "NAME", Width: 20}, {Header: "ID", Width: 30}}
+	rows := [][]string{{"my-project", "proj-001"}}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "json")
+		PrintOutput(obj, headers, rows)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("full JSON output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if result["id"] != "proj-001" {
+		t.Errorf("expected id=proj-001, got %q", result["id"])
+	}
+	if result["name"] != "my-project" {
+		t.Errorf("expected name=my-project, got %q", result["name"])
+	}
+}
+
+func TestPrintOutput_FullYAML(t *testing.T) {
+	type testProject struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	obj := testProject{ID: "proj-001", Name: "my-project"}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "yaml")
+		PrintOutput(obj, nil, nil)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	if !strings.Contains(out, "id: proj-001") {
+		t.Errorf("YAML output missing 'id: proj-001':\n%s", out)
+	}
+	if !strings.Contains(out, "name: my-project") {
+		t.Errorf("YAML output missing 'name: my-project':\n%s", out)
+	}
+}
+
+func TestPrintOutput_FullJSON_NilObject(t *testing.T) {
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "json")
+		PrintOutput(nil, nil, nil)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+	if strings.TrimSpace(out) != "{}" {
+		t.Errorf("expected {} for nil object, got %q", out)
+	}
+}
+
+func TestPrintOutput_AliasStdJSON(t *testing.T) {
+	headers := []TableColumn{{Header: "ID", Width: 10}}
+	rows := [][]string{{"abc"}}
+
+	out := captureStdout(func() {
+		rootCmd.PersistentFlags().Set("output", "std-json")
+		PrintTable(headers, rows)
+		rootCmd.PersistentFlags().Set("output", "table")
+	})
+
+	var result []map[string]string
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("std-json alias output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	if len(result) != 1 || result[0]["id"] != "abc" {
+		t.Errorf("unexpected result: %v", result)
+	}
 }
 
 func TestGetArubaClient_DebugFlagChange(t *testing.T) {

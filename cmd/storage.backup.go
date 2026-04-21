@@ -265,7 +265,7 @@ var storageBackupListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, backupType, status})
 			}
 
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No backups found")
 		}

@@ -177,7 +177,7 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 				}(),
 				fmt.Sprintf("%d", response.Data.Properties.ResourcesNumber),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Project", name))
 		}
@@ -212,6 +212,12 @@ var projectGetCmd = &cobra.Command{
 
 		if response != nil && response.Data != nil {
 			project := response.Data
+
+			format := resolveOutputFormat()
+			if format == OutputFormatJSON || format == OutputFormatYAML {
+				PrintOutput(project, nil, nil)
+				return nil
+			}
 
 			// Display project details
 			fmt.Println("\nProject Details:")
@@ -363,7 +369,7 @@ var projectUpdateCmd = &cobra.Command{
 				}(),
 				fmt.Sprintf("%d", response.Data.Properties.ResourcesNumber),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Project", projectID))
 		}
@@ -426,7 +432,11 @@ var projectDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{projectID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{projectID, status}
+		PrintOutput(result, headers, [][]string{{projectID, status}})
 		return nil
 	},
 }
@@ -485,7 +495,7 @@ var projectListCmd = &cobra.Command{
 			}
 
 			// Print the table
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No projects found")
 		}

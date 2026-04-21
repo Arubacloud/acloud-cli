@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 // clientState encapsulates the cached SDK client and its configuration (TD-018).
@@ -74,7 +76,7 @@ func init() {
 	// Add global debug flag (TD-012: description warns about credential exposure)
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
 	// Add global output format flag (TD-016)
-	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 }
 
 // GetArubaClient creates and returns an Aruba Cloud SDK client using stored credentials
@@ -296,36 +298,142 @@ type TableColumn struct {
 	Width  int    // Column width for formatting
 }
 
-// PrintTable prints data in the format requested by the global --output flag (TD-016).
-// When --output=json the rows are serialised as a JSON array of objects keyed by column header.
-// When --output=table (the default) the existing fixed-width table format is used.
-func PrintTable(headers []TableColumn, rows [][]string) {
-	// Check global --output flag via rootCmd (avoids changing signature across all call sites)
-	format := "table"
-	if rootCmd != nil {
-		format, _ = rootCmd.PersistentFlags().GetString("output")
+// resolveOutputFormat reads the global --output flag and normalises aliases to one
+// of the five canonical names in constants.go (OutputFormat*).
+func resolveOutputFormat() string {
+	if rootCmd == nil {
+		return OutputFormatTable
 	}
+	raw, _ := rootCmd.PersistentFlags().GetString("output")
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case OutputFormatTable, OutputAliasStd, OutputAliasStandard, "":
+		return OutputFormatTable
+	case OutputFormatTableJSON, OutputAliasStdJSON, OutputAliasStandardJSON:
+		return OutputFormatTableJSON
+	case OutputFormatTableYAML, OutputAliasStdYAML, OutputAliasStandardYAML:
+		return OutputFormatTableYAML
+	case OutputFormatJSON:
+		return OutputFormatJSON
+	case OutputFormatYAML:
+		return OutputFormatYAML
+	default:
+		fmt.Fprintf(os.Stderr, "warning: unknown --output value %q, falling back to %s\n", raw, OutputFormatTable)
+		return OutputFormatTable
+	}
+}
 
-	if format == "json" {
-		result := make([]map[string]string, 0, len(rows))
-		for _, row := range rows {
-			obj := make(map[string]string, len(headers))
-			for i, col := range headers {
-				if i < len(row) {
-					obj[col.Header] = row[i]
-				}
-			}
-			result = append(result, obj)
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(result)
+// PrintOutput is the single output primitive for all commands. obj is the full SDK
+// response object used for json/yaml modes; headers+rows drive the table modes.
+// Pass obj=nil when no rich object is available (e.g. delete confirmation rows).
+func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
+	switch resolveOutputFormat() {
+	case OutputFormatJSON:
+		printJSON(obj)
+	case OutputFormatYAML:
+		printYAML(obj)
+	case OutputFormatTableJSON:
+		printTableJSON(headers, rows)
+	case OutputFormatTableYAML:
+		printTableYAML(headers, rows)
+	default:
+		printTable(headers, rows)
+	}
+}
+
+// printJSON serialises obj as indented JSON to stdout.
+// Emits {} when obj is nil so machine consumers always receive valid JSON.
+func printJSON(obj any) {
+	if obj == nil {
+		fmt.Println("{}")
 		return
 	}
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshalling to JSON: %v\n", err)
+		return
+	}
+	fmt.Println(string(b))
+}
 
-	// Default: fixed-width table output
+// printYAML serialises obj as YAML to stdout.
+// SDK structs carry json tags but no yaml tags, so the value is first marshalled
+// to JSON and then decoded into interface{} before encoding as YAML; this keeps
+// key names in camelCase, consistent with the JSON output.
+// Emits {} when obj is nil.
+func printYAML(obj any) {
+	if obj == nil {
+		fmt.Println("{}")
+		return
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshalling to JSON for YAML conversion: %v\n", err)
+		return
+	}
+	var intermediate any
+	if err := json.Unmarshal(b, &intermediate); err != nil {
+		fmt.Fprintf(os.Stderr, "error converting JSON to YAML intermediate: %v\n", err)
+		return
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	_ = enc.Encode(intermediate)
+	_ = enc.Close()
+}
+
+// printTableJSON emits the table rows as an ordered JSON array of flat snake_case
+// objects. Keys are derived from column headers via normalizeHeaderKey; column
+// order is preserved by hand-building the JSON rather than using json.Marshal on a map.
+func printTableJSON(headers []TableColumn, rows [][]string) {
+	keys := make([]string, len(headers))
+	for i, col := range headers {
+		keys[i] = normalizeHeaderKey(col.Header)
+	}
+	fmt.Print("[")
+	for ri, row := range rows {
+		if ri > 0 {
+			fmt.Print(",")
+		}
+		fmt.Print("\n  {")
+		for ki, key := range keys {
+			if ki >= len(row) {
+				break
+			}
+			if ki > 0 {
+				fmt.Print(",")
+			}
+			keyJSON, _ := json.Marshal(key)
+			valJSON, _ := json.Marshal(row[ki])
+			fmt.Printf("\n    %s: %s", keyJSON, valJSON)
+		}
+		fmt.Print("\n  }")
+	}
+	if len(rows) > 0 {
+		fmt.Print("\n")
+	}
+	fmt.Println("]")
+}
+
+// printTableYAML emits the table rows as a YAML sequence of flat snake_case mappings.
+// yaml.Node is used to preserve column order (plain yaml.Marshal of a map does not).
+func printTableYAML(headers []TableColumn, rows [][]string) {
+	records := rowsToRecords(headers, rows)
+	var doc yaml.Node
+	doc.Kind = yaml.SequenceNode
+	for i := range records {
+		doc.Content = append(doc.Content, &records[i])
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	_ = enc.Encode(&doc)
+	_ = enc.Close()
+}
+
+// printTable emits a fixed-width text table to stdout.
+// Values longer than the column Width are truncated with "...".
+func printTable(headers []TableColumn, rows [][]string) {
 	formatStr := ""
-	headerValues := make([]interface{}, len(headers))
+	headerValues := make([]any, len(headers))
 	for i, col := range headers {
 		formatStr += fmt.Sprintf("%%-%ds ", col.Width)
 		headerValues[i] = col.Header
@@ -334,7 +442,7 @@ func PrintTable(headers []TableColumn, rows [][]string) {
 	fmt.Printf(formatStr, headerValues...)
 
 	for _, row := range rows {
-		rowValues := make([]interface{}, len(row))
+		rowValues := make([]any, len(row))
 		for i, val := range row {
 			if len(headers) > i && len(val) > headers[i].Width {
 				val = val[:headers[i].Width-3] + "..."
@@ -343,4 +451,62 @@ func PrintTable(headers []TableColumn, rows [][]string) {
 		}
 		fmt.Printf(formatStr, rowValues...)
 	}
+}
+
+// normalizeHeaderKey converts a display-oriented table header (e.g. "RAM(GB)",
+// "CREATION DATE", "PUBLIC_KEY") into a snake_case key suitable for JSON/YAML
+// serialisation. Non-alphanumeric runs collapse into a single underscore.
+func normalizeHeaderKey(header string) string {
+	var sb strings.Builder
+	prevWasAlnum := false
+	for _, r := range header {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			sb.WriteRune(r + ('a' - 'A'))
+			prevWasAlnum = true
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			sb.WriteRune(r)
+			prevWasAlnum = true
+		default:
+			if prevWasAlnum {
+				sb.WriteRune('_')
+				prevWasAlnum = false
+			}
+		}
+	}
+	return strings.Trim(sb.String(), "_")
+}
+
+// rowsToRecords converts tabular headers+rows into an ordered list of field-preserving
+// records suitable for structured serialisation. Keys are normalised via normalizeHeaderKey.
+func rowsToRecords(headers []TableColumn, rows [][]string) []yaml.Node {
+	keys := make([]string, len(headers))
+	for i, col := range headers {
+		keys[i] = normalizeHeaderKey(col.Header)
+	}
+
+	records := make([]yaml.Node, 0, len(rows))
+	for _, row := range rows {
+		var mapping yaml.Node
+		mapping.Kind = yaml.MappingNode
+		for i, key := range keys {
+			if i >= len(row) {
+				break
+			}
+			var k, v yaml.Node
+			k.Kind = yaml.ScalarNode
+			k.Value = key
+			v.Kind = yaml.ScalarNode
+			v.Value = row[i]
+			mapping.Content = append(mapping.Content, &k, &v)
+		}
+		records = append(records, mapping)
+	}
+	return records
+}
+
+// PrintTable is a compatibility shim that delegates to PrintOutput with no rich object.
+// New code should call PrintOutput directly to pass the full SDK response object.
+func PrintTable(headers []TableColumn, rows [][]string) {
+	PrintOutput(nil, headers, rows)
 }

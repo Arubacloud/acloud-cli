@@ -1,0 +1,20 @@
+[
+  {
+    "id": "xxxxxxxxxxxxxxxxxxxxxxxx",
+    "name": "my-server-01",
+    "flavor": "C1.M1",
+    "cpu": "1",
+    "ram_gb": "1",
+    "hd_gb": "20",
+    "region": "it-mxp-01"
+  },
+  {
+    "id": "xxxxxxxxxxxxxxxxxxxxxxxx",
+    "name": "my-server-02",
+    "flavor": "C2.M4",
+    "cpu": "2",
+    "ram_gb": "4",
+    "hd_gb": "40",
+    "region": "it-mxp-01"
+  }
+]

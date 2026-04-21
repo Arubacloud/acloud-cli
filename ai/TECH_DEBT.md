@@ -19,20 +19,48 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-012 | `--debug` flag description updated to warn about credential/token exposure in HTTP headers |
 | TD-013 | `Args: cobra.NoArgs` added to all `create` and `list` commands that take no positional arguments |
 | TD-014 | `cmd/constants.go` created with `StateInCreation`, `DateLayout`, `FilePermConfig`, `FilePermDirAll`; all magic strings replaced |
-| TD-016 | Global `--output` flag (table/json) added; `PrintTable` serialises to JSON when `--output=json` is set; no call-site changes needed |
+| TD-016 | Multi-mode output implemented: 5 canonical formats (`table`, `table-json`, `table-yaml`, `json`, `yaml`) via `resolveOutputFormat` + `PrintOutput`; `PrintTable` is now a shim; `-o json`/`-o yaml` emit full SDK response (breaking change from original PR #30 flat shape) |
 | TD-017 | `listParams(cmd)` helper added; `--limit`/`--offset` flags added to all 25 list commands; list RunE handlers now pass pagination params to SDK |
 | TD-018 | Global client cache vars encapsulated in `clientState` struct with `resetClientState()` helper; all test reset blocks updated to use it |
 | TD-010 | Table-driven `RunE` tests added for all 23 testable command files (24 including pre-existing `network.vpc_test.go`); mock infrastructure in `cmd/mock_test.go` covers all sub-clients; `security.kms.go` skipped (concrete SDK type, cannot mock); nil-pointer bugs in `LocationResponse.Value` and `CreationDate.IsZero()` fixed as a side effect of test authoring; redundant double nil-check blocks left by AWK generation cleaned up in 5 files |
 | TD-020 | Six helper functions added to `cmd/root.go` (`msgCreated`, `msgCreatedAsync`, `msgUpdated`, `msgUpdatedAsync`, `msgDeleted`, `msgAction`); all ~91 success `fmt.Print*` calls replaced across 20 cmd files; one double-nil-check fixed in `container.containerregistry.go` as a side effect |
 | TD-021 | `Long` and `Example` fields added to all 23 create commands across 22 cmd files; subnet already had a minimal `Long` which was replaced with a richer version |
 | TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
-| TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.25) |
+| TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 
 ---
 
 ## Low
 
+### TD-023 · Remove `PrintTable` shim
+`PrintTable(headers, rows)` is now a one-line shim around `PrintOutput(nil, headers, rows)`. All call sites that pass `nil` as the first arg produce `{}` for `-o json` / `-o yaml` instead of the actual resource data. Remaining direct `PrintTable` calls should be replaced with `PrintOutput(response.Data, headers, rows)` and the shim deleted.
+
+**Fix:** Grep for `PrintTable(` and migrate each site to `PrintOutput`, passing the typed SDK response as the first argument. Remove the `PrintTable` function once all sites are updated.
+
+---
+
 ### TD-022 · Pre-release SDK version (v0.1.x)
-`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.25`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
+`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.26`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
 
 **Fix:** Track the SDK release roadmap. When a `v1.0.0` is released, migrate and pin to it. Until then, pin to a specific minor version and treat any upgrade as potentially breaking.
+
+---
+
+### TD-024 · VPN tunnel IKE/ESP/PSK enum values undocumented
+`vpntunnel create` exposes `--dhgroup`, `--pfs`, `--cloud-site`, `--onprem-site`, and sibling IKE/ESP flags as free-text strings. The SDK (`sdk-go@v0.1.26/pkg/types/network.vpn-tunnel.go:34,58,64-67`) models them as opaque `*string` with no enum constants, no Swagger/OpenAPI spec, and no sample payloads anywhere in this repo, the SDK tree, or `docs/`. The e2e test skips `test_vpn_tunnel` (gated behind `ACLOUD_RUN_VPN_TESTS=1`) because the API rejects every value tried (`group14`, `10.241.0.0/24`, etc.) with bare "not valid" / "invalid" messages and no `allowedValues` hint.
+
+**Fix:** Obtain the API spec or a known-good payload from Aruba. Enumerate valid values for `dhGroup`, `pfs`, `cloudSite`, `onPremSite`, encode them as Go constants in `cmd/network.vpntunnel.go`, optionally validate client-side before the request, and document them in `docs/website/docs/resources/network/vpntunnel.md`. Then remove the `ACLOUD_RUN_VPN_TESTS` guard from the e2e test.
+
+---
+
+### TD-025 · VPN tunnel subnet semantics: CLI says "existing", API says "overlap"
+`cmd/network.vpntunnel.go:295-296` documents `--subnet-cidr` as *"CIDR of existing subnet"* and `--subnet-name` as an alternative lookup — i.e. a reference to a pre-existing subnet. But when a subnet with the referenced CIDR already exists in the VPC, the API responds `ipConfigurations.subnet.cidr overlaps with an existing subnet`, suggesting it interprets the field as a *provisioning* instruction rather than a lookup. The two readings are contradictory and the e2e test cannot safely pre-create the subnet.
+
+**Fix:** Confirm with the API team whether `ipConfigurations.subnet` is a reference or a creation spec. If it is a lookup, surface a clearer error when the subnet is missing. If it is a creation field, update the CLI `Long`, flag descriptions, and `docs/website/docs/resources/network/vpntunnel.md` accordingly, and remove the pre-create step from the e2e test.
+
+---
+
+### TD-026 · VPC Peering Route CREATE returns bare 403 Forbidden
+`network vpcpeeringroute create` against the e2e tenant returns HTTP 403 with no `errors` array. The CLI request matches the SDK model (`sdk-go@v0.1.26`); no hidden acceptance step or extra field is modelled; the parent peering is Active when the call fires. This points at an API-side IAM/ACL policy on the `Aruba.Network/vpcPeerings/{id}/routes/write` action scoped to this tenant — not a CLI bug. The e2e test detects the 403 and emits a ⚠ skip so the suite stays green.
+
+**Fix:** Confirm the required tenant/role permissions with Aruba and update the ACL accordingly. No CLI change is required — the e2e test will start running the full CRUD path automatically once CREATE stops returning 403.

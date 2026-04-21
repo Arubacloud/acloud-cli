@@ -175,6 +175,12 @@ var dbaasUserGetCmd = &cobra.Command{
 		if resp != nil && resp.Data != nil {
 			user := resp.Data
 
+			format := resolveOutputFormat()
+			if format == OutputFormatJSON || format == OutputFormatYAML {
+				PrintOutput(user, nil, nil)
+				return nil
+			}
+
 			fmt.Println("\nUser Details:")
 			fmt.Println("=============")
 
@@ -247,7 +253,7 @@ var dbaasUserListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No users found")
 		}

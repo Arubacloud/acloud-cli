@@ -6,40 +6,14 @@
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
-PROJECT_ID="${ACLOUD_PROJECT_ID:-your-project-id}"
-REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-RESOURCE_PREFIX="e2e-test-$(date +%s)"
-
-# Determine acloud command path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/../../acloud" ]; then
-    ACLOUD_CMD="$SCRIPT_DIR/../../acloud"
-elif [ -f "./acloud" ]; then
-    ACLOUD_CMD="./acloud"
-elif command -v acloud >/dev/null 2>&1; then
-    ACLOUD_CMD="acloud"
-else
-    ACLOUD_CMD="${ACLOUD_CMD:-./acloud}"
-fi
+# shellcheck source=../common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
 # Cleanup tracking
 CREATED_CLUSTERS=()
 CREATED_REGISTRIES=()
 
-echo -e "${BLUE}=== Container Resources E2E Test ===${NC}\n"
-echo "Project ID: $PROJECT_ID"
-echo "Region: $REGION"
-echo "Test prefix: $RESOURCE_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
+print_banner "Container"
 echo "Note: KaaS tests require the following environment variables:"
 echo "  - ACLOUD_VPC_URI (required)"
 echo "  - ACLOUD_SUBNET_URI (required)"
@@ -60,11 +34,39 @@ echo "  - ACLOUD_SECURITY_GROUP_URI (required)"
 echo "  - ACLOUD_BLOCK_STORAGE_URI (required)"
 echo ""
 
-# Function to extract resource ID from output
-extract_id() {
-    local output="$1"
-    # Try to extract ID from table output or JSON
-    echo "$output" | grep -oE '[a-f0-9]{24}' | tail -1 || echo ""
+# Test --output flag for container list commands
+test_output_formats() {
+    echo -e "${BLUE}--- Testing container list --output flag ---${NC}"
+
+    for resource_cmd in "kaas list" "containerregistry list"; do
+        local label="container $resource_cmd"
+        echo -e "${YELLOW}Testing $label --output json...${NC}"
+        JSON_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
+        JSON_EXIT=$?
+        if [ $JSON_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $label --output json: command failed (exit $JSON_EXIT)${NC}"
+        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
+        elif is_valid_json "$JSON_OUTPUT"; then
+            echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
+        else
+            echo -e "${RED}✗ $label --output json: output is not valid JSON${NC}"
+        fi
+
+        echo -e "${YELLOW}Testing $label --output yaml...${NC}"
+        YAML_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
+        YAML_EXIT=$?
+        if [ $YAML_EXIT -ne 0 ]; then
+            echo -e "${RED}✗ $label --output yaml: command failed (exit $YAML_EXIT)${NC}"
+        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
+        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+            echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
+        else
+            echo -e "${RED}✗ $label --output yaml: output does not look like YAML${NC}"
+        fi
+    done
+    echo ""
 }
 
 # Function to test KaaS operations
@@ -302,6 +304,7 @@ trap cleanup EXIT
 # Run tests
 test_kaas
 test_containerregistry
+test_output_formats
 
 # Summary
 echo -e "${BLUE}=== Test Summary ===${NC}"

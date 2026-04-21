@@ -231,7 +231,7 @@ Example target values:
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Security rule", name))
 		}
@@ -377,7 +377,7 @@ var securityruleListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, direction, protocol, port, target, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No security rules found.")
 		}
@@ -561,7 +561,7 @@ var securityruleUpdateCmd = &cobra.Command{
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security rule", securityRuleID))
 		}
@@ -629,7 +629,11 @@ var securityruleDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{securityRuleID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{securityRuleID, status}
+		PrintOutput(result, headers, [][]string{{securityRuleID, status}})
 		return nil
 	},
 }

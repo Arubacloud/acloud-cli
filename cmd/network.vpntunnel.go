@@ -71,6 +71,19 @@ func init() {
 	vpntunnelDeleteCmd.ValidArgsFunction = completeVPNTunnelID
 }
 
+// redactVPNTunnelSecrets strips PSK.Secret from each tunnel so it cannot leak
+// via --output json|yaml. The API should not return the secret on read, but the
+// SDK schema declares the field (PSKSettings.Secret) — never trust a type that
+// can carry credentials.
+func redactVPNTunnelSecrets(tunnels []types.VPNTunnelResponse) {
+	for i := range tunnels {
+		s := tunnels[i].Properties.VPNClientSettings
+		if s != nil && s.PSK != nil {
+			s.PSK.Secret = nil
+		}
+	}
+}
+
 // Completion functions for network resources
 
 func completeVPNTunnelID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -180,8 +193,8 @@ var vpntunnelListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, region, vpnType, status})
 			}
 
-			// Print the table
-			PrintTable(headers, rows)
+			redactVPNTunnelSecrets(response.Data.Values)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No VPN tunnels found")
 		}

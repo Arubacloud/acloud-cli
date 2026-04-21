@@ -1,0 +1,17 @@
+[
+  {
+    "name": "default",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
+  },
+  {
+    "name": "default-baremetal",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
+  },
+  {
+    "name": "cloud-v1",
+    "id": "xxxxxxxxxxxxxxxxxxxxx",
+    "creation_date": "26-03-2026"
+  }
+]

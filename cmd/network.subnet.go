@@ -200,7 +200,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 					}
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Subnet", name))
 		}
@@ -343,7 +343,7 @@ var subnetListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, region, cidr, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No subnets found.")
 		}
@@ -522,7 +522,7 @@ var subnetUpdateCmd = &cobra.Command{
 			if resp.Data.Status.State != nil {
 				status = *resp.Data.Status.State
 			}
-			PrintTable(headers, [][]string{{name, id, cidr, status}})
+			PrintOutput(resp.Data, headers, [][]string{{name, id, cidr, status}})
 		} else {
 			fmt.Println(msgUpdatedAsync("Subnet", subnetID))
 		}
@@ -585,7 +585,11 @@ var subnetDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{subnetID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{subnetID, status}
+		PrintOutput(result, headers, [][]string{{subnetID, status}})
 		return nil
 	},
 }

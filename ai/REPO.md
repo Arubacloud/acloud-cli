@@ -24,7 +24,7 @@ File naming follows a two-level convention:
 - `<category>.<resource>.go` — implements a specific resource (e.g., `storage.blockstorage.go`)
 
 Shared infrastructure lives in:
-- `root.go` — client caching, `GetArubaClient()`, `GetProjectID()`, `PrintTable()`
+- `root.go` — client caching, `GetArubaClient()`, `GetProjectID()`, `PrintOutput()`, `PrintTable()` (shim)
 - `config.go` — `LoadConfig()`, `SaveConfig()` for `~/.acloud.yaml`
 - `context.go` — context management for `~/.acloud-context.yaml`
 
