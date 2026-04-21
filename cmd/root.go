@@ -326,92 +326,114 @@ func resolveOutputFormat() string {
 // response object used for json/yaml modes; headers+rows drive the table modes.
 // Pass obj=nil when no rich object is available (e.g. delete confirmation rows).
 func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
-	format := resolveOutputFormat()
-
-	switch format {
+	switch resolveOutputFormat() {
 	case OutputFormatJSON:
-		if obj == nil {
-			fmt.Println("{}")
-			return
-		}
-		b, err := json.MarshalIndent(obj, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error marshalling to JSON: %v\n", err)
-			return
-		}
-		fmt.Println(string(b))
-		return
-
+		printJSON(obj)
 	case OutputFormatYAML:
-		if obj == nil {
-			fmt.Println("{}")
-			return
-		}
-		// Round-trip through JSON so SDK's json tags drive key names (camelCase),
-		// then decode into interface{} for yaml.Encoder to walk.
-		b, err := json.Marshal(obj)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error marshalling to JSON for YAML conversion: %v\n", err)
-			return
-		}
-		var intermediate any
-		if err := json.Unmarshal(b, &intermediate); err != nil {
-			fmt.Fprintf(os.Stderr, "error converting JSON to YAML intermediate: %v\n", err)
-			return
-		}
-		enc := yaml.NewEncoder(os.Stdout)
-		enc.SetIndent(2)
-		_ = enc.Encode(intermediate)
-		_ = enc.Close()
-		return
-
+		printYAML(obj)
 	case OutputFormatTableJSON:
-		keys := make([]string, len(headers))
-		for i, col := range headers {
-			keys[i] = normalizeHeaderKey(col.Header)
-		}
-		fmt.Print("[")
-		for ri, row := range rows {
-			if ri > 0 {
-				fmt.Print(",")
-			}
-			fmt.Print("\n  {")
-			for ki, key := range keys {
-				if ki >= len(row) {
-					break
-				}
-				if ki > 0 {
-					fmt.Print(",")
-				}
-				keyJSON, _ := json.Marshal(key)
-				valJSON, _ := json.Marshal(row[ki])
-				fmt.Printf("\n    %s: %s", keyJSON, valJSON)
-			}
-			fmt.Print("\n  }")
-		}
-		if len(rows) > 0 {
-			fmt.Print("\n")
-		}
-		fmt.Println("]")
-		return
-
+		printTableJSON(headers, rows)
 	case OutputFormatTableYAML:
-		records := rowsToRecords(headers, rows)
-		var doc yaml.Node
-		doc.Kind = yaml.SequenceNode
-		for i := range records {
-			doc.Content = append(doc.Content, &records[i])
-		}
-		enc := yaml.NewEncoder(os.Stdout)
-		enc.SetIndent(2)
-		_ = enc.Encode(&doc)
-		_ = enc.Close()
+		printTableYAML(headers, rows)
+	default:
+		printTable(headers, rows)
+	}
+}
+
+// printJSON serialises obj as indented JSON to stdout.
+// Emits {} when obj is nil so machine consumers always receive valid JSON.
+func printJSON(obj any) {
+	if obj == nil {
+		fmt.Println("{}")
 		return
 	}
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshalling to JSON: %v\n", err)
+		return
+	}
+	fmt.Println(string(b))
+}
 
-	// Default: fixed-width table
+// printYAML serialises obj as YAML to stdout.
+// SDK structs carry json tags but no yaml tags, so the value is first marshalled
+// to JSON and then decoded into interface{} before encoding as YAML; this keeps
+// key names in camelCase, consistent with the JSON output.
+// Emits {} when obj is nil.
+func printYAML(obj any) {
+	if obj == nil {
+		fmt.Println("{}")
+		return
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshalling to JSON for YAML conversion: %v\n", err)
+		return
+	}
+	var intermediate any
+	if err := json.Unmarshal(b, &intermediate); err != nil {
+		fmt.Fprintf(os.Stderr, "error converting JSON to YAML intermediate: %v\n", err)
+		return
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	_ = enc.Encode(intermediate)
+	_ = enc.Close()
+}
+
+// printTableJSON emits the table rows as an ordered JSON array of flat snake_case
+// objects. Keys are derived from column headers via normalizeHeaderKey; column
+// order is preserved by hand-building the JSON rather than using json.Marshal on a map.
+func printTableJSON(headers []TableColumn, rows [][]string) {
+	keys := make([]string, len(headers))
+	for i, col := range headers {
+		keys[i] = normalizeHeaderKey(col.Header)
+	}
+	fmt.Print("[")
+	for ri, row := range rows {
+		if ri > 0 {
+			fmt.Print(",")
+		}
+		fmt.Print("\n  {")
+		for ki, key := range keys {
+			if ki >= len(row) {
+				break
+			}
+			if ki > 0 {
+				fmt.Print(",")
+			}
+			keyJSON, _ := json.Marshal(key)
+			valJSON, _ := json.Marshal(row[ki])
+			fmt.Printf("\n    %s: %s", keyJSON, valJSON)
+		}
+		fmt.Print("\n  }")
+	}
+	if len(rows) > 0 {
+		fmt.Print("\n")
+	}
+	fmt.Println("]")
+}
+
+// printTableYAML emits the table rows as a YAML sequence of flat snake_case mappings.
+// yaml.Node is used to preserve column order (plain yaml.Marshal of a map does not).
+func printTableYAML(headers []TableColumn, rows [][]string) {
+	records := rowsToRecords(headers, rows)
+	var doc yaml.Node
+	doc.Kind = yaml.SequenceNode
+	for i := range records {
+		doc.Content = append(doc.Content, &records[i])
+	}
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	_ = enc.Encode(&doc)
+	_ = enc.Close()
+}
+
+// printTable emits a fixed-width text table to stdout.
+// Values longer than the column Width are truncated with "...".
+func printTable(headers []TableColumn, rows [][]string) {
 	formatStr := ""
-	headerValues := make([]interface{}, len(headers))
+	headerValues := make([]any, len(headers))
 	for i, col := range headers {
 		formatStr += fmt.Sprintf("%%-%ds ", col.Width)
 		headerValues[i] = col.Header
@@ -420,7 +442,7 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 	fmt.Printf(formatStr, headerValues...)
 
 	for _, row := range rows {
-		rowValues := make([]interface{}, len(row))
+		rowValues := make([]any, len(row))
 		for i, val := range row {
 			if len(headers) > i && len(val) > headers[i].Width {
 				val = val[:headers[i].Width-3] + "..."

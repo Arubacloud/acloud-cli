@@ -160,11 +160,17 @@ The global `--output / -o` flag (declared once on `rootCmd`, inherited by every 
 ### Unified output (`PrintOutput`)
 
 `PrintOutput(obj any, headers []TableColumn, rows [][]string)` in `cmd/root.go`:
-- Reads `resolveOutputFormat()` (normalises aliases, falls back to `OutputFormatTable` for unknown values with a stderr warning).
+- Pure dispatcher: calls `resolveOutputFormat()` and delegates to one of five private functions.
 - `table` / `table-json` / `table-yaml` branches use `headers` + `rows` (flat, pre-formatted strings).
-- `json` branch: `json.MarshalIndent(obj, "", "  ")`. If `obj` is `nil`, emits `{}`.
-- `yaml` branch: JSON → `interface{}` → `yaml.Encoder` round-trip. SDK structs carry `json:"…"` tags but no `yaml:"…"` tags; this round-trip produces camelCase keys consistent with the JSON output.
-- `table-json` hand-emits ordered JSON (not `json.Marshal` of a map) to preserve column order; `table-yaml` uses `yaml.Node` sequences for the same reason.
+- `json` / `yaml` branches use `obj` (the full SDK response); `obj=nil` emits `{}`.
+
+| Private function | Format | Notes |
+|---|---|---|
+| `printJSON(obj)` | `json` | `json.MarshalIndent`; nil → `{}` |
+| `printYAML(obj)` | `yaml` | JSON → `interface{}` → `yaml.Encoder` round-trip (SDK structs have `json` tags but no `yaml` tags; keeps camelCase keys) |
+| `printTableJSON(headers, rows)` | `table-json` | Hand-built ordered JSON array — `json.Marshal` of a map loses column order |
+| `printTableYAML(headers, rows)` | `table-yaml` | `yaml.Node` sequence — preserves column order |
+| `printTable(headers, rows)` | `table` (default) | Fixed-width `%-Ns` printf; values longer than Width truncated with `"..."` |
 
 `PrintTable(headers, rows)` is a thin shim around `PrintOutput(nil, headers, rows)` kept for backward compatibility; it will be removed in a follow-up.
 
