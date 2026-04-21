@@ -52,6 +52,9 @@ is_valid_json() {
 
 # Test --output flag for project list
 test_project_output_formats() {
+    local fn_fail=0
+    _fn_fail() { fn_fail=$((fn_fail + 1)); echo -e "${RED}✗ $*${NC}"; }
+
     echo -e "${BLUE}--- Testing management project list --output flag ---${NC}"
 
     for fmt in "" table std standard; do
@@ -67,7 +70,7 @@ test_project_output_formats() {
         if [ $EXIT -eq 0 ]; then
             echo -e "${GREEN}✓ $label: command succeeded${NC}"
         else
-            echo -e "${RED}✗ $label: command failed (exit $EXIT)${NC}"
+            _fn_fail "$label: command failed (exit $EXIT)"
             echo "$OUT"
         fi
     done
@@ -76,7 +79,7 @@ test_project_output_formats() {
     TABLE_JSON_OUTPUT=$($ACLOUD_CMD management project list --output table-json 2>&1)
     TABLE_JSON_EXIT=$?
     if [ $TABLE_JSON_EXIT -ne 0 ]; then
-        echo -e "${RED}✗ --output table-json: command failed (exit $TABLE_JSON_EXIT)${NC}"
+        _fn_fail "--output table-json: command failed (exit $TABLE_JSON_EXIT)"
         echo "$TABLE_JSON_OUTPUT"
     elif echo "$TABLE_JSON_OUTPUT" | grep -qF "No projects found"; then
         echo -e "${YELLOW}⚠ --output table-json: no resources — format validation skipped${NC}"
@@ -85,10 +88,10 @@ test_project_output_formats() {
         if echo "$TABLE_JSON_OUTPUT" | grep -q '"name"'; then
             echo -e "${GREEN}✓ --output table-json: 'name' key present${NC}"
         else
-            echo -e "${RED}✗ --output table-json: 'name' key missing${NC}"
+            _fn_fail "--output table-json: 'name' key missing"
         fi
     else
-        echo -e "${RED}✗ --output table-json: output is not valid JSON${NC}"
+        _fn_fail "--output table-json: output is not valid JSON"
         echo "$TABLE_JSON_OUTPUT"
     fi
 
@@ -96,7 +99,7 @@ test_project_output_formats() {
     TABLE_YAML_OUTPUT=$($ACLOUD_CMD management project list --output table-yaml 2>&1)
     TABLE_YAML_EXIT=$?
     if [ $TABLE_YAML_EXIT -ne 0 ]; then
-        echo -e "${RED}✗ --output table-yaml: command failed (exit $TABLE_YAML_EXIT)${NC}"
+        _fn_fail "--output table-yaml: command failed (exit $TABLE_YAML_EXIT)"
         echo "$TABLE_YAML_OUTPUT"
     elif echo "$TABLE_YAML_OUTPUT" | grep -qF "No projects found"; then
         echo -e "${YELLOW}⚠ --output table-yaml: no resources — format validation skipped${NC}"
@@ -105,10 +108,10 @@ test_project_output_formats() {
         if echo "$TABLE_YAML_OUTPUT" | grep -q 'name:'; then
             echo -e "${GREEN}✓ --output table-yaml: 'name' key present${NC}"
         else
-            echo -e "${RED}✗ --output table-yaml: 'name' key missing${NC}"
+            _fn_fail "--output table-yaml: 'name' key missing"
         fi
     else
-        echo -e "${RED}✗ --output table-yaml: output does not look like YAML${NC}"
+        _fn_fail "--output table-yaml: output does not look like YAML"
         echo "$TABLE_YAML_OUTPUT"
     fi
 
@@ -116,7 +119,7 @@ test_project_output_formats() {
     JSON_OUTPUT=$($ACLOUD_CMD management project list --output json 2>&1)
     JSON_EXIT=$?
     if [ $JSON_EXIT -ne 0 ]; then
-        echo -e "${RED}✗ --output json: command failed (exit $JSON_EXIT)${NC}"
+        _fn_fail "--output json: command failed (exit $JSON_EXIT)"
         echo "$JSON_OUTPUT"
     elif echo "$JSON_OUTPUT" | grep -qF "No projects found"; then
         echo -e "${YELLOW}⚠ --output json: no resources — format validation skipped${NC}"
@@ -128,7 +131,7 @@ test_project_output_formats() {
             echo -e "${YELLOW}⚠ --output json: 'values' key not found (empty list or different shape)${NC}"
         fi
     else
-        echo -e "${RED}✗ --output json: output is not valid JSON${NC}"
+        _fn_fail "--output json: output is not valid JSON"
         echo "$JSON_OUTPUT"
     fi
 
@@ -136,7 +139,7 @@ test_project_output_formats() {
     YAML_OUTPUT=$($ACLOUD_CMD management project list --output yaml 2>&1)
     YAML_EXIT=$?
     if [ $YAML_EXIT -ne 0 ]; then
-        echo -e "${RED}✗ --output yaml: command failed (exit $YAML_EXIT)${NC}"
+        _fn_fail "--output yaml: command failed (exit $YAML_EXIT)"
         echo "$YAML_OUTPUT"
     elif echo "$YAML_OUTPUT" | grep -qF "No projects found"; then
         echo -e "${YELLOW}⚠ --output yaml: no resources — format validation skipped${NC}"
@@ -148,11 +151,12 @@ test_project_output_formats() {
             echo -e "${YELLOW}⚠ --output yaml: 'values' key not found (empty list or different shape)${NC}"
         fi
     else
-        echo -e "${RED}✗ --output yaml: output does not look like YAML${NC}"
+        _fn_fail "--output yaml: output does not look like YAML"
         echo "$YAML_OUTPUT"
     fi
 
     echo ""
+    return $fn_fail
 }
 
 # Function to test Project CRUD

@@ -50,6 +50,14 @@ CREATED_PEERING_ROUTES=()
 CREATED_VPN_TUNNELS=()
 CREATED_VPN_ROUTES=()
 
+# Failure tracking — every sub-check that prints a red ✗ calls fail() to
+# increment this counter. The final exit code is non-zero iff FAILURES>0.
+FAILURES=0
+fail() {
+    FAILURES=$((FAILURES + 1))
+    echo -e "${RED}✗ $*${NC}"
+}
+
 echo -e "${BLUE}=== Network Resources E2E Test ===${NC}\n"
 echo "Project ID: $PROJECT_ID"
 echo "Region: $REGION"
@@ -132,26 +140,26 @@ test_output_formats() {
         JSON_OUTPUT=$($ACLOUD_CMD network $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
         JSON_EXIT=$?
         if [ $JSON_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output json: command failed (exit $JSON_EXIT)${NC}"
+            fail "$label --output json: command failed (exit $JSON_EXIT)"
         elif echo "$JSON_OUTPUT" | grep -qF "No "; then
             echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
         elif is_valid_json "$JSON_OUTPUT"; then
             echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
         else
-            echo -e "${RED}✗ $label --output json: output is not valid JSON${NC}"
+            fail "$label --output json: output is not valid JSON"
         fi
 
         echo -e "${YELLOW}Testing $label --output yaml...${NC}"
         YAML_OUTPUT=$($ACLOUD_CMD network $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
         YAML_EXIT=$?
         if [ $YAML_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output yaml: command failed (exit $YAML_EXIT)${NC}"
+            fail "$label --output yaml: command failed (exit $YAML_EXIT)"
         elif echo "$YAML_OUTPUT" | grep -qF "No "; then
             echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
         elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
             echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
         else
-            echo -e "${RED}✗ $label --output yaml: output does not look like YAML${NC}"
+            fail "$label --output yaml: output does not look like YAML"
         fi
     done
     echo ""
@@ -442,7 +450,7 @@ test_subnet() {
     echo -e "${YELLOW}=== 2. Subnet CRUD Test ===${NC}\n"
     local output
     output=$(test_resource "Subnet" \
-        "$ACLOUD_CMD network subnet create $VPC_ID --name ${RESOURCE_PREFIX}-subnet --cidr 10.150.0.0/24 --region $REGION" \
+        "$ACLOUD_CMD network subnet create $VPC_ID --name ${RESOURCE_PREFIX}-subnet --cidr 10.150.0.0/24 --dhcp-enabled --region $REGION" \
         "$ACLOUD_CMD network subnet list $VPC_ID" \
         "$ACLOUD_CMD network subnet get $VPC_ID \$RESOURCE_ID" \
         "$ACLOUD_CMD network subnet update $VPC_ID \$RESOURCE_ID --name ${RESOURCE_PREFIX}-subnet-updated --tags updated" \
@@ -744,23 +752,23 @@ else
     fi
 fi
 
-test_subnet || echo -e "${YELLOW}Subnet test completed with errors${NC}\n"
-test_security_group || echo -e "${YELLOW}Security Group test completed with errors${NC}\n"
-test_security_rule || echo -e "${YELLOW}Security Rule test completed with errors${NC}\n"
-test_elastic_ip || echo -e "${YELLOW}Elastic IP test completed with errors${NC}\n"
+test_subnet         || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}Subnet test completed with errors${NC}\n"; }
+test_security_group || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}Security Group test completed with errors${NC}\n"; }
+test_security_rule  || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}Security Rule test completed with errors${NC}\n"; }
+test_elastic_ip     || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}Elastic IP test completed with errors${NC}\n"; }
 
 # VPC Peering tests (require peer VPC)
 if [ -n "$PEER_VPC_ID" ] && [ "$PEER_VPC_ID" != "your-peer-vpc-id" ]; then
-    test_vpc_peering || echo -e "${YELLOW}VPC Peering test completed with errors${NC}\n"
-    test_vpc_peering_route || echo -e "${YELLOW}VPC Peering Route test completed with errors${NC}\n"
+    test_vpc_peering       || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}VPC Peering test completed with errors${NC}\n"; }
+    test_vpc_peering_route || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}VPC Peering Route test completed with errors${NC}\n"; }
 else
     echo -e "${YELLOW}Skipping VPC Peering tests (PEER_VPC_ID not set or invalid)${NC}\n"
 fi
 
 # VPN tests (require Elastic IP)
 if [ -n "$ELASTIC_IP_URI" ] && [ "$ELASTIC_IP_URI" != "your-elastic-ip-uri" ]; then
-    test_vpn_tunnel || echo -e "${YELLOW}VPN Tunnel test completed with errors${NC}\n"
-    test_vpn_route || echo -e "${YELLOW}VPN Route test completed with errors${NC}\n"
+    test_vpn_tunnel || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}VPN Tunnel test completed with errors${NC}\n"; }
+    test_vpn_route  || { FAILURES=$((FAILURES + 1)); echo -e "${YELLOW}VPN Route test completed with errors${NC}\n"; }
 else
     echo -e "${YELLOW}Skipping VPN tests (ELASTIC_IP_URI not set or invalid)${NC}\n"
 fi
@@ -814,3 +822,10 @@ else
 fi
 echo ""
 
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Network E2E: all checks passed ===${NC}"
+    exit 0
+else
+    echo -e "${RED}=== Network E2E: $FAILURES check(s) failed ===${NC}"
+    exit 1
+fi

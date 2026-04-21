@@ -37,6 +37,14 @@ CREATED_BACKUPS=()
 CREATED_RESTORES=()
 BACKUP_ID=""  # Track backup ID for restore operations
 
+# Failure tracking — every sub-check that prints a red ✗ calls fail() to
+# increment this counter. The final exit code is non-zero iff FAILURES>0.
+FAILURES=0
+fail() {
+    FAILURES=$((FAILURES + 1))
+    echo -e "${RED}✗ $*${NC}"
+}
+
 echo -e "${BLUE}=== Storage Resources E2E Test ===${NC}\n"
 echo "Project ID: $PROJECT_ID"
 echo "Region: $REGION"
@@ -93,26 +101,26 @@ test_output_formats() {
         JSON_OUTPUT=$($ACLOUD_CMD storage $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
         JSON_EXIT=$?
         if [ $JSON_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output json: command failed (exit $JSON_EXIT)${NC}"
+            fail "$label --output json: command failed (exit $JSON_EXIT)"
         elif echo "$JSON_OUTPUT" | grep -qF "No "; then
             echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
         elif is_valid_json "$JSON_OUTPUT"; then
             echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
         else
-            echo -e "${RED}✗ $label --output json: output is not valid JSON${NC}"
+            fail "$label --output json: output is not valid JSON"
         fi
 
         echo -e "${YELLOW}Testing $label --output yaml...${NC}"
         YAML_OUTPUT=$($ACLOUD_CMD storage $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
         YAML_EXIT=$?
         if [ $YAML_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output yaml: command failed (exit $YAML_EXIT)${NC}"
+            fail "$label --output yaml: command failed (exit $YAML_EXIT)"
         elif echo "$YAML_OUTPUT" | grep -qF "No "; then
             echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
         elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
             echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
         else
-            echo -e "${RED}✗ $label --output yaml: output does not look like YAML${NC}"
+            fail "$label --output yaml: output does not look like YAML"
         fi
     done
     echo ""
@@ -351,14 +359,16 @@ if test_block_storage; then
         VOLUME_ID="${CREATED_VOLUMES[0]}"
     fi
     if [ -n "$VOLUME_ID" ]; then
-        test_snapshot "$VOLUME_ID"
+        test_snapshot "$VOLUME_ID" || FAILURES=$((FAILURES + 1))
     else
         echo -e "${YELLOW}Skipping snapshot test (no volume ID available)${NC}\n"
     fi
+else
+    FAILURES=$((FAILURES + 1))
 fi
 
-test_backup
-test_restore
+test_backup || FAILURES=$((FAILURES + 1))
+test_restore || FAILURES=$((FAILURES + 1))
 test_output_formats
 
 echo -e "${GREEN}=== All Storage Tests Completed! ===${NC}\n"
@@ -388,3 +398,10 @@ else
 fi
 echo ""
 
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Storage E2E: all checks passed ===${NC}"
+    exit 0
+else
+    echo -e "${RED}=== Storage E2E: $FAILURES check(s) failed ===${NC}"
+    exit 1
+fi
