@@ -54,6 +54,25 @@ wait_for_volume_ready() {
     return 1
 }
 
+# Poll a snapshot until it leaves transient states, or until timeout elapses.
+wait_for_snapshot_ready() {
+    local snapshot_id="$1"
+    local timeout="${2:-180}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$($ACLOUD_CMD storage snapshot get "$snapshot_id" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        case "$status" in
+            ""|InCreation|Creating|Pending) sleep 5; elapsed=$((elapsed + 5));;
+            *) echo "  → snapshot $snapshot_id ready (status=$status)"; return 0;;
+        esac
+    done
+    echo -e "${YELLOW}wait_for_snapshot_ready: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
+}
+
 # Cleanup function
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up test resources...${NC}"
@@ -210,7 +229,12 @@ test_snapshot() {
     fi
     CREATED_SNAPSHOTS+=("$SNAPSHOT_ID")
     echo -e "${GREEN}Created snapshot ID: $SNAPSHOT_ID${NC}\n"
-    
+
+    # Wait for snapshot to leave InCreation before attempting UPDATE
+    echo "Waiting for snapshot to be ready..."
+    wait_for_snapshot_ready "$SNAPSHOT_ID" 180 || \
+        echo -e "${YELLOW}Warning: snapshot not ready after 180s — UPDATE may still fail${NC}"
+
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing snapshots..."
     LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list --volume-uri "$VOLUME_URI" 2>&1) || {
