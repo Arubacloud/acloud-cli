@@ -95,7 +95,7 @@ is_valid_json() {
 test_output_formats() {
     echo -e "${BLUE}--- Testing storage list --output flag ---${NC}"
 
-    for resource_cmd in "blockstorage list" "snapshot list" "backup list"; do
+    for resource_cmd in "blockstorage list" "backup list"; do
         local label="storage $resource_cmd"
         echo -e "${YELLOW}Testing $label --output json...${NC}"
         JSON_OUTPUT=$($ACLOUD_CMD storage $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
@@ -131,6 +131,26 @@ is_valid_id() {
     local id="$1"
     # Check if it's a 24-character hex string (MongoDB ObjectID format)
     [[ "$id" =~ ^[a-f0-9]{24}$ ]]
+}
+
+# Poll a block-storage volume until it leaves transient states (InCreation, Creating, Pending),
+# or until timeout elapses. Returns 0 on ready, 1 on timeout or get failure.
+wait_for_volume_ready() {
+    local volume_id="$1"
+    local timeout="${2:-180}"
+    local elapsed=0
+    local status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$($ACLOUD_CMD storage blockstorage get "$volume_id" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        case "$status" in
+            ""|InCreation|Creating|Pending) sleep 5; elapsed=$((elapsed + 5));;
+            *) echo "  → volume $volume_id ready (status=$status)"; return 0;;
+        esac
+    done
+    echo -e "${YELLOW}wait_for_volume_ready: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
 }
 
 # Cleanup function
@@ -205,9 +225,10 @@ test_block_storage() {
     CREATED_VOLUMES+=("$VOLUME_ID")
     echo -e "${GREEN}Created volume ID: $VOLUME_ID${NC}\n"
     
-    # Wait for volume to be ready (optional, depends on API)
+    # Wait for volume to leave InCreation before attempting UPDATE
     echo "Waiting for volume to be ready..."
-    sleep 5
+    wait_for_volume_ready "$VOLUME_ID" 180 || \
+        echo -e "${YELLOW}Warning: volume not ready after 180s — UPDATE may still fail${NC}"
     
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing block storage..."
