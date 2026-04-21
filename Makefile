@@ -1,5 +1,11 @@
 # Makefile for acloud-cli local development
 
+# Use bash with xpg_echo so plain `echo` interprets ANSI escape sequences
+# (\033[...]) without needing `-e`. Required for the colorised output below
+# on systems where /bin/sh is bash but `echo` defaults to POSIX behaviour.
+SHELL := /bin/bash
+.SHELLFLAGS := -O xpg_echo -c
+
 # Variables
 BINARY_NAME=acloud
 BINARY_WIN=$(BINARY_NAME).exe
