@@ -193,7 +193,7 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPN route", name))
 		}
@@ -325,7 +325,7 @@ var vpnrouteListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, cloudSubnet, onPremSubnet, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No VPN routes found.")
 		}
@@ -468,7 +468,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPN route", routeID))
 		}
@@ -535,7 +535,11 @@ var vpnrouteDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{routeID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{routeID, status}
+		PrintOutput(result, headers, [][]string{{routeID, status}})
 		return nil
 	},
 }

@@ -188,7 +188,7 @@ Billing period: Hour (default), Month, or Year.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPC peering route", name))
 		}
@@ -299,7 +299,7 @@ var vpcpeeringrouteListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, localNetwork, remoteNetwork, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No VPC peering routes found.")
 		}
@@ -423,7 +423,7 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC peering route", routeID))
 		}
@@ -491,7 +491,11 @@ var vpcpeeringrouteDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{routeID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{routeID, status}
+		PrintOutput(result, headers, [][]string{{routeID, status}})
 		return nil
 	},
 }

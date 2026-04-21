@@ -329,7 +329,7 @@ Billing period: Hour (default), Month, or Year.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("KaaS cluster", name))
 		}
@@ -753,7 +753,7 @@ var kaasListCmd = &cobra.Command{
 				})
 			}
 
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No KaaS clusters found")
 		}

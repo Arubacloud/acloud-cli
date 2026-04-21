@@ -152,7 +152,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 				}(),
 				publicKeyValue,
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Keypair", name))
 		}
@@ -190,6 +190,12 @@ var keypairGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			keypair := resp.Data
+
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(keypair, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nKeypair Details:")
 			fmt.Println("===============")
@@ -354,7 +360,7 @@ var keypairListCmd = &cobra.Command{
 				fmt.Println("No keypairs found")
 				return nil
 			}
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No keypairs found")
 		}

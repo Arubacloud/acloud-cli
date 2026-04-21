@@ -624,7 +624,7 @@ var containerregistryListCmd = &cobra.Command{
 				})
 			}
 
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No container registries found")
 		}

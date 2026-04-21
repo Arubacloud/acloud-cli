@@ -218,7 +218,7 @@ Billing period: Hour (default), Month, or Year.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Backup", name))
 		}
@@ -256,6 +256,12 @@ var backupGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			backup := resp.Data
+
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(backup, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nBackup Details:")
 			fmt.Println("==============")
@@ -360,7 +366,7 @@ var backupListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No backups found")
 		}

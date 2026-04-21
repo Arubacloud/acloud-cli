@@ -267,7 +267,7 @@ var storageRestoreListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, status})
 			}
 
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No restores found for this backup")
 		}

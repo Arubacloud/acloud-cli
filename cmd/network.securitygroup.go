@@ -103,7 +103,7 @@ after the group is created.`,
 					}
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Security group", name))
 		}
@@ -224,7 +224,7 @@ var securitygroupListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No security groups found.")
 		}
@@ -334,7 +334,7 @@ var securitygroupUpdateCmd = &cobra.Command{
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(resp.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security group", sgID))
 		}
@@ -397,7 +397,11 @@ var securitygroupDeleteCmd = &cobra.Command{
 			{Header: "STATUS", Width: 15},
 		}
 		status := "deleted"
-		PrintTable(headers, [][]string{{sgID, status}})
+		result := struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}{sgID, status}
+		PrintOutput(result, headers, [][]string{{sgID, status}})
 		return nil
 	},
 }

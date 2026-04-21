@@ -203,7 +203,7 @@ and users with 'acloud database dbaas user create'.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("DBaaS instance", name))
 		}
@@ -241,6 +241,12 @@ var dbaasGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			dbaas := resp.Data
+
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(dbaas, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nDBaaS Instance Details:")
 			fmt.Println("======================")
@@ -380,7 +386,7 @@ var dbaasListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No DBaaS instances found")
 		}

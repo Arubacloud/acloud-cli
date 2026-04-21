@@ -227,7 +227,7 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 					return ""
 				}(),
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Job", name))
 		}
@@ -265,6 +265,12 @@ var jobGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			job := resp.Data
+
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(job, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nJob Details:")
 			fmt.Println("============")
@@ -394,7 +400,7 @@ var jobListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No jobs found")
 		}

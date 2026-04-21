@@ -171,6 +171,12 @@ var dbaasDatabaseGetCmd = &cobra.Command{
 		if resp != nil && resp.Data != nil {
 			db := resp.Data
 
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(db, nil, nil)
+				return nil
+			}
+
 			fmt.Println("\nDatabase Details:")
 			fmt.Println("================")
 
@@ -243,7 +249,7 @@ var dbaasDatabaseListCmd = &cobra.Command{
 				}
 				rows = append(rows, row)
 			}
-			PrintTable(headers, rows)
+			PrintOutput(resp.Data, headers, rows)
 		} else {
 			fmt.Println("No databases found")
 		}

@@ -294,7 +294,7 @@ Billing period: Hour (default), Month, or Year.`,
 				fmt.Sprintf("%d", hd),
 				regionValue,
 			}
-			PrintTable(headers, [][]string{row})
+			PrintOutput(response.Data, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Cloud server", name))
 		}
@@ -332,6 +332,12 @@ var cloudserverGetCmd = &cobra.Command{
 
 		if resp != nil && resp.Data != nil {
 			server := resp.Data
+
+			format := resolveOutputFormat()
+			if format == "json" || format == "yaml" {
+				PrintOutput(server, nil, nil)
+				return nil
+			}
 
 			fmt.Println("\nCloud Server Details:")
 			fmt.Println("====================")
@@ -612,7 +618,7 @@ var cloudserverListCmd = &cobra.Command{
 				fmt.Println("No cloud servers found")
 				return nil
 			}
-			PrintTable(headers, rows)
+			PrintOutput(response.Data, headers, rows)
 		} else {
 			fmt.Println("No cloud servers found")
 		}
