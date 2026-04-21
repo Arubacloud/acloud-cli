@@ -76,7 +76,7 @@ func init() {
 	// Add global debug flag (TD-012: description warns about credential exposure)
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
 	// Add global output format flag (TD-016)
-	rootCmd.PersistentFlags().StringP("output", "o", "table", "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
+	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 }
 
 // GetArubaClient creates and returns an Aruba Cloud SDK client using stored credentials
@@ -299,26 +299,26 @@ type TableColumn struct {
 }
 
 // resolveOutputFormat reads the global --output flag and normalises aliases to one
-// of the five canonical names: table, table-json, table-yaml, json, yaml.
+// of the five canonical names in constants.go (OutputFormat*).
 func resolveOutputFormat() string {
 	if rootCmd == nil {
-		return "table"
+		return OutputFormatTable
 	}
 	raw, _ := rootCmd.PersistentFlags().GetString("output")
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "table", "std", "standard", "":
-		return "table"
-	case "table-json", "std-json", "standard-json":
-		return "table-json"
-	case "table-yaml", "std-yaml", "standard-yaml":
-		return "table-yaml"
-	case "json":
-		return "json"
-	case "yaml":
-		return "yaml"
+	case OutputFormatTable, OutputAliasStd, OutputAliasStandard, "":
+		return OutputFormatTable
+	case OutputFormatTableJSON, OutputAliasStdJSON, OutputAliasStandardJSON:
+		return OutputFormatTableJSON
+	case OutputFormatTableYAML, OutputAliasStdYAML, OutputAliasStandardYAML:
+		return OutputFormatTableYAML
+	case OutputFormatJSON:
+		return OutputFormatJSON
+	case OutputFormatYAML:
+		return OutputFormatYAML
 	default:
-		fmt.Fprintf(os.Stderr, "warning: unknown --output value %q, falling back to table\n", raw)
-		return "table"
+		fmt.Fprintf(os.Stderr, "warning: unknown --output value %q, falling back to %s\n", raw, OutputFormatTable)
+		return OutputFormatTable
 	}
 }
 
@@ -329,7 +329,7 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 	format := resolveOutputFormat()
 
 	switch format {
-	case "json":
+	case OutputFormatJSON:
 		if obj == nil {
 			fmt.Println("{}")
 			return
@@ -342,7 +342,7 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 		fmt.Println(string(b))
 		return
 
-	case "yaml":
+	case OutputFormatYAML:
 		if obj == nil {
 			fmt.Println("{}")
 			return
@@ -365,7 +365,7 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 		_ = enc.Close()
 		return
 
-	case "table-json":
+	case OutputFormatTableJSON:
 		keys := make([]string, len(headers))
 		for i, col := range headers {
 			keys[i] = normalizeHeaderKey(col.Header)
@@ -395,7 +395,7 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 		fmt.Println("]")
 		return
 
-	case "table-yaml":
+	case OutputFormatTableYAML:
 		records := rowsToRecords(headers, rows)
 		var doc yaml.Node
 		doc.Kind = yaml.SequenceNode

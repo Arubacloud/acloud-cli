@@ -258,7 +258,7 @@ var backupGetCmd = &cobra.Command{
 			backup := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(backup, nil, nil)
 				return nil
 			}

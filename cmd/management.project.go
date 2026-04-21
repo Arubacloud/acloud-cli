@@ -214,7 +214,7 @@ var projectGetCmd = &cobra.Command{
 			project := response.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(project, nil, nil)
 				return nil
 			}

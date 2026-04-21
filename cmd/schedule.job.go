@@ -267,7 +267,7 @@ var jobGetCmd = &cobra.Command{
 			job := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(job, nil, nil)
 				return nil
 			}

@@ -172,7 +172,7 @@ var dbaasDatabaseGetCmd = &cobra.Command{
 			db := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(db, nil, nil)
 				return nil
 			}

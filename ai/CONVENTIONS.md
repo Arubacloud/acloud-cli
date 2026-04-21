@@ -210,7 +210,7 @@ if err != nil { ... return }
 
 // Honour -o json / -o yaml before the human-formatted block
 format := resolveOutputFormat()
-if format == "json" || format == "yaml" {
+if format == OutputFormatJSON || format == OutputFormatYAML {
     PrintOutput(resp.Data, nil, nil)
     return nil
 }

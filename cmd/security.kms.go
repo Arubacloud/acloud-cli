@@ -211,7 +211,7 @@ var kmsGetCmd = &cobra.Command{
 			kms := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(kms, nil, nil)
 				return nil
 			}

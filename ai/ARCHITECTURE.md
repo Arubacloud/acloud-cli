@@ -160,7 +160,7 @@ The global `--output / -o` flag (declared once on `rootCmd`, inherited by every 
 ### Unified output (`PrintOutput`)
 
 `PrintOutput(obj any, headers []TableColumn, rows [][]string)` in `cmd/root.go`:
-- Reads `resolveOutputFormat()` (normalises aliases, falls back to `"table"` for unknown values with a stderr warning).
+- Reads `resolveOutputFormat()` (normalises aliases, falls back to `OutputFormatTable` for unknown values with a stderr warning).
 - `table` / `table-json` / `table-yaml` branches use `headers` + `rows` (flat, pre-formatted strings).
 - `json` branch: `json.MarshalIndent(obj, "", "  ")`. If `obj` is `nil`, emits `{}`.
 - `yaml` branch: JSON → `interface{}` → `yaml.Encoder` round-trip. SDK structs carry `json:"…"` tags but no `yaml:"…"` tags; this round-trip produces camelCase keys consistent with the JSON output.
@@ -191,7 +191,7 @@ Name:  <value>
 For `json` / `yaml` modes, get commands have an early-return that emits the full SDK data object:
 ```go
 format := resolveOutputFormat()
-if format == "json" || format == "yaml" {
+if format == OutputFormatJSON || format == OutputFormatYAML {
     PrintOutput(resp.Data, nil, nil)
     return nil
 }

@@ -334,7 +334,7 @@ var cloudserverGetCmd = &cobra.Command{
 			server := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(server, nil, nil)
 				return nil
 			}

@@ -192,7 +192,7 @@ var keypairGetCmd = &cobra.Command{
 			keypair := resp.Data
 
 			format := resolveOutputFormat()
-			if format == "json" || format == "yaml" {
+			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(keypair, nil, nil)
 				return nil
 			}
