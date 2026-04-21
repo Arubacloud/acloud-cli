@@ -147,12 +147,26 @@ No `PreRun`, `PostRun`, or middleware hooks exist anywhere in the codebase.
 
 ## Output Patterns
 
-### Table output (primary)
+The global `--output / -o` flag (declared once on `rootCmd`, inherited by every command) controls the output format. Five canonical modes are supported:
 
-`PrintTable(headers []TableColumn, rows [][]string)` in `cmd/root.go`:
-- Left-justifies columns using `%-Ns` format strings.
-- Truncates values longer than `Width` with `"..."`.
-- Used in every `list` command and most `create`/`update` responses.
+| Mode | Aliases | Shape |
+|------|---------|-------|
+| `table` | `std`, `standard` | Fixed-width text table (default) |
+| `table-json` | `std-json`, `standard-json` | JSON array of flat snake_case row objects |
+| `table-yaml` | `std-yaml`, `standard-yaml` | YAML sequence of flat snake_case mappings |
+| `json` | — | Full SDK response object as indented JSON |
+| `yaml` | — | Full SDK response object as YAML |
+
+### Unified output (`PrintOutput`)
+
+`PrintOutput(obj any, headers []TableColumn, rows [][]string)` in `cmd/root.go`:
+- Reads `resolveOutputFormat()` (normalises aliases, falls back to `"table"` for unknown values with a stderr warning).
+- `table` / `table-json` / `table-yaml` branches use `headers` + `rows` (flat, pre-formatted strings).
+- `json` branch: `json.MarshalIndent(obj, "", "  ")`. If `obj` is `nil`, emits `{}`.
+- `yaml` branch: JSON → `interface{}` → `yaml.Encoder` round-trip. SDK structs carry `json:"…"` tags but no `yaml:"…"` tags; this round-trip produces camelCase keys consistent with the JSON output.
+- `table-json` hand-emits ordered JSON (not `json.Marshal` of a map) to preserve column order; `table-yaml` uses `yaml.Node` sequences for the same reason.
+
+`PrintTable(headers, rows)` is a thin shim around `PrintOutput(nil, headers, rows)` kept for backward compatibility; it will be removed in a follow-up.
 
 ```go
 headers := []TableColumn{
@@ -160,29 +174,28 @@ headers := []TableColumn{
     {Header: "ID",      Width: 26},
     {Header: "STATUS",  Width: 15},
 }
-PrintTable(headers, rows)
+// list: pass full response so -o json / -o yaml emit the SDK envelope
+PrintOutput(response.Data, headers, rows)
 ```
-
-### Verbose JSON output (secondary)
-
-Only present on a few compute commands via `--verbose / -v`:
-```go
-if verbose {
-    jsonData, _ := json.MarshalIndent(resource, "", "  ")
-    fmt.Println(string(jsonData))
-}
-```
-
-There is no global `--output=json` flag — JSON is only a debug aid.
 
 ### `get` command output
 
-Detail views use `fmt.Printf` with labeled fields, not `PrintTable`:
+For `table` mode, detail views use `fmt.Printf` with labeled fields:
 ```
 Resource Details:
 =================
 ID:    <value>
 Name:  <value>
+```
+
+For `json` / `yaml` modes, get commands have an early-return that emits the full SDK data object:
+```go
+format := resolveOutputFormat()
+if format == "json" || format == "yaml" {
+    PrintOutput(resp.Data, nil, nil)
+    return nil
+}
+// … fmt.Printf labeled-field block for table modes …
 ```
 
 ---

@@ -19,7 +19,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-012 | `--debug` flag description updated to warn about credential/token exposure in HTTP headers |
 | TD-013 | `Args: cobra.NoArgs` added to all `create` and `list` commands that take no positional arguments |
 | TD-014 | `cmd/constants.go` created with `StateInCreation`, `DateLayout`, `FilePermConfig`, `FilePermDirAll`; all magic strings replaced |
-| TD-016 | Global `--output` flag (table/json) added; `PrintTable` serialises to JSON when `--output=json` is set; no call-site changes needed |
+| TD-016 | Multi-mode output implemented: 5 canonical formats (`table`, `table-json`, `table-yaml`, `json`, `yaml`) via `resolveOutputFormat` + `PrintOutput`; `PrintTable` is now a shim; `-o json`/`-o yaml` emit full SDK response (breaking change from original PR #30 flat shape) |
 | TD-017 | `listParams(cmd)` helper added; `--limit`/`--offset` flags added to all 25 list commands; list RunE handlers now pass pagination params to SDK |
 | TD-018 | Global client cache vars encapsulated in `clientState` struct with `resetClientState()` helper; all test reset blocks updated to use it |
 | TD-010 | Table-driven `RunE` tests added for all 23 testable command files (24 including pre-existing `network.vpc_test.go`); mock infrastructure in `cmd/mock_test.go` covers all sub-clients; `security.kms.go` skipped (concrete SDK type, cannot mock); nil-pointer bugs in `LocationResponse.Value` and `CreationDate.IsZero()` fixed as a side effect of test authoring; redundant double nil-check blocks left by AWK generation cleaned up in 5 files |
@@ -31,6 +31,13 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ## Low
+
+### TD-023 · Remove `PrintTable` shim
+`PrintTable(headers, rows)` is now a one-line shim around `PrintOutput(nil, headers, rows)`. All call sites that pass `nil` as the first arg produce `{}` for `-o json` / `-o yaml` instead of the actual resource data. Remaining direct `PrintTable` calls should be replaced with `PrintOutput(response.Data, headers, rows)` and the shim deleted.
+
+**Fix:** Grep for `PrintTable(` and migrate each site to `PrintOutput`, passing the typed SDK response as the first argument. Remove the `PrintTable` function once all sites are updated.
+
+---
 
 ### TD-022 · Pre-release SDK version (v0.1.x)
 `go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.25`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.

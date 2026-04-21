@@ -194,7 +194,7 @@ if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
     for _, r := range response.Data.Values {
         rows = append(rows, []string{safePtrStr(r.Metadata.Name), safePtrStr(r.Metadata.ID), ...})
     }
-    PrintTable(headers, rows)
+    PrintOutput(response.Data, headers, rows)
 } else {
     fmt.Println("No <resources> found")
 }
@@ -207,6 +207,14 @@ resourceID := args[0]
 resp, err := client.From<Svc>().<Resource>().Get(ctx, projectID, resourceID, nil)
 if err != nil { ... return }
 // check resp.IsError() ...
+
+// Honour -o json / -o yaml before the human-formatted block
+format := resolveOutputFormat()
+if format == "json" || format == "yaml" {
+    PrintOutput(resp.Data, nil, nil)
+    return nil
+}
+
 fmt.Println("\n<Resource> Details:")
 fmt.Println("===================")
 if resp.Data.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resp.Data.Metadata.ID) }
@@ -221,7 +229,8 @@ if resp.Data.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resp.Data.Metadata.I
 // 4. Build types.<Resource>Request{} (nested struct)
 // 5. Call .Create(ctx, projectID, request, nil)
 // 6. Check err, then response.IsError()
-// 7. PrintTable with single-row result
+// 7. PrintOutput with single-row result (pass response.Data as first arg)
+PrintOutput(response.Data, headers, [][]string{row})
 ```
 
 ### update
@@ -232,7 +241,8 @@ if resp.Data.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resp.Data.Metadata.I
 if name != "" { updateReq.Metadata.Name = name }
 if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
 // 4. Call .Update(ctx, projectID, id, request, nil)
-// 5. Print success with key fields
+// 5. PrintOutput with single-row result
+PrintOutput(response.Data, headers, [][]string{row})
 ```
 
 ### delete
@@ -245,7 +255,11 @@ if !confirm {
     if r != "yes" && r != "y" { fmt.Println("Delete cancelled"); return }
 }
 // Then GetProjectID, GetArubaClient, .Delete(ctx, projectID, id, nil)
-fmt.Printf("\n<Resource> %s deleted successfully!\n", id)
+// Pass an ad-hoc struct so -o json / -o yaml produce valid structured output
+PrintOutput(struct {
+    ID     string `json:"id"`
+    Status string `json:"status"`
+}{resourceID, "deleted"}, headers, [][]string{row})
 ```
 
 ---
