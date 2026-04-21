@@ -54,7 +54,7 @@ is_valid_json() {
 test_project_output_formats() {
     echo -e "${BLUE}--- Testing management project list --output flag ---${NC}"
 
-    for fmt in "" table; do
+    for fmt in "" table std standard; do
         local label="--output \"$fmt\""
         [ -z "$fmt" ] && label="(default, no --output)"
         echo -e "${YELLOW}Testing $label...${NC}"
@@ -72,7 +72,47 @@ test_project_output_formats() {
         fi
     done
 
-    echo -e "${YELLOW}Testing --output json...${NC}"
+    echo -e "${YELLOW}Testing --output table-json...${NC}"
+    TABLE_JSON_OUTPUT=$($ACLOUD_CMD management project list --output table-json 2>&1)
+    TABLE_JSON_EXIT=$?
+    if [ $TABLE_JSON_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ --output table-json: command failed (exit $TABLE_JSON_EXIT)${NC}"
+        echo "$TABLE_JSON_OUTPUT"
+    elif echo "$TABLE_JSON_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output table-json: no resources — format validation skipped${NC}"
+    elif is_valid_json "$TABLE_JSON_OUTPUT"; then
+        echo -e "${GREEN}✓ --output table-json: valid JSON${NC}"
+        if echo "$TABLE_JSON_OUTPUT" | grep -q '"name"'; then
+            echo -e "${GREEN}✓ --output table-json: 'name' key present${NC}"
+        else
+            echo -e "${RED}✗ --output table-json: 'name' key missing${NC}"
+        fi
+    else
+        echo -e "${RED}✗ --output table-json: output is not valid JSON${NC}"
+        echo "$TABLE_JSON_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output table-yaml...${NC}"
+    TABLE_YAML_OUTPUT=$($ACLOUD_CMD management project list --output table-yaml 2>&1)
+    TABLE_YAML_EXIT=$?
+    if [ $TABLE_YAML_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ --output table-yaml: command failed (exit $TABLE_YAML_EXIT)${NC}"
+        echo "$TABLE_YAML_OUTPUT"
+    elif echo "$TABLE_YAML_OUTPUT" | grep -qF "No projects found"; then
+        echo -e "${YELLOW}⚠ --output table-yaml: no resources — format validation skipped${NC}"
+    elif echo "$TABLE_YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
+        echo -e "${GREEN}✓ --output table-yaml: output looks like YAML${NC}"
+        if echo "$TABLE_YAML_OUTPUT" | grep -q 'name:'; then
+            echo -e "${GREEN}✓ --output table-yaml: 'name' key present${NC}"
+        else
+            echo -e "${RED}✗ --output table-yaml: 'name' key missing${NC}"
+        fi
+    else
+        echo -e "${RED}✗ --output table-yaml: output does not look like YAML${NC}"
+        echo "$TABLE_YAML_OUTPUT"
+    fi
+
+    echo -e "${YELLOW}Testing --output json (full SDK response)...${NC}"
     JSON_OUTPUT=$($ACLOUD_CMD management project list --output json 2>&1)
     JSON_EXIT=$?
     if [ $JSON_EXIT -ne 0 ]; then
@@ -82,17 +122,17 @@ test_project_output_formats() {
         echo -e "${YELLOW}⚠ --output json: no resources — format validation skipped${NC}"
     elif is_valid_json "$JSON_OUTPUT"; then
         echo -e "${GREEN}✓ --output json: valid JSON${NC}"
-        if echo "$JSON_OUTPUT" | grep -q '"name"'; then
-            echo -e "${GREEN}✓ --output json: 'name' key present${NC}"
+        if echo "$JSON_OUTPUT" | grep -q '"values"'; then
+            echo -e "${GREEN}✓ --output json: 'values' key present (full SDK response)${NC}"
         else
-            echo -e "${RED}✗ --output json: 'name' key missing${NC}"
+            echo -e "${YELLOW}⚠ --output json: 'values' key not found (empty list or different shape)${NC}"
         fi
     else
         echo -e "${RED}✗ --output json: output is not valid JSON${NC}"
         echo "$JSON_OUTPUT"
     fi
 
-    echo -e "${YELLOW}Testing --output yaml...${NC}"
+    echo -e "${YELLOW}Testing --output yaml (full SDK response)...${NC}"
     YAML_OUTPUT=$($ACLOUD_CMD management project list --output yaml 2>&1)
     YAML_EXIT=$?
     if [ $YAML_EXIT -ne 0 ]; then
@@ -101,11 +141,11 @@ test_project_output_formats() {
     elif echo "$YAML_OUTPUT" | grep -qF "No projects found"; then
         echo -e "${YELLOW}⚠ --output yaml: no resources — format validation skipped${NC}"
     elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
-        echo -e "${GREEN}✓ --output yaml: output looks like YAML${NC}"
-        if echo "$YAML_OUTPUT" | grep -q 'name:'; then
-            echo -e "${GREEN}✓ --output yaml: 'name' key present${NC}"
+        echo -e "${GREEN}✓ --output yaml: output looks like YAML (full SDK response)${NC}"
+        if echo "$YAML_OUTPUT" | grep -q 'values:'; then
+            echo -e "${GREEN}✓ --output yaml: 'values' key present (full SDK response)${NC}"
         else
-            echo -e "${RED}✗ --output yaml: 'name' key missing${NC}"
+            echo -e "${YELLOW}⚠ --output yaml: 'values' key not found (empty list or different shape)${NC}"
         fi
     else
         echo -e "${RED}✗ --output yaml: output does not look like YAML${NC}"

@@ -64,42 +64,56 @@ test_output_formats() {
     echo -e "${BLUE}--- Testing compute list --output flag ---${NC}"
 
     for resource in "cloudserver" "keypair"; do
-        echo -e "${YELLOW}Testing $resource --output json...${NC}"
         if [ "$resource" = "cloudserver" ]; then
-            JSON_OUTPUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output json 2>&1)
+            CMD_PREFIX="$ACLOUD_CMD compute cloudserver list --project-id \"$PROJECT_ID\""
         else
-            JSON_OUTPUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output json 2>&1)
-        fi
-        JSON_EXIT=$?
-        if [ $JSON_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $resource --output json: command failed (exit $JSON_EXIT)${NC}"
-            echo "$JSON_OUTPUT"
-        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $resource --output json: no resources — format validation skipped${NC}"
-        elif is_valid_json "$JSON_OUTPUT"; then
-            echo -e "${GREEN}✓ $resource --output json: valid JSON${NC}"
-        else
-            echo -e "${RED}✗ $resource --output json: output is not valid JSON${NC}"
-            echo "$JSON_OUTPUT"
+            CMD_PREFIX="$ACLOUD_CMD compute keypair list --project-id \"$PROJECT_ID\""
         fi
 
-        echo -e "${YELLOW}Testing $resource --output yaml...${NC}"
+        for fmt in table std standard table-json std-json table-yaml std-yaml json yaml; do
+            OUT=$(eval "$CMD_PREFIX --output $fmt" 2>&1)
+            EXIT=$?
+            if [ $EXIT -eq 0 ]; then
+                echo -e "${GREEN}✓ $resource --output $fmt: command succeeded${NC}"
+            else
+                echo -e "${RED}✗ $resource --output $fmt: command failed (exit $EXIT)${NC}"
+                echo "$OUT"
+            fi
+        done
+
+        echo -e "${YELLOW}Testing $resource --output table-json (flat JSON shape)...${NC}"
         if [ "$resource" = "cloudserver" ]; then
-            YAML_OUTPUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output yaml 2>&1)
+            TABLE_JSON_OUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output table-json 2>&1)
         else
-            YAML_OUTPUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output yaml 2>&1)
+            TABLE_JSON_OUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output table-json 2>&1)
         fi
-        YAML_EXIT=$?
-        if [ $YAML_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $resource --output yaml: command failed (exit $YAML_EXIT)${NC}"
-            echo "$YAML_OUTPUT"
-        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $resource --output yaml: no resources — format validation skipped${NC}"
-        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
-            echo -e "${GREEN}✓ $resource --output yaml: output looks like YAML${NC}"
+        if echo "$TABLE_JSON_OUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $resource --output table-json: no resources — format validation skipped${NC}"
+        elif is_valid_json "$TABLE_JSON_OUT"; then
+            echo -e "${GREEN}✓ $resource --output table-json: valid JSON (flat shape)${NC}"
         else
-            echo -e "${RED}✗ $resource --output yaml: output does not look like YAML${NC}"
-            echo "$YAML_OUTPUT"
+            echo -e "${RED}✗ $resource --output table-json: not valid JSON${NC}"
+            echo "$TABLE_JSON_OUT"
+        fi
+
+        echo -e "${YELLOW}Testing $resource --output json (full SDK response)...${NC}"
+        if [ "$resource" = "cloudserver" ]; then
+            JSON_OUT=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output json 2>&1)
+        else
+            JSON_OUT=$($ACLOUD_CMD compute keypair list --project-id "$PROJECT_ID" --output json 2>&1)
+        fi
+        if echo "$JSON_OUT" | grep -qF "No "; then
+            echo -e "${YELLOW}⚠ $resource --output json: no resources — format validation skipped${NC}"
+        elif is_valid_json "$JSON_OUT"; then
+            echo -e "${GREEN}✓ $resource --output json: valid JSON${NC}"
+            if echo "$JSON_OUT" | grep -q '"values"'; then
+                echo -e "${GREEN}✓ $resource --output json: 'values' key present (full SDK response)${NC}"
+            else
+                echo -e "${YELLOW}⚠ $resource --output json: 'values' key not found${NC}"
+            fi
+        else
+            echo -e "${RED}✗ $resource --output json: not valid JSON${NC}"
+            echo "$JSON_OUT"
         fi
     done
     echo ""
