@@ -189,12 +189,10 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating backup: %w", err)
 		}
 
-		if response != nil && response.IsError() {
-			if verbose && response.RawBody != nil {
-				var errorDetail map[string]interface{}
-				if err := json.Unmarshal(response.RawBody, &errorDetail); err == nil {
-					fmt.Printf("Full Error Response: %+v\n", errorDetail)
-				}
+		if response != nil && response.IsError() && response.Error != nil {
+			if verbose {
+				jsonData, _ := json.MarshalIndent(response.Error, "", "  ")
+				fmt.Printf("Full Error Response:\n%s\n", string(jsonData))
 			}
 			return apiErrFromResp(response.StatusCode, response.Error)
 		}
