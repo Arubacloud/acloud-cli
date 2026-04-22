@@ -526,6 +526,64 @@ Request Payload:
 
 **Nota**: L'output di debug viene inviato a `stderr`, quindi non interferirà con l'output normale del comando e può essere reindirizzato separatamente se necessario.
 
+## Formato di Output
+
+Tutti i comandi `list` e `get` supportano un flag globale `--output` (o `-o`) che controlla il formato di output.
+
+| Valore | Descrizione |
+|--------|-------------|
+| `table` | Tabella leggibile a larghezza fissa (predefinito) |
+| `table-json` | Array JSON di oggetti piatti con chiavi snake_case (uno per riga) |
+| `table-yaml` | Sequenza YAML di mapping piatti con chiavi snake_case (uno per riga) |
+| `json` | Risposta completa dell'SDK come JSON indentato |
+| `yaml` | Risposta completa dell'SDK come YAML |
+
+```bash
+# Output tabella predefinito
+acloud network vpc list
+
+# Array JSON piatto — facile da passare a jq
+acloud network vpc list -o table-json
+
+# Risposta completa dell'SDK
+acloud network vpc list -o json
+```
+
+`table-json` è la scelta migliore per gli script con strumenti come `jq`:
+```bash
+acloud storage blockstorage list -o table-json | jq '.[].name'
+```
+
+## Eliminazione Sicura (Dry Run)
+
+Ogni comando di eliminazione supporta `--dry-run` per verificare che una risorsa esista senza eliminarla effettivamente:
+
+```bash
+acloud storage blockstorage delete <volume-id> --dry-run
+# [dry-run] Would delete block storage '<volume-id>'. Resource exists and is accessible.
+```
+
+Usa `--yes` (o `-y`) per saltare la richiesta di conferma interattiva negli script non interattivi.
+
+## Paginazione
+
+Tutti i comandi `list` supportano i flag `--limit` e `--offset` per navigare tra grandi set di risultati.
+
+| Flag | Descrizione |
+|------|-------------|
+| `--limit N` | Restituisce al massimo N risultati |
+| `--offset N` | Salta i primi N risultati |
+
+```bash
+# Prima pagina di 10 risultati
+acloud storage blockstorage list --limit 10
+
+# Seconda pagina
+acloud storage blockstorage list --limit 10 --offset 10
+```
+
+Se nessun flag viene passato, l'API restituisce il suo set di risultati predefinito.
+
 ## Risoluzione dei Problemi
 
 ### Errori di Versione GLIBC
