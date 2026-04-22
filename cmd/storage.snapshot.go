@@ -164,8 +164,8 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 			return fmt.Errorf("creating snapshot: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -211,6 +211,9 @@ var snapshotGetCmd = &cobra.Command{
 		response, err := client.FromStorage().Snapshots().Get(ctx, projectID, snapshotID, nil)
 		if err != nil {
 			return fmt.Errorf("getting snapshot details: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -365,8 +368,8 @@ var snapshotUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating snapshot: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -434,9 +437,12 @@ var snapshotDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the snapshot using the SDK
-		_, err = client.FromStorage().Snapshots().Delete(ctx, projectID, snapshotID, nil)
+		deleteResp, err := client.FromStorage().Snapshots().Delete(ctx, projectID, snapshotID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting snapshot: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("Snapshot", snapshotID))
@@ -470,6 +476,9 @@ var snapshotListCmd = &cobra.Command{
 		response, err := client.FromStorage().Snapshots().List(ctx, projectID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing snapshots: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		// Check verbose flag

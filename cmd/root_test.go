@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
 // Helper function to check if a string contains a substring (case-insensitive)
@@ -551,5 +553,72 @@ func TestGetArubaClient_CredentialChange(t *testing.T) {
 	// Should be different instances (cache invalidated due to credential change)
 	if client1 == client2 {
 		t.Error("GetArubaClient() should return new client when credentials change")
+	}
+}
+
+func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
+	tests := []struct {
+		name    string
+		errFunc func() error
+		want    string
+		notWant string
+	}{
+		{
+			name:    "fmtAPIError nil title and detail",
+			errFunc: func() error { return fmtAPIError(404, nil, nil) },
+			want:    "API error (status 404)",
+			notWant: ":",
+		},
+		{
+			name:    "fmtAPIError with title only",
+			errFunc: func() error { return fmtAPIError(500, strPtr("Bad Gateway"), nil) },
+			want:    "API error (status 500): Bad Gateway",
+		},
+		{
+			name:    "fmtAPIError with detail only",
+			errFunc: func() error { return fmtAPIError(502, nil, strPtr("upstream timeout")) },
+			want:    "API error (status 502) \u2014 upstream timeout",
+		},
+		{
+			name:    "fmtAPIError with title and detail",
+			errFunc: func() error { return fmtAPIError(404, strPtr("Not Found"), strPtr("resource not found")) },
+			want:    "API error (status 404): Not Found \u2014 resource not found",
+		},
+		{
+			name:    "apiErrFromResp nil errResp",
+			errFunc: func() error { return apiErrFromResp(404, nil) },
+			want:    "API error (status 404)",
+		},
+		{
+			name:    "apiErrFromResp 2xx returns nil",
+			errFunc: func() error { return apiErrFromResp(200, nil) },
+		},
+		{
+			name: "apiErrFromResp with errResp",
+			errFunc: func() error {
+				return apiErrFromResp(404, &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")})
+			},
+			want: "API error (status 404): Not Found \u2014 resource not found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.errFunc()
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("expected nil error, got %q", err.Error())
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected non-nil error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %q, want substring %q", err.Error(), tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(err.Error(), tc.notWant) {
+				t.Errorf("got %q, but should not contain %q", err.Error(), tc.notWant)
+			}
+		})
 	}
 }

@@ -49,6 +49,19 @@ func TestSnapshotListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockSnapshotsClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.SnapshotList], error) {
+					return &types.Response[types.SnapshotList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,6 +105,19 @@ func TestSnapshotGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockSnapshotsClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SnapshotResponse], error) {
+					return &types.Response[types.SnapshotResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -161,6 +187,26 @@ func TestSnapshotCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: []string{
+				"storage", "snapshot", "create",
+				"--project-id", "proj-123",
+				"--name", "my-snapshot",
+				"--region", "IT-BG",
+				"--volume-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001",
+			},
+			setupMock: func(m *mockSnapshotsClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.SnapshotRequest, _ *types.RequestParameters) (*types.Response[types.SnapshotResponse], error) {
+					return &types.Response[types.SnapshotResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,6 +244,19 @@ func TestSnapshotDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockSnapshotsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

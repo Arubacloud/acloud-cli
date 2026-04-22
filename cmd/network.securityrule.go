@@ -205,8 +205,8 @@ Example target values:
 			return fmt.Errorf("creating security rule: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil && resp.Data.Metadata.ID != nil {
@@ -265,8 +265,8 @@ var securityruleGetCmd = &cobra.Command{
 			return fmt.Errorf("getting security rule: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -340,8 +340,8 @@ var securityruleListCmd = &cobra.Command{
 			return fmt.Errorf("listing security rules: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
@@ -425,8 +425,8 @@ var securityruleUpdateCmd = &cobra.Command{
 			return fmt.Errorf("no response received when fetching security rule")
 		}
 
-		if getResp.IsError() && getResp.Error != nil {
-			return fmtAPIError(getResp.StatusCode, getResp.Error.Title, getResp.Error.Detail)
+		if getResp.IsError() {
+			return apiErrFromResp(getResp.StatusCode, getResp.Error)
 		}
 
 		if getResp.Data == nil {
@@ -517,7 +517,7 @@ var securityruleUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating security rule: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
+		if resp != nil && resp.IsError() {
 			if debugEnabled {
 				fmt.Fprintf(os.Stderr, "\n=== DEBUG: Error Response ===\n")
 				if resp.RawBody != nil {
@@ -526,7 +526,7 @@ var securityruleUpdateCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "Status Code: %d\n", resp.StatusCode)
 				fmt.Fprintf(os.Stderr, "===========================\n\n")
 			}
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -620,8 +620,8 @@ var securityruleDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting security rule: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		headers := []TableColumn{

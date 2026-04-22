@@ -62,6 +62,18 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: createArgs,
+			storageMock: newStorageBackupCreateMock(func(_ context.Context, _ string, _ types.StorageBackupRequest, _ *types.RequestParameters) (*types.Response[types.StorageBackupResponse], error) {
+				return &types.Response[types.StorageBackupResponse]{
+					StatusCode: 404,
+					Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+				}, nil
+			}),
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,6 +128,19 @@ func TestStorageBackupListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockStorageBackupsClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.StorageBackupList], error) {
+					return &types.Response[types.StorageBackupList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,6 +184,19 @@ func TestStorageBackupGetCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "getting",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockStorageBackupsClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.StorageBackupResponse], error) {
+					return &types.Response[types.StorageBackupResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,6 +235,19 @@ func TestStorageBackupDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockStorageBackupsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

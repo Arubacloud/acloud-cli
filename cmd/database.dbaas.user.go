@@ -126,8 +126,8 @@ separately through your database client after the user is created.`,
 			return fmt.Errorf("creating user: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -168,8 +168,8 @@ var dbaasUserGetCmd = &cobra.Command{
 			return fmt.Errorf("getting user: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -223,8 +223,8 @@ var dbaasUserListCmd = &cobra.Command{
 			return fmt.Errorf("listing users: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
@@ -297,8 +297,8 @@ var dbaasUserUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating user: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -354,9 +354,12 @@ var dbaasUserDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromDatabase().Users().Delete(ctx, projectID, dbaasID, username, nil)
+		deleteResp, err := client.FromDatabase().Users().Delete(ctx, projectID, dbaasID, username, nil)
 		if err != nil {
 			return fmt.Errorf("deleting user: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("User", username))

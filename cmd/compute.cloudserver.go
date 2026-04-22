@@ -256,8 +256,8 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -326,8 +326,8 @@ var cloudserverGetCmd = &cobra.Command{
 			return fmt.Errorf("getting cloud server: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -480,8 +480,8 @@ var cloudserverUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -546,8 +546,8 @@ var cloudserverDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		fmt.Println(msgDeleted("Cloud server", serverID))
@@ -575,6 +575,9 @@ var cloudserverListCmd = &cobra.Command{
 		response, err := client.FromCompute().CloudServers().List(ctx, projectID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing cloud servers: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
@@ -650,8 +653,8 @@ var cloudserverPowerOnCmd = &cobra.Command{
 			return fmt.Errorf("powering on cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -693,8 +696,8 @@ var cloudserverPowerOffCmd = &cobra.Command{
 			return fmt.Errorf("powering off cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -745,8 +748,8 @@ var cloudserverSetPasswordCmd = &cobra.Command{
 			return fmt.Errorf("setting password for cloud server: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -807,8 +810,8 @@ var cloudserverConnectCmd = &cobra.Command{
 			return fmt.Errorf("getting cloud server: %w", err)
 		}
 
-		if serverResp != nil && serverResp.IsError() && serverResp.Error != nil {
-			return fmtAPIError(serverResp.StatusCode, serverResp.Error.Title, serverResp.Error.Detail)
+		if serverResp != nil && serverResp.IsError() {
+			return apiErrFromResp(serverResp.StatusCode, serverResp.Error)
 		}
 
 		if serverResp == nil || serverResp.Data == nil {
@@ -845,8 +848,8 @@ var cloudserverConnectCmd = &cobra.Command{
 			return fmt.Errorf("getting Elastic IP details: %w", err)
 		}
 
-		if eipResp != nil && eipResp.IsError() && eipResp.Error != nil {
-			return fmtAPIError(eipResp.StatusCode, eipResp.Error.Title, eipResp.Error.Detail)
+		if eipResp != nil && eipResp.IsError() {
+			return apiErrFromResp(eipResp.StatusCode, eipResp.Error)
 		}
 
 		if eipResp == nil || eipResp.Data == nil {

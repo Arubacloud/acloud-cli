@@ -189,14 +189,14 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating backup: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
+		if response != nil && response.IsError() {
 			if verbose && response.RawBody != nil {
 				var errorDetail map[string]interface{}
 				if err := json.Unmarshal(response.RawBody, &errorDetail); err == nil {
 					fmt.Printf("Full Error Response: %+v\n", errorDetail)
 				}
 			}
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response.Data != nil {
@@ -233,6 +233,9 @@ var storageBackupListCmd = &cobra.Command{
 		response, err := client.FromStorage().Backups().List(ctx, projectID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing backups: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
@@ -296,6 +299,9 @@ var storageBackupGetCmd = &cobra.Command{
 		response, err := client.FromStorage().Backups().Get(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("getting backup details: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -448,8 +454,8 @@ var storageBackupUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating backup: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -508,9 +514,12 @@ var storageBackupDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromStorage().Backups().Delete(ctx, projectID, backupID, nil)
+		deleteResp, err := client.FromStorage().Backups().Delete(ctx, projectID, backupID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting backup: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

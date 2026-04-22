@@ -145,8 +145,8 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 			return fmt.Errorf("creating project: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -206,8 +206,8 @@ var projectGetCmd = &cobra.Command{
 			return fmt.Errorf("getting project: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -298,8 +298,8 @@ var projectUpdateCmd = &cobra.Command{
 			return fmt.Errorf("fetching current project: %w", err)
 		}
 
-		if getResponse != nil && getResponse.IsError() && getResponse.Error != nil {
-			return fmtAPIError(getResponse.StatusCode, getResponse.Error.Title, getResponse.Error.Detail)
+		if getResponse != nil && getResponse.IsError() {
+			return apiErrFromResp(getResponse.StatusCode, getResponse.Error)
 		}
 
 		if getResponse == nil || getResponse.Data == nil {
@@ -337,8 +337,8 @@ var projectUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating project: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -423,8 +423,8 @@ var projectDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting project: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		headers := []TableColumn{
@@ -460,8 +460,8 @@ var projectListCmd = &cobra.Command{
 			return fmt.Errorf("listing projects: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {

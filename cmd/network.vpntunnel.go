@@ -152,6 +152,9 @@ var vpntunnelListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing VPN tunnels: %w", err)
 		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
+		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 			// Define table columns
@@ -227,6 +230,9 @@ var vpntunnelGetCmd = &cobra.Command{
 		response, err := client.FromNetwork().VPNTunnels().Get(ctx, projectID, vpnID, nil)
 		if err != nil {
 			return fmt.Errorf("getting VPN tunnel details: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -483,8 +489,8 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 			return fmt.Errorf("creating VPN tunnel: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -550,8 +556,8 @@ var vpntunnelUpdateCmd = &cobra.Command{
 			return fmt.Errorf("getting VPN tunnel: %w", err)
 		}
 
-		if getResp != nil && getResp.IsError() && getResp.Error != nil {
-			return fmtAPIError(getResp.StatusCode, getResp.Error.Title, getResp.Error.Detail)
+		if getResp != nil && getResp.IsError() {
+			return apiErrFromResp(getResp.StatusCode, getResp.Error)
 		}
 
 		if getResp.Data == nil {
@@ -607,8 +613,8 @@ var vpntunnelUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating VPN tunnel: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp.Data != nil {
@@ -681,8 +687,8 @@ var vpntunnelDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting VPN tunnel: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		fmt.Println(msgDeleted("VPN tunnel", vpnTunnelID))

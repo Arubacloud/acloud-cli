@@ -219,8 +219,8 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating container registry: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -276,8 +276,8 @@ var containerregistryGetCmd = &cobra.Command{
 			return fmt.Errorf("getting container registry: %w", err)
 		}
 
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 
 		if resp != nil && resp.Data != nil {
@@ -461,8 +461,8 @@ var containerregistryUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating container registry: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -537,8 +537,8 @@ var containerregistryDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting container registry: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		fmt.Println(msgDeleted("Container registry", registryID))
@@ -582,8 +582,8 @@ var containerregistryListCmd = &cobra.Command{
 			return nil
 		}
 
-		if response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response.Data != nil && len(response.Data.Values) > 0 {

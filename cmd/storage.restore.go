@@ -190,14 +190,14 @@ idle before starting a restore to avoid data corruption.`,
 			return fmt.Errorf("creating restore: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
+		if response != nil && response.IsError() {
 			if verbose && response.RawBody != nil {
 				var errorDetail map[string]interface{}
 				if err := json.Unmarshal(response.RawBody, &errorDetail); err == nil {
 					fmt.Printf("Full Error Response: %+v\n", errorDetail)
 				}
 			}
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response.Data != nil {
@@ -238,6 +238,9 @@ var storageRestoreListCmd = &cobra.Command{
 		response, err := client.FromStorage().Restores().List(ctx, projectID, backupID, listParams(cmd))
 		if err != nil {
 			return fmt.Errorf("listing restores: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
@@ -299,6 +302,9 @@ var storageRestoreGetCmd = &cobra.Command{
 		response, err := client.FromStorage().Restores().Get(ctx, projectID, backupID, restoreID, nil)
 		if err != nil {
 			return fmt.Errorf("getting restore details: %w", err)
+		}
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -433,8 +439,8 @@ var storageRestoreUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating restore: %w", err)
 		}
 
-		if response != nil && response.IsError() && response.Error != nil {
-			return fmtAPIError(response.StatusCode, response.Error.Title, response.Error.Detail)
+		if response != nil && response.IsError() {
+			return apiErrFromResp(response.StatusCode, response.Error)
 		}
 
 		if response != nil && response.Data != nil {
@@ -494,9 +500,12 @@ var storageRestoreDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		_, err = client.FromStorage().Restores().Delete(ctx, projectID, backupID, restoreID, nil)
+		deleteResp, err := client.FromStorage().Restores().Delete(ctx, projectID, backupID, restoreID, nil)
 		if err != nil {
 			return fmt.Errorf("deleting restore: %w", err)
+		}
+		if deleteResp != nil && deleteResp.IsError() {
+			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
 		}
 
 		fmt.Println(msgDeleted("Restore operation", restoreID))

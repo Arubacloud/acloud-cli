@@ -67,6 +67,19 @@ func TestCloudServerListCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "listing",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
+					return &types.Response[types.CloudServerList]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +121,19 @@ func TestCloudServerGetCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "getting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
+					return &types.Response[types.CloudServerResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -179,6 +205,20 @@ func TestCloudServerCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "creating",
 		},
+		{
+			name: "API error propagates",
+			args: baseArgs,
+			setupMock: func(m *mockCloudServersClient) {
+				m.createFn = func(_ context.Context, _ string, _ types.CloudServerRequest, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
+					return &types.Response[types.CloudServerResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -216,6 +256,19 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "deleting",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
@@ -255,6 +308,19 @@ func TestCloudServerPowerOnCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "power",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.powerOnFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
+					return &types.Response[types.CloudServerResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -293,6 +359,19 @@ func TestCloudServerPowerOffCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "power",
 		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.powerOffFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
+					return &types.Response[types.CloudServerResponse]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,6 +409,19 @@ func TestCloudServerSetPasswordCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "password",
+		},
+		{
+			name: "API error propagates",
+			setupMock: func(m *mockCloudServersClient) {
+				m.setPasswordFn = func(_ context.Context, _, _ string, _ types.CloudServerPasswordRequest, _ *types.RequestParameters) (*types.Response[any], error) {
+					return &types.Response[any]{
+						StatusCode: 404,
+						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {

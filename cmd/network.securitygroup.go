@@ -77,8 +77,8 @@ after the group is created.`,
 		if err != nil {
 			return fmt.Errorf("creating security group: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil && resp.Data.Metadata.ID != nil {
 			headers := []TableColumn{
@@ -132,8 +132,8 @@ var securitygroupGetCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting security group: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil {
 			sg := resp.Data
@@ -194,8 +194,8 @@ var securitygroupListCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("listing security groups: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
 			headers := []TableColumn{
@@ -299,8 +299,8 @@ var securitygroupUpdateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("updating security group: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		if resp != nil && resp.Data != nil {
 			headers := []TableColumn{
@@ -389,8 +389,8 @@ var securitygroupDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("deleting security group: %w", err)
 		}
-		if resp != nil && resp.IsError() && resp.Error != nil {
-			return fmtAPIError(resp.StatusCode, resp.Error.Title, resp.Error.Detail)
+		if resp != nil && resp.IsError() {
+			return apiErrFromResp(resp.StatusCode, resp.Error)
 		}
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},
