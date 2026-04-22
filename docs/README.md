@@ -50,7 +50,17 @@ acloud management project create --help
 
 ## Output Format
 
-All list and get commands accept a global `--output json` (or `-o json`) flag for machine-readable output. The default is a fixed-width table. See [Getting Started - Output Format](getting-started.md#output-format) for details.
+All list and get commands accept a global `--output` (or `-o`) flag that controls the output format:
+
+| Value | Description |
+|-------|-------------|
+| `table` | Human-readable fixed-width table (default) |
+| `table-json` | JSON array of flat snake_case objects (one per row) |
+| `table-yaml` | YAML sequence of flat snake_case mappings (one per row) |
+| `json` | Full SDK response object as indented JSON |
+| `yaml` | Full SDK response object as YAML |
+
+See [Getting Started - Output Format](getting-started.md#output-format) for examples and scripting tips.
 
 ## Pagination
 
