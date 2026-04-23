@@ -1,6 +1,7 @@
 # acloud-cli
 
 [![GitHub release](https://img.shields.io/github/tag/Arubacloud/acloud-cli.svg?label=release)](https://github.com/Arubacloud/acloud-cli/releases/latest)
+[![codecov](https://codecov.io/gh/Arubacloud/acloud-cli/graph/badge.svg)](https://codecov.io/gh/Arubacloud/acloud-cli)
 
 **acloud-cli** is the official Command Line Interface (CLI) for the **Aruba Cloud Management Platform**.  
 It allows developers, DevOps engineers, and platform operators to interact with Aruba Cloud APIs directly from the terminal for automation, scripting, and infrastructure management.

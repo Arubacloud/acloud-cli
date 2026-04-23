@@ -52,6 +52,28 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+      - name: Check coverage threshold
+        # Raise THRESHOLD progressively as sibling issues are resolved:
+        #   ≥62% after #61 (API-error cases)
+        #   ≥70% after #62 (update tests)
+        #   ≥75% after #63 (output + flags)
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.txt | grep "^total:" | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          if awk "BEGIN {exit !($COVERAGE < $THRESHOLD)}"; then
+            echo "Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
+        env:
+          THRESHOLD: 60
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.txt
+          flags: unittests
+          fail_ci_if_error: false
+
       - name: Build
         run: go build -v -o acloud
 
