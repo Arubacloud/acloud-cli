@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -44,6 +46,7 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 		storageMock *mockStorageClient
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -55,6 +58,11 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 					Data:       &types.RestoreResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
 				}, nil
 			}),
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-new") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name:        "missing required flag --name",
@@ -90,8 +98,11 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 			if sm == nil {
 				sm = &mockStorageClient{}
 			}
-			err := runCmd(newMockClient(withStorageMock(sm)), tc.args)
+			out, err := runCmdCapture(newMockClient(withStorageMock(sm)), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -102,6 +113,7 @@ func TestStorageRestoreListCmd(t *testing.T) {
 		setupMock   func(*mockStorageRestoreClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -118,12 +130,39 @@ func TestStorageRestoreListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockStorageRestoreClient) {
 				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
 					return &types.Response[types.RestoreList]{StatusCode: 200, Data: &types.RestoreList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockStorageRestoreClient) {
+				id, rname := "rst-001", "my-restore"
+				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
+					return &types.Response[types.RestoreList]{
+						StatusCode: 200,
+						Data: &types.RestoreList{
+							Values: []types.RestoreResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -157,9 +196,15 @@ func TestStorageRestoreListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})),
-				[]string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"})
+			args := []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -170,6 +215,7 @@ func TestStorageRestoreGetCmd(t *testing.T) {
 		setupMock   func(*mockStorageRestoreClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -180,6 +226,11 @@ func TestStorageRestoreGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.RestoreResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -213,9 +264,12 @@ func TestStorageRestoreGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})),
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})),
 				[]string{"storage", "restore", "get", "bkp-001", "rst-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -226,12 +280,32 @@ func TestStorageRestoreDeleteCmd(t *testing.T) {
 		setupMock   func(*mockStorageRestoreClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockStorageRestoreClient) {
 				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockStorageRestoreClient) {
+				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -265,9 +339,15 @@ func TestStorageRestoreDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})),
-				[]string{"storage", "restore", "delete", "bkp-001", "rst-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"storage", "restore", "delete", "bkp-001", "rst-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

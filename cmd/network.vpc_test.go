@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ func TestVPCListCmd(t *testing.T) {
 		setupMock   func(*mockVPCsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -33,12 +35,38 @@ func TestVPCListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpc-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success with no results",
 			setupMock: func(m *mockVPCsClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPCList], error) {
 					return &types.Response[types.VPCList]{StatusCode: 200, Data: &types.VPCList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockVPCsClient) {
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPCList], error) {
+					return &types.Response[types.VPCList]{
+						StatusCode: 200,
+						Data: &types.VPCList{
+							Values: []types.VPCResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &vpcID, Name: &vpcName}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -73,7 +101,11 @@ func TestVPCListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetwork(m)), []string{"network", "vpc", "list", "--project-id", "proj-123"})
+			args := []string{"network", "vpc", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withNetwork(m)), args)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -83,6 +115,9 @@ func TestVPCListCmd(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
 		})
 	}
@@ -97,6 +132,7 @@ func TestVPCGetCmd(t *testing.T) {
 		setupMock   func(*mockVPCsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -106,6 +142,11 @@ func TestVPCGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.VPCResponse{Metadata: types.ResourceMetadataResponse{ID: &vpcID, Name: &vpcName}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpc-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -148,7 +189,7 @@ func TestVPCGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetwork(m)), []string{"network", "vpc", "get", "vpc-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(newMockClient(withNetwork(m)), []string{"network", "vpc", "get", "vpc-001", "--project-id", "proj-123"})
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -158,6 +199,9 @@ func TestVPCGetCmd(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
 		})
 	}
@@ -173,6 +217,7 @@ func TestVPCCreateCmd(t *testing.T) {
 		setupMock   func(*mockVPCsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -183,6 +228,11 @@ func TestVPCCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.VPCResponse{Metadata: types.ResourceMetadataResponse{ID: &vpcID, Name: &vpcName}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpc-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -231,7 +281,7 @@ func TestVPCCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetwork(m)), tc.args)
+			out, err := runCmdCapture(newMockClient(withNetwork(m)), tc.args)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -241,6 +291,9 @@ func TestVPCCreateCmd(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
 		})
 	}
@@ -252,12 +305,32 @@ func TestVPCDeleteCmd(t *testing.T) {
 		setupMock   func(*mockVPCsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes flag",
 			setupMock: func(m *mockVPCsClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpc-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockVPCsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpc-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -293,7 +366,11 @@ func TestVPCDeleteCmd(t *testing.T) {
 				tc.setupMock(m)
 			}
 			// --yes skips the interactive confirmation prompt
-			err := runCmd(newMockClient(withNetwork(m)), []string{"network", "vpc", "delete", "vpc-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"network", "vpc", "delete", "vpc-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withNetwork(m)), args)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -303,6 +380,9 @@ func TestVPCDeleteCmd(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
 		})
 	}

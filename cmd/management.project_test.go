@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestProjectListCmd(t *testing.T) {
 		setupMock   func(*mockProjectClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestProjectListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockProjectClient) {
 				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
 					return &types.Response[types.ProjectList]{StatusCode: 200, Data: &types.ProjectList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockProjectClient) {
+				id, name := "proj-001", "my-project"
+				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
+					return &types.Response[types.ProjectList]{
+						StatusCode: 200,
+						Data: &types.ProjectList{
+							Values: []types.ProjectResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,8 +99,15 @@ func TestProjectListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withProject(m)), []string{"management", "project", "list"})
+			args := []string{"management", "project", "list"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withProject(m)), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -81,6 +118,7 @@ func TestProjectGetCmd(t *testing.T) {
 		setupMock   func(*mockProjectClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -91,6 +129,11 @@ func TestProjectGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -124,8 +167,11 @@ func TestProjectGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withProject(m)), []string{"management", "project", "get", "proj-001"})
+			out, err := runCmdCapture(newMockClient(withProject(m)), []string{"management", "project", "get", "proj-001"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -137,6 +183,7 @@ func TestProjectCreateCmd(t *testing.T) {
 		setupMock   func(*mockProjectClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -148,6 +195,11 @@ func TestProjectCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -189,8 +241,11 @@ func TestProjectCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withProject(m)), tc.args)
+			out, err := runCmdCapture(newMockClient(withProject(m)), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -201,12 +256,39 @@ func TestProjectDeleteCmd(t *testing.T) {
 		setupMock   func(*mockProjectClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockProjectClient) {
 				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockProjectClient) {
+				id, name := "proj-001", "my-project"
+				m.getFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
+					return &types.Response[types.ProjectResponse]{
+						StatusCode: 200,
+						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					}, nil
+				}
+				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -240,8 +322,15 @@ func TestProjectDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withProject(m)), []string{"management", "project", "delete", "proj-001", "--yes"})
+			args := []string{"management", "project", "delete", "proj-001", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withProject(m)), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

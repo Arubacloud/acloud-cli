@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 		setupMock   func(*mockVPCPeeringRoutesClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -33,6 +36,25 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			setupMock: func(m *mockVPCPeeringRoutesClient) {
 				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
 					return &types.Response[types.VPCPeeringRouteList]{StatusCode: 200, Data: &types.VPCPeeringRouteList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
+					return &types.Response[types.VPCPeeringRouteList]{
+						StatusCode: 200,
+						Data: &types.VPCPeeringRouteList{
+							Values: []types.VPCPeeringRouteResponse{{}},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -66,9 +88,15 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})),
-				[]string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"})
+			args := []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -79,6 +107,7 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 		setupMock   func(*mockVPCPeeringRoutesClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -121,9 +150,12 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})),
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})),
 				[]string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -135,6 +167,7 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 		setupMock   func(*mockVPCPeeringRoutesClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -203,8 +236,11 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), tc.args)
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -215,12 +251,32 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 		setupMock   func(*mockVPCPeeringRoutesClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockVPCPeeringRoutesClient) {
 				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -254,9 +310,15 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})),
-				[]string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
