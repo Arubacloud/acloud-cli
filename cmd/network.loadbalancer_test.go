@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 		setupMock   func(*mockLoadBalancersClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestLoadBalancerListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "lb-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockLoadBalancersClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.LoadBalancerList], error) {
 					return &types.Response[types.LoadBalancerList]{StatusCode: 200, Data: &types.LoadBalancerList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockLoadBalancersClient) {
+				id, name := "lb-001", "my-lb"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.LoadBalancerList], error) {
+					return &types.Response[types.LoadBalancerList]{
+						StatusCode: 200,
+						Data: &types.LoadBalancerList{
+							Values: []types.LoadBalancerResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,9 +99,15 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{loadBalancersMock: m})),
-				[]string{"network", "loadbalancer", "list", "--project-id", "proj-123"})
+			args := []string{"network", "loadbalancer", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{loadBalancersMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -82,6 +118,7 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 		setupMock   func(*mockLoadBalancersClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -92,6 +129,11 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.LoadBalancerResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "lb-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -133,9 +175,12 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{loadBalancersMock: m})),
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{loadBalancersMock: m})),
 				[]string{"network", "loadbalancer", "get", "lb-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -1156,8 +1159,14 @@ func withSchedule(s *mockScheduleClient) func(*mockClient) {
 // a flag set in test N remains "seen" in test N+1, causing MarkFlagRequired
 // validation to pass even when the flag is absent.
 func resetCmdFlags(cmd *cobra.Command) {
-	cmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
-	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	resetFlagSet := func(f *pflag.Flag) {
+		f.Changed = false
+		if f.DefValue != "" {
+			_ = f.Value.Set(f.DefValue) //nolint:errcheck
+		}
+	}
+	cmd.Flags().VisitAll(resetFlagSet)
+	cmd.PersistentFlags().VisitAll(resetFlagSet)
 	for _, sub := range cmd.Commands() {
 		resetCmdFlags(sub)
 	}
@@ -1175,3 +1184,19 @@ func runCmd(mock aruba.Client, args []string) error {
 
 // errSDK returns a non-nil SDK error suitable for injection in test cases.
 func errSDK(msg string) error { return errors.New(msg) }
+
+// runCmdCapture executes rootCmd with the given args (via runCmd) and returns
+// everything written to os.Stdout during the call. Use this instead of runCmd
+// when a test needs to assert output content.
+func runCmdCapture(mock aruba.Client, args []string) (string, error) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	runErr := runCmd(mock, args)
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r) //nolint:errcheck
+	r.Close()
+	return buf.String(), runErr
+}

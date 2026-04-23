@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestKaaSListCmd(t *testing.T) {
 		setupMock   func(*mockKaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestKaaSListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockKaaSClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
 					return &types.Response[types.KaaSList]{StatusCode: 200, Data: &types.KaaSList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockKaaSClient) {
+				id, name := "kaas-001", "my-cluster"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
+					return &types.Response[types.KaaSList]{
+						StatusCode: 200,
+						Data: &types.KaaSList{
+							Values: []types.KaaSResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,9 +99,15 @@ func TestKaaSListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
-				[]string{"container", "kaas", "list", "--project-id", "proj-123"})
+			args := []string{"container", "kaas", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -82,6 +118,7 @@ func TestKaaSGetCmd(t *testing.T) {
 		setupMock   func(*mockKaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -92,6 +129,11 @@ func TestKaaSGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -125,9 +167,12 @@ func TestKaaSGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
+			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
 				[]string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -155,6 +200,7 @@ func TestKaaSCreateCmd(t *testing.T) {
 		setupMock   func(*mockKaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -166,6 +212,11 @@ func TestKaaSCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kaas-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -207,8 +258,11 @@ func TestKaaSCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), tc.args)
+			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -219,12 +273,36 @@ func TestKaaSDeleteCmd(t *testing.T) {
 		setupMock   func(*mockKaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockKaaSClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockKaaSClient) {
+				id, name := "kaas-001", "my-cluster"
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
+					return &types.Response[types.KaaSResponse]{StatusCode: 200, Data: &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}}}, nil
+				}
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kaas-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -258,9 +336,15 @@ func TestKaaSDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
-				[]string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

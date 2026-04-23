@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,20 +16,28 @@ func TestSnapshotListCmd(t *testing.T) {
 		setupMock   func(*mockSnapshotsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
 			setupMock: func(m *mockSnapshotsClient) {
 				id, name := "snap-001", "my-snapshot"
+				volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.SnapshotList], error) {
 					return &types.Response[types.SnapshotList]{
 						StatusCode: 200,
 						Data: &types.SnapshotList{
 							Values: []types.SnapshotResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+									Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfo{URI: &volURI}}},
 							},
 						},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -36,6 +46,30 @@ func TestSnapshotListCmd(t *testing.T) {
 			setupMock: func(m *mockSnapshotsClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.SnapshotList], error) {
 					return &types.Response[types.SnapshotList]{StatusCode: 200, Data: &types.SnapshotList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockSnapshotsClient) {
+				id, name := "snap-001", "my-snapshot"
+				volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.SnapshotList], error) {
+					return &types.Response[types.SnapshotList]{
+						StatusCode: 200,
+						Data: &types.SnapshotList{
+							Values: []types.SnapshotResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+									Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfo{URI: &volURI}}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,10 +103,16 @@ func TestSnapshotListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})),
-				[]string{"storage", "snapshot", "list", "--project-id", "proj-123",
-					"--volume-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"})
+			args := []string{"storage", "snapshot", "list", "--project-id", "proj-123",
+				"--volume-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -83,6 +123,7 @@ func TestSnapshotGetCmd(t *testing.T) {
 		setupMock   func(*mockSnapshotsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -93,6 +134,11 @@ func TestSnapshotGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.SnapshotResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -126,9 +172,12 @@ func TestSnapshotGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})),
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})),
 				[]string{"storage", "snapshot", "get", "snap-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -140,6 +189,7 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		setupMock   func(*mockSnapshotsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -157,6 +207,11 @@ func TestSnapshotCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.SnapshotResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -214,8 +269,11 @@ func TestSnapshotCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})), tc.args)
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -226,12 +284,32 @@ func TestSnapshotDeleteCmd(t *testing.T) {
 		setupMock   func(*mockSnapshotsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockSnapshotsClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockSnapshotsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -265,9 +343,15 @@ func TestSnapshotDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})),
-				[]string{"storage", "snapshot", "delete", "snap-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"storage", "snapshot", "delete", "snap-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{snapshotsMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestDBBackupListCmd(t *testing.T) {
 		setupMock   func(*mockDBBackupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestDBBackupListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "bkp-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockDBBackupsClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.BackupList], error) {
 					return &types.Response[types.BackupList]{StatusCode: 200, Data: &types.BackupList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockDBBackupsClient) {
+				id, name := "bkp-001", "my-backup"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.BackupList], error) {
+					return &types.Response[types.BackupList]{
+						StatusCode: 200,
+						Data: &types.BackupList{
+							Values: []types.BackupResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,9 +99,15 @@ func TestDBBackupListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})),
-				[]string{"database", "backup", "list", "--project-id", "proj-123"})
+			args := []string{"database", "backup", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -82,6 +118,7 @@ func TestDBBackupGetCmd(t *testing.T) {
 		setupMock   func(*mockDBBackupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -92,6 +129,11 @@ func TestDBBackupGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.BackupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "bkp-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -125,9 +167,12 @@ func TestDBBackupGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})),
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})),
 				[]string{"database", "backup", "get", "bkp-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -162,6 +207,7 @@ func TestDBBackupCreateCmd(t *testing.T) {
 		dbMock      *mockDatabaseClient
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -173,6 +219,11 @@ func TestDBBackupCreateCmd(t *testing.T) {
 					Data:       &types.BackupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &bname}},
 				}, nil
 			}),
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "bkp-new") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name:        "missing required flag --name",
@@ -214,8 +265,11 @@ func TestDBBackupCreateCmd(t *testing.T) {
 			if dbMock == nil {
 				dbMock = &mockDatabaseClient{}
 			}
-			err := runCmd(newMockClient(withDatabase(dbMock)), tc.args)
+			out, err := runCmdCapture(newMockClient(withDatabase(dbMock)), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -226,12 +280,36 @@ func TestDBBackupDeleteCmd(t *testing.T) {
 		setupMock   func(*mockDBBackupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockDBBackupsClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "bkp-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockDBBackupsClient) {
+				id, name := "bkp-001", "my-backup"
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.BackupResponse], error) {
+					return &types.Response[types.BackupResponse]{StatusCode: 200, Data: &types.BackupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}}}, nil
+				}
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "bkp-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -265,9 +343,15 @@ func TestDBBackupDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})),
-				[]string{"database", "backup", "delete", "bkp-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"database", "backup", "delete", "bkp-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{backupsClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

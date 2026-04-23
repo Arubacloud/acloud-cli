@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 		setupMock   func(*mockSecurityGroupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestSecurityGroupListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockSecurityGroupsClient) {
 				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
 					return &types.Response[types.SecurityGroupList]{StatusCode: 200, Data: &types.SecurityGroupList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockSecurityGroupsClient) {
+				id, name := "sg-001", "my-sg"
+				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
+					return &types.Response[types.SecurityGroupList]{
+						StatusCode: 200,
+						Data: &types.SecurityGroupList{
+							Values: []types.SecurityGroupResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,9 +99,15 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})),
-				[]string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"})
+			args := []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -82,6 +118,7 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 		setupMock   func(*mockSecurityGroupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -92,6 +129,11 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.SecurityGroupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -125,9 +167,12 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})),
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})),
 				[]string{"network", "securitygroup", "get", "vpc-001", "sg-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -139,6 +184,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		setupMock   func(*mockSecurityGroupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -150,6 +196,11 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.SecurityGroupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -209,12 +260,32 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 		setupMock   func(*mockSecurityGroupsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockSecurityGroupsClient) {
 				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockSecurityGroupsClient) {
+				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -248,9 +319,15 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})),
-				[]string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

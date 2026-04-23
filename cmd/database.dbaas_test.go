@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestDBaaSListCmd(t *testing.T) {
 		setupMock   func(*mockDBaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -30,12 +33,39 @@ func TestDBaaSListCmd(t *testing.T) {
 					}, nil
 				}
 			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "success empty",
 			setupMock: func(m *mockDBaaSClient) {
 				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.DBaaSList], error) {
 					return &types.Response[types.DBaaSList]{StatusCode: 200, Data: &types.DBaaSList{}}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockDBaaSClient) {
+				id, name := "dbaas-001", "my-dbaas"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.DBaaSList], error) {
+					return &types.Response[types.DBaaSList]{
+						StatusCode: 200,
+						Data: &types.DBaaSList{
+							Values: []types.DBaaSResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -69,9 +99,15 @@ func TestDBaaSListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})),
-				[]string{"database", "dbaas", "list", "--project-id", "proj-123"})
+			args := []string{"database", "dbaas", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -82,6 +118,7 @@ func TestDBaaSGetCmd(t *testing.T) {
 		setupMock   func(*mockDBaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -92,6 +129,11 @@ func TestDBaaSGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.DBaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -125,9 +167,12 @@ func TestDBaaSGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})),
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})),
 				[]string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -139,6 +184,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		setupMock   func(*mockDBaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -150,6 +196,11 @@ func TestDBaaSCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.DBaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -197,8 +248,11 @@ func TestDBaaSCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})), tc.args)
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -209,12 +263,36 @@ func TestDBaaSDeleteCmd(t *testing.T) {
 		setupMock   func(*mockDBaaSClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockDBaaSClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockDBaaSClient) {
+				id, name := "dbaas-001", "my-dbaas"
+				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DBaaSResponse], error) {
+					return &types.Response[types.DBaaSResponse]{StatusCode: 200, Data: &types.DBaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}}}, nil
+				}
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -248,9 +326,15 @@ func TestDBaaSDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})),
-				[]string{"database", "dbaas", "delete", "dbaas-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"database", "dbaas", "delete", "dbaas-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{dbaasClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }

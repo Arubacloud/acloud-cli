@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -14,6 +16,7 @@ func TestKeyPairListCmd(t *testing.T) {
 		setupMock   func(*mockKeyPairsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
@@ -28,6 +31,11 @@ func TestKeyPairListCmd(t *testing.T) {
 							},
 						},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kp-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
@@ -53,6 +61,28 @@ func TestKeyPairListCmd(t *testing.T) {
 							},
 						},
 					}, nil
+				}
+			},
+		},
+		{
+			name: "--output=json emits valid JSON",
+			setupMock: func(m *mockKeyPairsClient) {
+				kpID, kpName := "kp-001", "my-kp"
+				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
+					return &types.Response[types.KeyPairListResponse]{
+						StatusCode: 200,
+						Data: &types.KeyPairListResponse{
+							Values: []types.KeyPairResponse{
+								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
+							},
+						},
+					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 				}
 			},
 		},
@@ -86,9 +116,15 @@ func TestKeyPairListCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})),
-				[]string{"compute", "keypair", "list", "--project-id", "proj-123"})
+			args := []string{"compute", "keypair", "list", "--project-id", "proj-123"}
+			if tc.name == "--output=json emits valid JSON" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -99,6 +135,7 @@ func TestKeyPairGetCmd(t *testing.T) {
 		setupMock   func(*mockKeyPairsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -109,6 +146,11 @@ func TestKeyPairGetCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.KeyPairResponse{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "my-kp") {
+					t.Errorf("expected name in output, got: %s", out)
 				}
 			},
 		},
@@ -142,9 +184,12 @@ func TestKeyPairGetCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})),
+			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})),
 				[]string{"compute", "keypair", "get", "kp-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -156,6 +201,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		setupMock   func(*mockKeyPairsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
@@ -167,6 +213,11 @@ func TestKeyPairCreateCmd(t *testing.T) {
 						StatusCode: 200,
 						Data:       &types.KeyPairResponse{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
 					}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "my-kp") {
+					t.Errorf("expected name in output, got: %s", out)
 				}
 			},
 		},
@@ -214,8 +265,11 @@ func TestKeyPairCreateCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), tc.args)
+			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -226,12 +280,32 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 		setupMock   func(*mockKeyPairsClient)
 		wantErr     bool
 		errContains string
+		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
 			setupMock: func(m *mockKeyPairsClient) {
 				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
 					return &types.Response[any]{StatusCode: 200}, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kp-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run: prints intent, does not call Delete",
+			setupMock: func(m *mockKeyPairsClient) {
+				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
+					t.Fatal("Delete must not be called in --dry-run mode")
+					return nil, nil
+				}
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kp-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
@@ -265,9 +339,15 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 			if tc.setupMock != nil {
 				tc.setupMock(m)
 			}
-			err := runCmd(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})),
-				[]string{"compute", "keypair", "delete", "kp-001", "--project-id", "proj-123", "--yes"})
+			args := []string{"compute", "keypair", "delete", "kp-001", "--project-id", "proj-123", "--yes"}
+			if tc.name == "--dry-run: prints intent, does not call Delete" {
+				args = append(args, "--dry-run")
+			}
+			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
