@@ -65,7 +65,7 @@ jobs:
             exit 1
           fi
         env:
-          THRESHOLD: 60
+          THRESHOLD: 70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
