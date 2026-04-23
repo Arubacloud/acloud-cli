@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 // Helper function to check if a string contains a substring (case-insensitive)
@@ -621,4 +622,163 @@ func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMsgHelpers(t *testing.T) {
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"msgCreated", msgCreated("VPC", "vpc-1"), "VPC 'vpc-1' created successfully."},
+		{"msgCreatedAsync", msgCreatedAsync("KaaS", "k-1"), "KaaS 'k-1' creation initiated."},
+		{"msgUpdated", msgUpdated("Subnet", "sn-1"), "Subnet 'sn-1' updated successfully."},
+		{"msgUpdatedAsync", msgUpdatedAsync("CloudServer", "cs-1"), "CloudServer 'cs-1' update initiated."},
+		{"msgDeleted", msgDeleted("VPN tunnel", "tun-1"), "VPN tunnel 'tun-1' deleted successfully."},
+		{"msgAction", msgAction("Snapshot", "snap-1", "restored"), "Snapshot 'snap-1' restored successfully."},
+		{"msgDryRun", msgDryRun("Block storage", "vol-1"), "vol-1"},
+	}
+	for _, c := range cases {
+		if !strings.Contains(c.got, c.want) {
+			t.Errorf("%s: got %q, want substring %q", c.name, c.got, c.want)
+		}
+	}
+}
+
+func TestListParams(t *testing.T) {
+	// Build a temp command with limit/offset flags (same as all list commands)
+	cmd := &cobra.Command{}
+	cmd.Flags().Int32("limit", 0, "")
+	cmd.Flags().Int32("offset", 0, "")
+
+	// nil when both flags are zero
+	p := listParams(cmd)
+	if p != nil {
+		t.Errorf("expected nil params for zero flags, got %+v", p)
+	}
+
+	// non-nil when limit is set
+	if err := cmd.Flags().Set("limit", "10"); err != nil {
+		t.Fatalf("setting limit: %v", err)
+	}
+	p = listParams(cmd)
+	if p == nil || p.Limit == nil || *p.Limit != 10 {
+		t.Errorf("expected limit=10, got %+v", p)
+	}
+
+	// non-nil when offset is set
+	if err := cmd.Flags().Set("limit", "0"); err != nil {
+		t.Fatalf("resetting limit: %v", err)
+	}
+	if err := cmd.Flags().Set("offset", "5"); err != nil {
+		t.Fatalf("setting offset: %v", err)
+	}
+	p = listParams(cmd)
+	if p == nil || p.Offset == nil || *p.Offset != 5 {
+		t.Errorf("expected offset=5, got %+v", p)
+	}
+}
+
+func TestResolveOutputFormat_AllFormats(t *testing.T) {
+	cases := []struct{ flag, want string }{
+		{"json", OutputFormatJSON},
+		{"yaml", OutputFormatYAML},
+		{"table-json", OutputFormatTableJSON},
+		{"table-yaml", OutputFormatTableYAML},
+		{"table", OutputFormatTable},
+		{"std", OutputFormatTable},
+		{"standard", OutputFormatTable},
+		{"", OutputFormatTable},
+		{"std-json", OutputFormatTableJSON},
+		{"std-yaml", OutputFormatTableYAML},
+		{"unknown-xyz", OutputFormatTable}, // falls back to table
+	}
+	for _, c := range cases {
+		resetCmdFlags(rootCmd)
+		if c.flag != "" {
+			_ = rootCmd.PersistentFlags().Set("output", c.flag)
+		}
+		got := resolveOutputFormat()
+		if got != c.want {
+			t.Errorf("resolveOutputFormat() with --output=%q: got %q, want %q", c.flag, got, c.want)
+		}
+	}
+	resetCmdFlags(rootCmd)
+}
+
+func TestPrintJSON_NilObject(t *testing.T) {
+	out := captureStdout(func() { printJSON(nil) })
+	if !strings.Contains(out, "{}") {
+		t.Errorf("printJSON(nil) should print {}, got: %s", out)
+	}
+}
+
+func TestPrintYAML_NilObject(t *testing.T) {
+	out := captureStdout(func() { printYAML(nil) })
+	if !strings.Contains(out, "{}") {
+		t.Errorf("printYAML(nil) should print {}, got: %s", out)
+	}
+}
+
+func TestPrintYAML_ValidObject(t *testing.T) {
+	obj := map[string]string{"key": "value"}
+	out := captureStdout(func() { printYAML(obj) })
+	if !strings.Contains(out, "key") || !strings.Contains(out, "value") {
+		t.Errorf("printYAML() output missing key/value, got: %s", out)
+	}
+}
+
+func TestPrintTableJSON_Empty(t *testing.T) {
+	out := captureStdout(func() {
+		printTableJSON([]TableColumn{{Header: "NAME", Width: 10}}, [][]string{})
+	})
+	if !strings.Contains(out, "[]") {
+		t.Errorf("printTableJSON with empty rows should print [], got: %s", out)
+	}
+}
+
+func TestRowsToRecords(t *testing.T) {
+	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
+	rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
+	records := rowsToRecords(headers, rows)
+	if len(records) != 2 {
+		t.Errorf("expected 2 records, got %d", len(records))
+	}
+}
+
+
+func TestRowsToRecords_ShortRow(t *testing.T) {
+headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
+rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
+records := rowsToRecords(headers, rows)
+if len(records) != 1 {
+t.Errorf("expected 1 record, got %d", len(records))
+}
+// Should only have 2 key-value pairs (NAME and ID), not 3
+if len(records[0].Content) != 4 { // 2 pairs * 2 nodes each
+t.Errorf("expected 4 content nodes (2 pairs), got %d", len(records[0].Content))
+}
+}
+
+func TestPrintTableJSON_MultipleRows(t *testing.T) {
+headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
+rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
+out := captureStdout(func() {
+printTableJSON(headers, rows)
+})
+if !strings.Contains(out, "alice") || !strings.Contains(out, "bob") {
+t.Errorf("printTableJSON output missing rows, got: %s", out)
+}
+}
+
+
+func TestPrintTableJSON_ShortRow(t *testing.T) {
+headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
+rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
+out := captureStdout(func() {
+printTableJSON(headers, rows)
+})
+if !strings.Contains(out, "alice") {
+t.Errorf("printTableJSON short row output missing alice, got: %s", out)
+}
 }

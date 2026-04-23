@@ -3,10 +3,14 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestLoadContext_InvalidYAML(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir() on Windows uses Win32 API, not HOME env var")
+	}
 	// Save original home dir
 	originalHome := os.Getenv("HOME")
 	if originalHome == "" {

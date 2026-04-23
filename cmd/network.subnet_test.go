@@ -334,3 +334,28 @@ func TestSubnetDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+
+func TestSplitRouteString(t *testing.T) {
+cases := []struct {
+in   string
+want []string
+}{
+{"0.0.0.0/0:10.0.0.1", []string{"0.0.0.0/0", "10.0.0.1"}},
+{"192.168.1.0/24:192.168.1.1", []string{"192.168.1.0/24", "192.168.1.1"}},
+{"no-colon", []string{"no-colon"}},
+{"", []string{""}},
+}
+for _, c := range cases {
+got := splitRouteString(c.in)
+if len(got) != len(c.want) {
+t.Errorf("splitRouteString(%q): got %v, want %v", c.in, got, c.want)
+continue
+}
+for i := range c.want {
+if got[i] != c.want[i] {
+t.Errorf("splitRouteString(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+}
+}
+}
+}
