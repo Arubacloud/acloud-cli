@@ -746,31 +746,29 @@ func TestRowsToRecords(t *testing.T) {
 	}
 }
 
-
 func TestRowsToRecords_ShortRow(t *testing.T) {
-headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
-rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
-records := rowsToRecords(headers, rows)
-if len(records) != 1 {
-t.Errorf("expected 1 record, got %d", len(records))
-}
-// Should only have 2 key-value pairs (NAME and ID), not 3
-if len(records[0].Content) != 4 { // 2 pairs * 2 nodes each
-t.Errorf("expected 4 content nodes (2 pairs), got %d", len(records[0].Content))
-}
+	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
+	rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
+	records := rowsToRecords(headers, rows)
+	if len(records) != 1 {
+		t.Errorf("expected 1 record, got %d", len(records))
+	}
+	// Should only have 2 key-value pairs (NAME and ID), not 3
+	if len(records[0].Content) != 4 { // 2 pairs * 2 nodes each
+		t.Errorf("expected 4 content nodes (2 pairs), got %d", len(records[0].Content))
+	}
 }
 
 func TestPrintTableJSON_MultipleRows(t *testing.T) {
-headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
-rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
-out := captureStdout(func() {
-printTableJSON(headers, rows)
-})
-if !strings.Contains(out, "alice") || !strings.Contains(out, "bob") {
-t.Errorf("printTableJSON output missing rows, got: %s", out)
+	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
+	rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
+	out := captureStdout(func() {
+		printTableJSON(headers, rows)
+	})
+	if !strings.Contains(out, "alice") || !strings.Contains(out, "bob") {
+		t.Errorf("printTableJSON output missing rows, got: %s", out)
+	}
 }
-}
-
 
 func TestPrintTableJSON_ShortRow(t *testing.T) {
 	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
