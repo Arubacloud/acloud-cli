@@ -1178,6 +1178,7 @@ func runCmd(mock aruba.Client, args []string) error {
 	resetCmdFlags(rootCmd)
 	setClientForTesting(mock)
 	defer resetClientState()
+	defer resetCmdFlags(rootCmd)
 	rootCmd.SetArgs(args)
 	return rootCmd.Execute()
 }

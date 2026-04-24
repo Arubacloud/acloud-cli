@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 func TestCloudServerListCmd(t *testing.T) {
@@ -529,6 +530,58 @@ func checkErr(t *testing.T, err error, wantErr bool, errContains string) {
 		}
 	} else if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExtractIDFromURI(t *testing.T) {
+	cases := []struct {
+		uri  string
+		want string
+	}{
+		{"/projects/p1/providers/Aruba.Compute/cloudServers/cs-123", "cs-123"},
+		{"cs-abc", "cs-abc"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := extractIDFromURI(c.uri)
+		if got != c.want {
+			t.Errorf("extractIDFromURI(%q) = %q, want %q", c.uri, got, c.want)
+		}
+	}
+}
+
+func TestCompleteCloudServerID(t *testing.T) {
+	id := "cs-001"
+	name := "test-server"
+	m := &mockCloudServersClient{
+		listFn: func(ctx context.Context, projectID string, params *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
+			return &types.Response[types.CloudServerList]{
+				StatusCode: 200,
+				Data: &types.CloudServerList{
+					Values: []types.CloudServerResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				},
+			}, nil
+		},
+	}
+	setClientForTesting(newMockClient(withCompute(m)))
+	defer resetClientState()
+
+	cmd := cloudserverCmd
+	_ = cmd.Flags().Lookup("project-id") // ensure flag exists
+	if cmd.Flags().Lookup("project-id") == nil {
+		cmd.Flags().String("project-id", "proj-123", "")
+	} else {
+		_ = cmd.Flags().Set("project-id", "proj-123")
+	}
+
+	completions, directive := completeCloudServerID(cmd, nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("expected NoFileComp directive, got %v", directive)
+	}
+	if len(completions) != 1 {
+		t.Errorf("expected 1 completion, got %d: %v", len(completions), completions)
 	}
 }
 

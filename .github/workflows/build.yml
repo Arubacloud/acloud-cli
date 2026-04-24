@@ -65,11 +65,12 @@ jobs:
             exit 1
           fi
         env:
-          THRESHOLD: 60
+          THRESHOLD: 70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.txt
           flags: unittests
           fail_ci_if_error: false
