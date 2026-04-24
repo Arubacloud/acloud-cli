@@ -173,12 +173,24 @@ Billing period: Hour (default), Month, or Year.`,
 		if resp != nil && resp.Data != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
+				{Header: "ID", Width: 26},
 				{Header: "LOCAL NETWORK", Width: 18},
 				{Header: "REMOTE NETWORK", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
 			row := []string{
-				resp.Data.Metadata.Name,
+				func() string {
+					if resp.Data.Metadata.Name != nil {
+						return *resp.Data.Metadata.Name
+					}
+					return name
+				}(),
+				func() string {
+					if resp.Data.Metadata.ID != nil {
+						return *resp.Data.Metadata.ID
+					}
+					return ""
+				}(),
 				localNetwork,
 				remoteNetwork,
 				func() string {
@@ -231,7 +243,9 @@ var vpcpeeringrouteGetCmd = &cobra.Command{
 			fmt.Println("\nVPC Peering Route Details:")
 			fmt.Println("==========================")
 			fmt.Printf("ID:              %s\n", routeID)
-			fmt.Printf("Name:            %s\n", route.Metadata.Name)
+			if route.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *route.Metadata.Name)
+			}
 			fmt.Printf("Local Network:    %s\n", route.Properties.LocalNetworkAddress)
 			fmt.Printf("Remote Network:   %s\n", route.Properties.RemoteNetworkAddress)
 			if route.Properties.BillingPlan.BillingPeriod != "" {
@@ -284,20 +298,28 @@ var vpcpeeringrouteListCmd = &cobra.Command{
 		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
+				{Header: "ID", Width: 26},
 				{Header: "LOCAL NETWORK", Width: 18},
 				{Header: "REMOTE NETWORK", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
 			var rows [][]string
 			for _, route := range resp.Data.Values {
-				name := route.Metadata.Name
+				name := ""
+				if route.Metadata.Name != nil {
+					name = *route.Metadata.Name
+				}
+				id := ""
+				if route.Metadata.ID != nil {
+					id = *route.Metadata.ID
+				}
 				localNetwork := route.Properties.LocalNetworkAddress
 				remoteNetwork := route.Properties.RemoteNetworkAddress
 				status := ""
 				if route.Status.State != nil {
 					status = *route.Status.State
 				}
-				rows = append(rows, []string{name, localNetwork, remoteNetwork, status})
+				rows = append(rows, []string{name, id, localNetwork, remoteNetwork, status})
 			}
 			PrintOutput(resp.Data, headers, rows)
 		} else {
@@ -360,7 +382,10 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 					if name != "" {
 						return name
 					}
-					return current.Metadata.Name
+					if current.Metadata.Name != nil {
+						return *current.Metadata.Name
+					}
+					return ""
 				}(),
 				Tags: func() []string {
 					if cmd.Flags().Changed("tags") {
@@ -408,12 +433,24 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 		if resp != nil && resp.Data != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
+				{Header: "ID", Width: 26},
 				{Header: "LOCAL NETWORK", Width: 18},
 				{Header: "REMOTE NETWORK", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
 			row := []string{
-				resp.Data.Metadata.Name,
+				func() string {
+					if resp.Data.Metadata.Name != nil {
+						return *resp.Data.Metadata.Name
+					}
+					return ""
+				}(),
+				func() string {
+					if resp.Data.Metadata.ID != nil {
+						return *resp.Data.Metadata.ID
+					}
+					return routeID
+				}(),
 				resp.Data.Properties.LocalNetworkAddress,
 				resp.Data.Properties.RemoteNetworkAddress,
 				func() string {
