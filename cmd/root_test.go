@@ -773,12 +773,51 @@ t.Errorf("printTableJSON output missing rows, got: %s", out)
 
 
 func TestPrintTableJSON_ShortRow(t *testing.T) {
-headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
-rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
-out := captureStdout(func() {
-printTableJSON(headers, rows)
-})
-if !strings.Contains(out, "alice") {
-t.Errorf("printTableJSON short row output missing alice, got: %s", out)
+	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
+	rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
+	out := captureStdout(func() {
+		printTableJSON(headers, rows)
+	})
+	if !strings.Contains(out, "alice") {
+		t.Errorf("printTableJSON short row output missing alice, got: %s", out)
+	}
 }
+
+func TestResolveOutputFormat_Unknown(t *testing.T) {
+	rootCmd.PersistentFlags().Set("output", "invalid-format")
+	got := resolveOutputFormat()
+	if got != OutputFormatTable {
+		t.Errorf("resolveOutputFormat() with unknown flag = %q, want %q", got, OutputFormatTable)
+	}
+	rootCmd.PersistentFlags().Set("output", "table")
+}
+
+func TestPrintJSON_MarshalError(t *testing.T) {
+	// channels cannot be marshalled to JSON — triggers the error branch
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	printJSON(make(chan int))
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "error marshalling to JSON") {
+		t.Errorf("expected marshal error message, got: %s", buf.String())
+	}
+}
+
+func TestPrintYAML_MarshalError(t *testing.T) {
+	// channels cannot be marshalled to JSON — triggers the error branch in printYAML
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	printYAML(make(chan int))
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "error marshalling to JSON for YAML conversion") {
+		t.Errorf("expected marshal error message, got: %s", buf.String())
+	}
 }
