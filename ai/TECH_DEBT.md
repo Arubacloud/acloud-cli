@@ -41,27 +41,27 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ### TD-022 · Pre-release SDK version (v0.1.x)
-`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.26`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
+`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.27`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
 
 **Fix:** Track the SDK release roadmap. When a `v1.0.0` is released, migrate and pin to it. Until then, pin to a specific minor version and treat any upgrade as potentially breaking.
 
 ---
 
 ### TD-024 · VPN tunnel IKE/ESP/PSK enum values undocumented
-`vpntunnel create` exposes `--dhgroup`, `--pfs`, `--cloud-site`, `--onprem-site`, and sibling IKE/ESP flags as free-text strings. The SDK (`sdk-go@v0.1.26/pkg/types/network.vpn-tunnel.go:34,58,64-67`) models them as opaque `*string` with no enum constants, no Swagger/OpenAPI spec, and no sample payloads anywhere in this repo, the SDK tree, or `docs/`. The e2e test skips `test_vpn_tunnel` (gated behind `ACLOUD_RUN_VPN_TESTS=1`) because the API rejects every value tried (`group14`, `10.241.0.0/24`, etc.) with bare "not valid" / "invalid" messages and no `allowedValues` hint.
+`vpntunnel create` exposes `--dhgroup`, `--pfs`, `--cloud-site`, `--onprem-site`, and sibling IKE/ESP flags as free-text strings. The SDK (`sdk-go@v0.1.27/pkg/types/network.vpn-tunnel.go:34,58,64-67`) models them as opaque `*string` with no enum constants, no Swagger/OpenAPI spec, and no sample payloads anywhere in this repo, the SDK tree, or `docs/`. The current e2e run succeeds with the values pinned in test.sh (ikev2, aes256, sha1, dh group 1, pfs enable, etc.), but those constants live only in the test script — the CLI accepts any string and the SDK has no enum validation, so a typo or future API change still produces an opaque "not valid" error.
 
-**Fix:** Obtain the API spec or a known-good payload from Aruba. Enumerate valid values for `dhGroup`, `pfs`, `cloudSite`, `onPremSite`, encode them as Go constants in `cmd/network.vpntunnel.go`, optionally validate client-side before the request, and document them in `docs/website/docs/resources/network/vpntunnel.md`. Then remove the `ACLOUD_RUN_VPN_TESTS` guard from the e2e test.
+**Fix:** Obtain the API spec or a known-good payload from Aruba. Enumerate valid values for `dhGroup`, `pfs`, `cloudSite`, `onPremSite`, encode them as Go constants in `cmd/network.vpntunnel.go`, optionally validate client-side before the request, and document them in `docs/website/docs/resources/network/vpntunnel.md`. Mark resolved once the constants are documented; the e2e gate this previously referenced no longer exists.
 
 ---
 
 ### TD-025 · VPN tunnel subnet semantics: CLI says "existing", API says "overlap"
-`cmd/network.vpntunnel.go:295-296` documents `--subnet-cidr` as *"CIDR of existing subnet"* and `--subnet-name` as an alternative lookup — i.e. a reference to a pre-existing subnet. But when a subnet with the referenced CIDR already exists in the VPC, the API responds `ipConfigurations.subnet.cidr overlaps with an existing subnet`, suggesting it interprets the field as a *provisioning* instruction rather than a lookup. The two readings are contradictory and the e2e test cannot safely pre-create the subnet.
+`cmd/network.vpntunnel.go:28-29` documents `--subnet-cidr` as *"CIDR of existing subnet"* and `--subnet-name` as an alternative lookup — i.e. a reference to a pre-existing subnet. But when a subnet with the referenced CIDR already exists in the VPC, the API responds `ipConfigurations.subnet.cidr overlaps with an existing subnet`, suggesting it interprets the field as a *provisioning* instruction rather than a lookup. The two readings are contradictory and the e2e test cannot safely pre-create the subnet.
 
 **Fix:** Confirm with the API team whether `ipConfigurations.subnet` is a reference or a creation spec. If it is a lookup, surface a clearer error when the subnet is missing. If it is a creation field, update the CLI `Long`, flag descriptions, and `docs/website/docs/resources/network/vpntunnel.md` accordingly, and remove the pre-create step from the e2e test.
 
 ---
 
-### TD-026 · VPC Peering Route CREATE returns bare 403 Forbidden
-`network vpcpeeringroute create` against the e2e tenant returns HTTP 403 with no `errors` array. The CLI request matches the SDK model (`sdk-go@v0.1.26`); no hidden acceptance step or extra field is modelled; the parent peering is Active when the call fires. This points at an API-side IAM/ACL policy on the `Aruba.Network/vpcPeerings/{id}/routes/write` action scoped to this tenant — not a CLI bug. The e2e test detects the 403 and emits a ⚠ skip so the suite stays green.
+### TD-026 · VPC Peering Route lifecycle ends in `Failed` due to API ACL
+`network vpcpeeringroute create` against the e2e tenant now returns 200 (the v0.1.26→v0.1.27 SDK URL-path fix removed the bare 403 at CREATE), but the resulting route transitions to `Failed` shortly after creation. No `errors` array is exposed via GET; the route is simply unhealthy. This points at an API-side IAM/ACL on the `Aruba.Network/vpcPeerings/{id}/vpcPeeringRoutes` provisioning step scoped to this tenant — not a CLI bug. The e2e suite handles this via `wait_for_status`'s terminal-failure short-circuit: UPDATE is skipped, DELETE runs with `|| true`, and the function returns 0 so the suite stays green.
 
-**Fix:** Confirm the required tenant/role permissions with Aruba and update the ACL accordingly. No CLI change is required — the e2e test will start running the full CRUD path automatically once CREATE stops returning 403.
+**Fix:** Confirm required tenant/role permissions with Aruba and update the ACL accordingly. No CLI change is required — once the route reaches `Active`, the existing UPDATE/DELETE blocks in `test_vpc_peering_route` will exercise the full CRUD without further code changes.

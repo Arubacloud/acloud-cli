@@ -688,12 +688,6 @@ test_vpc_peering_route() {
     local create_exit=$?
 
     if [ $create_exit -ne 0 ]; then
-        if echo "$create_out" | grep -qE "status 403|Forbidden"; then
-            echo -e "${YELLOW}⚠ VPC Peering Route CREATE returned 403 Forbidden.${NC}"
-            echo -e "${YELLOW}  Reason: API-side authorization policy on routes/write${NC}"
-            echo -e "${YELLOW}  (see TECH_DEBT TD-026). Not a CLI bug; skipping rest.${NC}\n"
-            return 0
-        fi
         echo -e "${RED}CREATE failed:${NC}"
         echo "$create_out"
         return 1
@@ -905,6 +899,8 @@ test_vpn_tunnel() {
         echo ""
 
         echo -e "${GREEN}[DELETE]${NC} Deleting VPN Tunnel..."
+        echo "Waiting for VPN Tunnel to be deletable after update..."
+        wait_for_vpn_tunnel_ready "$VPN_TUNNEL_ID" 120 || true
         if $ACLOUD_CMD network vpntunnel delete "$VPN_TUNNEL_ID" --yes 2>&1; then
             CREATED_VPN_TUNNELS=("${CREATED_VPN_TUNNELS[@]/$VPN_TUNNEL_ID}")
         fi
@@ -933,13 +929,31 @@ test_vpn_route() {
     }
     echo ""
 
+    # The VPN route's --cloud-subnet must reference an existing VPC subnet CIDR,
+    # not the VPN tunnel's own internal provisioning subnet. Create a dedicated
+    # VPC subnet for this purpose and tear it down after the test.
+    echo "Creating VPC subnet for VPN route cloud-subnet reference..."
+    local route_subnet_out route_subnet_id
+    route_subnet_out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
+        --name "${RESOURCE_PREFIX}-vpn-cloud-subnet" \
+        --cidr "$SUBNET_CIDR" \
+        --dhcp-enabled \
+        --region "$REGION" 2>&1)
+    route_subnet_id=$(extract_id "$route_subnet_out" "$VPC_ID")
+    if [ -z "$route_subnet_id" ] || ! is_valid_id "$route_subnet_id"; then
+        fail "vpnroute: could not create cloud subnet for route test: $route_subnet_out"
+        return 1
+    fi
+    echo "  → Cloud subnet $route_subnet_id ($SUBNET_CIDR) created"
+    echo ""
+
     local route_create_out route_create_exit
     echo -e "${YELLOW}--- Testing VPN Route ---${NC}"
     echo -e "${GREEN}[CREATE]${NC} Creating VPN Route..."
     route_create_out=$($ACLOUD_CMD network vpnroute create "$VPN_TUNNEL_ID" \
         --name "${RESOURCE_PREFIX}-vpn-route" \
         --region "$REGION" \
-        --cloud-subnet "$VPN_SUBNET_CIDR" \
+        --cloud-subnet "$SUBNET_CIDR" \
         --onprem-subnet 192.168.129.0/24 2>&1)
     route_create_exit=$?
     echo "$route_create_out"
@@ -949,8 +963,10 @@ test_vpn_route() {
         $ACLOUD_CMD --debug network vpnroute create "$VPN_TUNNEL_ID" \
             --name "${RESOURCE_PREFIX}-vpn-route-dbg" \
             --region "$REGION" \
-            --cloud-subnet "$VPN_SUBNET_CIDR" \
+            --cloud-subnet "$SUBNET_CIDR" \
             --onprem-subnet 192.168.129.0/24 2>&1 || true
+        # Clean up the cloud subnet before returning
+        $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true
         return 1
     fi
 
@@ -980,6 +996,10 @@ test_vpn_route() {
     if $ACLOUD_CMD network vpnroute delete "$VPN_TUNNEL_ID" "$vpn_route_id" --yes 2>&1; then
         CREATED_VPN_ROUTES=("${CREATED_VPN_ROUTES[@]/$vpn_route_id}")
     fi
+    echo ""
+
+    echo "Deleting VPN route cloud subnet..."
+    $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true
     echo ""
 
     echo -e "${GREEN}VPN Route test completed successfully${NC}\n"
