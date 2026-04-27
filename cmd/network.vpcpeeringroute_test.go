@@ -32,6 +32,23 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success with non-nil name and id",
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
+					name := "my-route"
+					id := "route-abc"
+					return &types.Response[types.VPCPeeringRouteList]{
+						StatusCode: 200,
+						Data: &types.VPCPeeringRouteList{
+							Values: []types.VPCPeeringRouteResponse{{
+								Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id},
+							}},
+						},
+					}, nil
+				}
+			},
+		},
+		{
 			name: "success empty",
 			setupMock: func(m *mockVPCPeeringRoutesClient) {
 				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
@@ -121,6 +138,18 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success with non-nil name",
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					name := "my-route"
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name}},
+					}, nil
+				}
+			},
+		},
+		{
 			name: "SDK error propagates",
 			setupMock: func(m *mockVPCPeeringRoutesClient) {
 				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
@@ -188,6 +217,26 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success with non-nil metadata in response",
+			args: []string{
+				"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
+				"--project-id", "proj-123",
+				"--name", "my-route",
+				"--local-network", "10.0.0.0/24",
+				"--remote-network", "10.1.0.0/24",
+			},
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.createFn = func(_ context.Context, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					name := "my-route"
+					id := "route-abc"
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id}},
+					}, nil
+				}
+			},
+		},
+		{
 			name:    "missing required flag --name",
 			args:    []string{"network", "vpcpeeringroute", "create", "vpc-001", "peer-001", "--project-id", "proj-123", "--local-network", "10.0.0.0/24", "--remote-network", "10.1.0.0/24"},
 			wantErr: true, errContains: "name",
@@ -228,6 +277,138 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &mockVPCPeeringRoutesClient{}
+			if tc.setupMock != nil {
+				tc.setupMock(m)
+			}
+			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
+	baseArgs := []string{
+		"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001",
+		"--project-id", "proj-123",
+	}
+	tests := []struct {
+		name        string
+		args        []string
+		setupMock   func(*mockVPCPeeringRoutesClient)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: append(baseArgs, "--name", "updated-route"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{},
+					}, nil
+				}
+			},
+		},
+		{
+			name: "success with non-nil metadata in response",
+			args: append(baseArgs, "--name", "updated-route"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					currentName := "old-route"
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &currentName}},
+					}, nil
+				}
+				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					name := "updated-route"
+					id := "route-001"
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id}},
+					}, nil
+				}
+			},
+		},
+		{
+			name: "name falls back to current when not provided",
+			args: append(baseArgs, "--tags", "t1"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					currentName := "existing-name"
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &currentName}},
+					}, nil
+				}
+			},
+		},
+		{
+			name:        "no fields provided",
+			args:        baseArgs,
+			wantErr:     true,
+			errContains: "at least one field",
+		},
+		{
+			name: "InCreation blocks update",
+			args: append(baseArgs, "--name", "new-name"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					state := StateInCreation
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 200,
+						Data:       &types.VPCPeeringRouteResponse{Status: types.ResourceStatus{State: &state}},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "InCreation",
+		},
+		{
+			name: "SDK error on get",
+			args: append(baseArgs, "--name", "new-name"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					return nil, fmt.Errorf("connection refused")
+				}
+			},
+			wantErr:     true,
+			errContains: "fetching current",
+		},
+		{
+			name: "SDK error on update",
+			args: append(baseArgs, "--name", "new-name"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					return nil, fmt.Errorf("timeout")
+				}
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+		{
+			name: "API error on update",
+			args: append(baseArgs, "--name", "new-name"),
+			setupMock: func(m *mockVPCPeeringRoutesClient) {
+				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
+					return &types.Response[types.VPCPeeringRouteResponse]{
+						StatusCode: 422,
+						Error:      &types.ErrorResponse{Title: strPtr("Unprocessable"), Detail: strPtr("invalid CIDR")},
+					}, nil
+				}
+			},
+			wantErr:     true,
+			errContains: "API error (status 422): Unprocessable",
 		},
 	}
 	for _, tc := range tests {

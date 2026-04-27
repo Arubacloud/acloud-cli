@@ -56,6 +56,11 @@ wait_for_status() {
             echo "  → ready (status=$status)"
             return 0
         fi
+        # Bail early on terminal failure states
+        if [[ "$status" =~ ^(Failed|Error|Deleted)$ ]]; then
+            echo -e "${YELLOW}wait_for_status: terminal state reached ($status), aborting wait${NC}"
+            return 1
+        fi
         sleep 5
         elapsed=$((elapsed + 5))
     done
@@ -71,6 +76,18 @@ wait_for_vpc_ready() {
 # Usage: wait_for_peering_ready <vpc_id> <peering_id> [timeout]
 wait_for_peering_ready() {
     wait_for_status "$ACLOUD_CMD network vpcpeering get $1 $2" '^(Active|Ready)$' "${3:-180}"
+}
+
+# Wait for a VPC peering route to leave transient states.
+# Usage: wait_for_peering_route_ready <vpc_id> <peering_id> <route_id> [timeout]
+wait_for_peering_route_ready() {
+    wait_for_status "$ACLOUD_CMD network vpcpeeringroute get $1 $2 $3" '^(Active|Ready)$' "${4:-180}"
+}
+
+# Wait for a VPN tunnel to leave transient states.
+# Usage: wait_for_vpn_tunnel_ready <tunnel_id> [timeout]
+wait_for_vpn_tunnel_ready() {
+    wait_for_status "$ACLOUD_CMD network vpntunnel get $1" '^(Active|Ready)$' "${2:-300}"
 }
 
 # Accept an Elastic IP ID or URI; strips the trailing path segment to get the id.
@@ -199,17 +216,40 @@ cleanup() {
     fi
     
     # Delete VPN tunnels
+    local had_tunnels=0
     for tunnel_id in "${CREATED_VPN_TUNNELS[@]}"; do
         if is_valid_id "$tunnel_id"; then
+            had_tunnels=1
+            echo "Waiting for VPN tunnel $tunnel_id to be deletable..."
+            wait_for_vpn_tunnel_ready "$tunnel_id" 300 || true
             echo "Deleting VPN tunnel: $tunnel_id"
             $ACLOUD_CMD network vpntunnel delete "$tunnel_id" --yes 2>&1 || true
         fi
     done
+
+    # Wait for the platform to fully release tunnel constraints (EIP, subnet, peer IP)
+    # before attempting to delete the EIP — otherwise the delete returns 400.
+    if [ "$had_tunnels" -eq 1 ]; then
+        echo "Waiting for VPN tunnel to be fully purged before deleting EIPs..."
+        local purge_elapsed=0
+        while [ "$purge_elapsed" -lt 300 ]; do
+            local remaining_tunnels
+            remaining_tunnels=$($ACLOUD_CMD network vpntunnel list 2>/dev/null | awk 'NR>1 && /[0-9a-f]{24}/ {print $2}')
+            if [ -z "$remaining_tunnels" ]; then
+                echo "  → VPN tunnels fully purged."
+                break
+            fi
+            sleep 10
+            purge_elapsed=$((purge_elapsed + 10))
+        done
+    fi
     
     # Delete peering routes (only if VPC_ID and PEERING_ID are set and valid)
     if [ -n "$VPC_ID" ] && is_valid_id "$VPC_ID" && [ -n "$PEERING_ID" ] && is_valid_id "$PEERING_ID"; then
         for route_id in "${CREATED_PEERING_ROUTES[@]}"; do
             if is_valid_id "$route_id"; then
+                echo "Waiting for peering route $route_id to be deletable..."
+                wait_for_peering_route_ready "$VPC_ID" "$PEERING_ID" "$route_id" 180 || true
                 echo "Deleting peering route: $route_id"
                 $ACLOUD_CMD network vpcpeeringroute delete "$VPC_ID" "$PEERING_ID" "$route_id" --yes 2>&1 || true
             fi
@@ -648,12 +688,6 @@ test_vpc_peering_route() {
     local create_exit=$?
 
     if [ $create_exit -ne 0 ]; then
-        if echo "$create_out" | grep -qE "status 403|Forbidden"; then
-            echo -e "${YELLOW}⚠ VPC Peering Route CREATE returned 403 Forbidden.${NC}"
-            echo -e "${YELLOW}  Reason: API-side authorization policy on routes/write${NC}"
-            echo -e "${YELLOW}  (see TECH_DEBT TD-026). Not a CLI bug; skipping rest.${NC}\n"
-            return 0
-        fi
         echo -e "${RED}CREATE failed:${NC}"
         echo "$create_out"
         return 1
@@ -677,13 +711,25 @@ test_vpc_peering_route() {
     $ACLOUD_CMD network vpcpeeringroute get "$VPC_ID" "$PEERING_ID" "$route_id" 2>&1
     echo ""
 
-    echo -e "${GREEN}[UPDATE]${NC} Updating VPC Peering Route..."
-    $ACLOUD_CMD network vpcpeeringroute update "$VPC_ID" "$PEERING_ID" "$route_id" \
-        --name "${RESOURCE_PREFIX}-route-updated" --tags updated 2>&1 || true
+    echo -e "Waiting for peering route to be Active..."
+    local route_ready=0
+    wait_for_peering_route_ready "$VPC_ID" "$PEERING_ID" "$route_id" 180 && route_ready=1
     echo ""
+
+    if [ "$route_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating VPC Peering Route..."
+        $ACLOUD_CMD network vpcpeeringroute update "$VPC_ID" "$PEERING_ID" "$route_id" \
+            --name "${RESOURCE_PREFIX}-route-updated" --tags updated 2>&1 || true
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping update — route did not reach Active state."
+        echo ""
+    fi
 
     echo -e "${GREEN}[DELETE]${NC} Deleting VPC Peering Route..."
     $ACLOUD_CMD network vpcpeeringroute delete "$VPC_ID" "$PEERING_ID" "$route_id" --yes 2>&1 || true
+    # Remove from cleanup list since we already deleted it inline
+    CREATED_PEERING_ROUTES=("${CREATED_PEERING_ROUTES[@]/$route_id}")
     echo ""
 
     echo -e "${GREEN}✓ VPC Peering Route test completed successfully!${NC}\n"
@@ -693,16 +739,6 @@ test_vpc_peering_route() {
 test_vpn_tunnel() {
     echo -e "${YELLOW}=== 8. VPN Tunnel CRUD Test ===${NC}\n"
 
-    if [ "${ACLOUD_RUN_VPN_TESTS:-}" != "1" ]; then
-        echo -e "${YELLOW}⚠ VPN Tunnel test skipped.${NC}"
-        echo -e "${YELLOW}  Reason: API requires IKE/ESP/PSK enum values (dhGroup, pfs,${NC}"
-        echo -e "${YELLOW}  cloudSite, onPremSite) that are not documented in the SDK or${NC}"
-        echo -e "${YELLOW}  repo (see TECH_DEBT TD-024 and TD-025).${NC}"
-        echo -e "${YELLOW}  Set ACLOUD_RUN_VPN_TESTS=1 to enable once valid values${NC}"
-        echo -e "${YELLOW}  are known.${NC}\n"
-        return 0
-    fi
-
     if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "your-vpc-id" ] || [ "$VPC_ID" = "" ]; then
         echo -e "${YELLOW}Skipping VPN tunnel test (no VPC available)${NC}\n"
         return 0
@@ -710,6 +746,43 @@ test_vpn_tunnel() {
 
     echo "Waiting for VPC $VPC_ID..."
     wait_for_vpc_ready "$VPC_ID" || { fail "vpntunnel: VPC $VPC_ID not ready after 180s"; return 1; }
+
+    # Pre-cleanup: delete any leftover VPN tunnels from previous runs.
+    # The API enforces exclusive constraints on peer IP / EIP / subnet —
+    # even after deletion the platform needs time to fully release them.
+    echo "Checking for leftover VPN tunnels from previous runs..."
+    local leftover_tunnels
+    leftover_tunnels=$($ACLOUD_CMD network vpntunnel list 2>/dev/null | awk 'NR>1 && /[0-9a-f]{24}/ {print $2}')
+    for old_id in $leftover_tunnels; do
+        if is_valid_id "$old_id"; then
+            echo "  → Waiting for leftover tunnel $old_id to be deletable..."
+            wait_for_vpn_tunnel_ready "$old_id" 300 || true
+            echo "  → Deleting leftover tunnel $old_id..."
+            $ACLOUD_CMD network vpntunnel delete "$old_id" --yes 2>&1 || true
+        fi
+    done
+
+    # Wait until vpntunnel list is empty — the platform releases EIP/subnet
+    # constraints only once the resource is fully purged, which can take minutes.
+    if [ -n "$leftover_tunnels" ]; then
+        echo "  → Waiting for platform to fully release VPN tunnel constraints..."
+        local wait_elapsed=0
+        local wait_limit=300
+        while [ "$wait_elapsed" -lt "$wait_limit" ]; do
+            local remaining
+            remaining=$($ACLOUD_CMD network vpntunnel list 2>/dev/null | awk 'NR>1 && /[0-9a-f]{24}/ {print $2}')
+            if [ -z "$remaining" ]; then
+                echo "  → VPN tunnel list is now empty, constraints released."
+                break
+            fi
+            sleep 10
+            wait_elapsed=$((wait_elapsed + 10))
+        done
+        if [ "$wait_elapsed" -ge "$wait_limit" ]; then
+            echo -e "${YELLOW}  ⚠ Timed out waiting for tunnel constraints to release; proceeding anyway.${NC}"
+        fi
+    fi
+    echo ""
 
     # Create a dedicated Elastic IP for the VPN tunnel (test_elastic_ip's EIP is deleted by its
     # own CRUD cycle; the hardcoded fallback URI may not exist in the tenant).
@@ -736,49 +809,108 @@ test_vpn_tunnel() {
         wait_for_elastic_ip_ready "$vpn_eip_uri" || { fail "vpntunnel: elastic IP not found or not ready"; return 1; }
     fi
 
-    # Create a dedicated subnet for the VPN tunnel (test_subnet's subnet is deleted by its CRUD cycle).
-    echo "Creating prerequisite VPN subnet ($VPN_SUBNET_CIDR)..."
-    local vpn_sub_out vpn_sub_id
-    vpn_sub_out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
-        --name "${RESOURCE_PREFIX}-vpn-subnet" \
-        --cidr "$VPN_SUBNET_CIDR" \
-        --dhcp-enabled \
-        --region "$REGION" 2>&1)
-    vpn_sub_id=$(extract_id "$vpn_sub_out" "$VPC_ID")
-    if [ -z "$vpn_sub_id" ] || ! is_valid_id "$vpn_sub_id"; then
-        fail "vpntunnel: could not create prerequisite subnet ($VPN_SUBNET_CIDR): $vpn_sub_out"
-        return 1
-    fi
-    CREATED_SUBNETS+=("$vpn_sub_id")
-    echo "  → subnet $vpn_sub_id created, waiting for Active..."
-    wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $vpn_sub_id" '^(Active|Ready)$' 120 || \
-        echo -e "${YELLOW}  ⚠ VPN subnet may not be Active yet${NC}"
+    # The VPN tunnel API creates its own subnet as part of provisioning — do NOT pre-create it.
+    local vpn_create_out vpn_create_exit
+    echo -e "${YELLOW}--- Testing VPN Tunnel ---${NC}"
+    echo -e "${GREEN}[CREATE]${NC} Creating VPN Tunnel..."
+    vpn_create_out=$($ACLOUD_CMD network vpntunnel create \
+        --name "${RESOURCE_PREFIX}-vpn" \
+        --region "$REGION" \
+        --peer-ip 210.8.25.187 \
+        --vpc-uri "/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID" \
+        --subnet-cidr "$VPN_SUBNET_CIDR" \
+        --subnet-name "${RESOURCE_PREFIX}-vpn-subnet" \
+        --elastic-ip-uri "$vpn_eip_uri" \
+        --vpn-type Site-To-Site \
+        --protocol ikev2 \
+        --ike-lifetime 3600 \
+        --ike-encryption aes256 \
+        --ike-hash sha1 \
+        --ike-dh-group 1 \
+        --ike-dpd-action restart \
+        --ike-dpd-interval 10 \
+        --ike-dpd-timeout 30 \
+        --esp-lifetime 1800 \
+        --esp-encryption aes256 \
+        --esp-hash sha1 \
+        --esp-pfs enable \
+        --psk-cloud-site psk-id-ARUBA \
+        --psk-onprem-site psk-id-CUSTOMER \
+        --psk e2e-test-psk-secret \
+        --billing-period Hour 2>&1)
+    vpn_create_exit=$?
+    echo "$vpn_create_out"
 
-    local output
-    output=$(test_resource "VPN Tunnel" \
-        "$ACLOUD_CMD network vpntunnel create --name ${RESOURCE_PREFIX}-vpn --region $REGION --peer-ip 203.0.113.1 --vpc-uri /projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID --subnet-cidr $VPN_SUBNET_CIDR --elastic-ip-uri $vpn_eip_uri --psk e2e-test-pre-shared-key --billing-period Hour" \
-        "$ACLOUD_CMD network vpntunnel list" \
-        "$ACLOUD_CMD network vpntunnel get \$RESOURCE_ID" \
-        "$ACLOUD_CMD network vpntunnel update \$RESOURCE_ID --name ${RESOURCE_PREFIX}-vpn-updated --tags updated" \
-        "$ACLOUD_CMD network vpntunnel delete \$RESOURCE_ID --yes" 2>&1)
-    local exit_code=$?
-    
-    if [ $exit_code -eq 0 ] && [ -n "$output" ]; then
-        VPN_TUNNEL_ID=$(echo "$output" | tail -1 | tr -d '[:space:]')
-        if [ -n "$VPN_TUNNEL_ID" ] && [ "$VPN_TUNNEL_ID" != "1" ] && [ "$VPN_TUNNEL_ID" != "$VPC_ID" ] && [ ${#VPN_TUNNEL_ID} -eq 24 ] && is_valid_id "$VPN_TUNNEL_ID"; then
-            CREATED_VPN_TUNNELS+=("$VPN_TUNNEL_ID")
-            echo -e "${GREEN}VPN Tunnel test completed successfully${NC}\n"
-        else
-            echo -e "${YELLOW}VPN Tunnel test completed but could not extract valid ID${NC}\n"
-        fi
-    else
-        echo -e "${RED}VPN Tunnel test failed${NC}\n"
-        if [ -n "$output" ]; then
-            echo -e "${RED}Error output:${NC}"
-            echo "$output" | tail -5
-        fi
+    if [ $vpn_create_exit -ne 0 ]; then
+        echo -e "${RED}CREATE failed — retrying with --debug for full API payload:${NC}"
+        $ACLOUD_CMD --debug network vpntunnel create \
+            --name "${RESOURCE_PREFIX}-vpn-dbg" \
+            --region "$REGION" \
+            --peer-ip 210.8.25.187 \
+            --vpc-uri "/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID" \
+            --subnet-cidr "$VPN_SUBNET_CIDR" \
+            --subnet-name "${RESOURCE_PREFIX}-vpn-subnet" \
+            --elastic-ip-uri "$vpn_eip_uri" \
+            --vpn-type Site-To-Site \
+            --protocol ikev2 \
+            --ike-lifetime 3600 \
+            --ike-encryption aes256 \
+            --ike-hash sha1 \
+            --ike-dh-group 1 \
+            --ike-dpd-action restart \
+            --ike-dpd-interval 10 \
+            --ike-dpd-timeout 30 \
+            --esp-lifetime 1800 \
+            --esp-encryption aes256 \
+            --esp-hash sha1 \
+            --esp-pfs enable \
+            --psk-cloud-site psk-id-ARUBA \
+            --psk-onprem-site psk-id-CUSTOMER \
+            --psk e2e-test-psk-secret \
+            --billing-period Hour 2>&1 || true
         return 1
     fi
+
+    VPN_TUNNEL_ID=$(extract_id "$vpn_create_out" "$VPC_ID")
+    if [ -z "$VPN_TUNNEL_ID" ] || ! is_valid_id "$VPN_TUNNEL_ID"; then
+        echo -e "${RED}Could not extract VPN tunnel ID from create output${NC}"
+        return 1
+    fi
+    CREATED_VPN_TUNNELS+=("$VPN_TUNNEL_ID")
+    echo -e "${GREEN}Created VPN Tunnel ID: $VPN_TUNNEL_ID${NC}\n"
+
+    echo -e "${GREEN}[LIST]${NC} Listing VPN Tunnels..."
+    $ACLOUD_CMD network vpntunnel list 2>&1 | head -10
+    echo ""
+
+    echo -e "${GREEN}[GET]${NC} Getting VPN Tunnel details..."
+    $ACLOUD_CMD network vpntunnel get "$VPN_TUNNEL_ID" 2>&1
+    echo ""
+
+    echo "Waiting for VPN Tunnel $VPN_TUNNEL_ID to be Active..."
+    local tunnel_ready=0
+    wait_for_vpn_tunnel_ready "$VPN_TUNNEL_ID" 600 && tunnel_ready=1
+    echo ""
+
+    if [ "$tunnel_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating VPN Tunnel..."
+        $ACLOUD_CMD network vpntunnel update "$VPN_TUNNEL_ID" \
+            --name "${RESOURCE_PREFIX}-vpn-updated" --tags updated 2>&1 || true
+        echo ""
+
+        echo -e "${GREEN}[DELETE]${NC} Deleting VPN Tunnel..."
+        echo "Waiting for VPN Tunnel to be deletable after update..."
+        wait_for_vpn_tunnel_ready "$VPN_TUNNEL_ID" 120 || true
+        if $ACLOUD_CMD network vpntunnel delete "$VPN_TUNNEL_ID" --yes 2>&1; then
+            CREATED_VPN_TUNNELS=("${CREATED_VPN_TUNNELS[@]/$VPN_TUNNEL_ID}")
+        fi
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE/DELETE]${NC} Skipping — tunnel did not reach Active state (left for cleanup trap)."
+        echo ""
+    fi
+
+    echo -e "${GREEN}VPN Tunnel test completed successfully${NC}\n"
 }
 
 # Test VPN Route
@@ -789,31 +921,88 @@ test_vpn_route() {
     fi
     
     echo -e "${YELLOW}=== 9. VPN Route CRUD Test ===${NC}\n"
-    local output
-    output=$(test_resource "VPN Route" \
-        "$ACLOUD_CMD network vpnroute create $VPN_TUNNEL_ID --name ${RESOURCE_PREFIX}-vpn-route --region $REGION --cloud-subnet 10.0.1.0/24 --onprem-subnet 192.168.1.0/24" \
-        "$ACLOUD_CMD network vpnroute list $VPN_TUNNEL_ID" \
-        "$ACLOUD_CMD network vpnroute get $VPN_TUNNEL_ID \$RESOURCE_ID" \
-        "$ACLOUD_CMD network vpnroute update $VPN_TUNNEL_ID \$RESOURCE_ID --name ${RESOURCE_PREFIX}-vpn-route-updated --tags updated" \
-        "$ACLOUD_CMD network vpnroute delete $VPN_TUNNEL_ID \$RESOURCE_ID --yes" 2>&1)
-    local exit_code=$?
-    
-    if [ $exit_code -eq 0 ] && [ -n "$output" ]; then
-        ROUTE_ID=$(echo "$output" | tail -1 | tr -d '[:space:]')
-        if [ -n "$ROUTE_ID" ] && [ "$ROUTE_ID" != "1" ] && [ "$ROUTE_ID" != "$VPC_ID" ] && [ "$ROUTE_ID" != "$VPN_TUNNEL_ID" ] && [ ${#ROUTE_ID} -eq 24 ] && is_valid_id "$ROUTE_ID"; then
-            CREATED_VPN_ROUTES+=("$ROUTE_ID")
-            echo -e "${GREEN}VPN Route test completed successfully${NC}\n"
-        else
-            echo -e "${YELLOW}VPN Route test completed but could not extract valid ID${NC}\n"
-        fi
-    else
-        echo -e "${RED}VPN Route test failed${NC}\n"
-        if [ -n "$output" ]; then
-            echo -e "${RED}Error output:${NC}"
-            echo "$output" | tail -5
-        fi
+
+    echo "Waiting for VPN Tunnel $VPN_TUNNEL_ID to be Active before creating routes..."
+    wait_for_vpn_tunnel_ready "$VPN_TUNNEL_ID" 600 || {
+        echo -e "${YELLOW}VPN Tunnel not Active — skipping VPN Route test${NC}\n"
+        return 0
+    }
+    echo ""
+
+    # The VPN route's --cloud-subnet must reference an existing VPC subnet CIDR,
+    # not the VPN tunnel's own internal provisioning subnet. Create a dedicated
+    # VPC subnet for this purpose and tear it down after the test.
+    echo "Creating VPC subnet for VPN route cloud-subnet reference..."
+    local route_subnet_out route_subnet_id
+    route_subnet_out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
+        --name "${RESOURCE_PREFIX}-vpn-cloud-subnet" \
+        --cidr "$SUBNET_CIDR" \
+        --dhcp-enabled \
+        --region "$REGION" 2>&1)
+    route_subnet_id=$(extract_id "$route_subnet_out" "$VPC_ID")
+    if [ -z "$route_subnet_id" ] || ! is_valid_id "$route_subnet_id"; then
+        fail "vpnroute: could not create cloud subnet for route test: $route_subnet_out"
         return 1
     fi
+    echo "  → Cloud subnet $route_subnet_id ($SUBNET_CIDR) created"
+    echo ""
+
+    local route_create_out route_create_exit
+    echo -e "${YELLOW}--- Testing VPN Route ---${NC}"
+    echo -e "${GREEN}[CREATE]${NC} Creating VPN Route..."
+    route_create_out=$($ACLOUD_CMD network vpnroute create "$VPN_TUNNEL_ID" \
+        --name "${RESOURCE_PREFIX}-vpn-route" \
+        --region "$REGION" \
+        --cloud-subnet "$SUBNET_CIDR" \
+        --onprem-subnet 192.168.129.0/24 2>&1)
+    route_create_exit=$?
+    echo "$route_create_out"
+
+    if [ $route_create_exit -ne 0 ]; then
+        echo -e "${RED}CREATE failed — retrying with --debug for full API payload:${NC}"
+        $ACLOUD_CMD --debug network vpnroute create "$VPN_TUNNEL_ID" \
+            --name "${RESOURCE_PREFIX}-vpn-route-dbg" \
+            --region "$REGION" \
+            --cloud-subnet "$SUBNET_CIDR" \
+            --onprem-subnet 192.168.129.0/24 2>&1 || true
+        # Clean up the cloud subnet before returning
+        $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true
+        return 1
+    fi
+
+    local vpn_route_id
+    vpn_route_id=$(extract_id "$route_create_out" "$VPN_TUNNEL_ID")
+    if [ -z "$vpn_route_id" ] || ! is_valid_id "$vpn_route_id"; then
+        echo -e "${RED}Could not extract VPN route ID from create output${NC}"
+        return 1
+    fi
+    CREATED_VPN_ROUTES+=("$vpn_route_id")
+    echo -e "${GREEN}Created VPN Route ID: $vpn_route_id${NC}\n"
+
+    echo -e "${GREEN}[LIST]${NC} Listing VPN Routes..."
+    $ACLOUD_CMD network vpnroute list "$VPN_TUNNEL_ID" 2>&1 | head -10
+    echo ""
+
+    echo -e "${GREEN}[GET]${NC} Getting VPN Route details..."
+    $ACLOUD_CMD network vpnroute get "$VPN_TUNNEL_ID" "$vpn_route_id" 2>&1
+    echo ""
+
+    echo -e "${GREEN}[UPDATE]${NC} Updating VPN Route..."
+    $ACLOUD_CMD network vpnroute update "$VPN_TUNNEL_ID" "$vpn_route_id" \
+        --name "${RESOURCE_PREFIX}-vpn-route-updated" --tags updated 2>&1 || true
+    echo ""
+
+    echo -e "${GREEN}[DELETE]${NC} Deleting VPN Route..."
+    if $ACLOUD_CMD network vpnroute delete "$VPN_TUNNEL_ID" "$vpn_route_id" --yes 2>&1; then
+        CREATED_VPN_ROUTES=("${CREATED_VPN_ROUTES[@]/$vpn_route_id}")
+    fi
+    echo ""
+
+    echo "Deleting VPN route cloud subnet..."
+    $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true
+    echo ""
+
+    echo -e "${GREEN}VPN Route test completed successfully${NC}\n"
 }
 
 setup_context

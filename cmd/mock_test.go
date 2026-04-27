@@ -1161,9 +1161,7 @@ func withSchedule(s *mockScheduleClient) func(*mockClient) {
 func resetCmdFlags(cmd *cobra.Command) {
 	resetFlagSet := func(f *pflag.Flag) {
 		f.Changed = false
-		if f.DefValue != "" {
-			_ = f.Value.Set(f.DefValue) //nolint:errcheck
-		}
+		_ = f.Value.Set(f.DefValue) //nolint:errcheck
 	}
 	cmd.Flags().VisitAll(resetFlagSet)
 	cmd.PersistentFlags().VisitAll(resetFlagSet)
