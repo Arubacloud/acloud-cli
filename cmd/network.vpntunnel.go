@@ -9,6 +9,73 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Valid enum values sourced from the Aruba functional spec (VPN.006.011–VPN.006.014, VPN.006.042–VPN.006.044).
+
+var vpnEncryptionAlgorithms = []string{
+	"aes128", "aes192", "aes256",
+	"aes128ctr", "aes192ctr", "aes256ctr",
+	"aes128ccm64", "aes192ccm64", "aes256ccm64",
+	"aes128ccm96", "aes192ccm96", "aes256ccm96",
+	"aes128ccm128", "aes192ccm128", "aes256ccm128",
+	"aes128gcm64", "aes192gcm64", "aes256gcm64",
+	"aes128gcm96", "aes192gcm96", "aes256gcm96",
+	"aes128gcm128", "aes192gcm128", "aes256gcm128",
+	"aes128gmac", "aes192gmac", "aes256gmac",
+	"3des",
+	"blowfish128", "blowfish192", "blowfish256",
+	"camellia128", "camellia192", "camellia256",
+	"camellia128ctr", "camellia192ctr", "camellia256ctr",
+	"camellia128ccm64", "camellia192ccm64", "camellia256ccm64",
+	"camellia128ccm96", "camellia192ccm96", "camellia256ccm96",
+	"camellia128ccm128", "camellia192ccm128", "camellia256ccm128",
+	"serpent128", "serpent192", "serpent256",
+	"twofish128", "twofish192", "twofish256",
+	"cast128", "chacha20poly1305",
+}
+
+var vpnHashAlgorithms = []string{
+	"md5", "md5_128",
+	"sha1", "sha1_160",
+	"sha256", "sha256_96",
+	"sha384", "sha512",
+	"aesxcbc", "aescmac",
+	"aes128gmac", "aes192gmac", "aes256gmac",
+}
+
+var vpnDHGroups = []string{
+	"1", "2", "5",
+	"14", "15", "16", "17", "18",
+	"19", "20", "21",
+	"22", "23", "24",
+	"25", "26", "27", "28", "29", "30",
+	"31", "32",
+}
+
+var vpnDPDActions = []string{"trap", "clear", "restart"}
+
+var vpnPFSGroups = []string{
+	"enable",
+	"dh-group1", "dh-group2", "dh-group5",
+	"dh-group14", "dh-group15", "dh-group16", "dh-group17", "dh-group18",
+	"dh-group19", "dh-group20", "dh-group21",
+	"dh-group22", "dh-group23", "dh-group24",
+	"dh-group25", "dh-group26", "dh-group27", "dh-group28", "dh-group29", "dh-group30",
+	"dh-group31", "dh-group32",
+	"disable",
+}
+
+func vpnValidateEnum(value, flag string, valid []string) error {
+	if value == "" {
+		return nil
+	}
+	for _, v := range valid {
+		if value == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("--%s %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", flag, value)
+}
+
 func init() {
 
 	// VPNTunnel
@@ -33,21 +100,21 @@ func init() {
 	vpntunnelCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
 	vpntunnelCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	// IKE settings
-	vpntunnelCreateCmd.Flags().Int32("ike-lifetime", 0, "IKE lifetime (seconds)")
-	vpntunnelCreateCmd.Flags().String("ike-encryption", "", "IKE encryption algorithm (e.g. aes128, aes256, 3des, chacha20poly1305)")
-	vpntunnelCreateCmd.Flags().String("ike-hash", "", "IKE hash algorithm (e.g. sha1, sha256, sha384, sha512, md5)")
-	vpntunnelCreateCmd.Flags().String("ike-dh-group", "", "IKE DH group (e.g. 1, 2, 5, 14, 15, 16, 19, 20, 21)")
+	vpntunnelCreateCmd.Flags().Int32("ike-lifetime", 0, "IKE lifetime in seconds (0-86400)")
+	vpntunnelCreateCmd.Flags().String("ike-encryption", "", "IKE encryption algorithm (e.g. aes256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("ike-hash", "", "IKE hash algorithm (e.g. sha256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("ike-dh-group", "", "IKE DH group number (1, 2, 5, or 14-32)")
 	vpntunnelCreateCmd.Flags().String("ike-dpd-action", "", "IKE DPD action (trap, clear, restart)")
-	vpntunnelCreateCmd.Flags().Int32("ike-dpd-interval", 0, "IKE DPD interval (seconds)")
-	vpntunnelCreateCmd.Flags().Int32("ike-dpd-timeout", 0, "IKE DPD timeout (seconds)")
+	vpntunnelCreateCmd.Flags().Int32("ike-dpd-interval", 0, "IKE DPD interval in seconds (2-86400)")
+	vpntunnelCreateCmd.Flags().Int32("ike-dpd-timeout", 0, "IKE DPD timeout in seconds (2-86400)")
 	// ESP settings
-	vpntunnelCreateCmd.Flags().Int32("esp-lifetime", 0, "ESP lifetime (seconds)")
-	vpntunnelCreateCmd.Flags().String("esp-encryption", "", "ESP encryption algorithm (e.g. aes128, aes256, 3des, chacha20poly1305)")
-	vpntunnelCreateCmd.Flags().String("esp-hash", "", "ESP hash algorithm (e.g. sha1, sha256, sha384, sha512, md5)")
-	vpntunnelCreateCmd.Flags().String("esp-pfs", "", "ESP PFS group (enable, disable, dh-group1, dh-group2, dh-group5, dh-group14…dh-group32)")
+	vpntunnelCreateCmd.Flags().Int32("esp-lifetime", 0, "ESP lifetime in seconds (30-86400)")
+	vpntunnelCreateCmd.Flags().String("esp-encryption", "", "ESP encryption algorithm (default: aes256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("esp-hash", "", "ESP hash algorithm (e.g. sha256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("esp-pfs", "", "ESP PFS group (enable, dh-group1..dh-group32, disable)")
 	// PSK settings
-	vpntunnelCreateCmd.Flags().String("psk-cloud-site", "", "PSK cloud site identifier")
-	vpntunnelCreateCmd.Flags().String("psk-onprem-site", "", "PSK on-prem site identifier")
+	vpntunnelCreateCmd.Flags().String("psk-cloud-site", "", "PSK ID for the Aruba (cloud) side — alphanumeric, '-' and '.', 3-100 chars")
+	vpntunnelCreateCmd.Flags().String("psk-onprem-site", "", "PSK ID for the customer (on-prem) side — alphanumeric, '-' and '.', 3-100 chars")
 	vpntunnelCreateCmd.Flags().String("psk", "", "Pre-shared key for authentication (PSK secret)")
 	vpntunnelCreateCmd.MarkFlagRequired("name")
 	vpntunnelCreateCmd.MarkFlagRequired("region")
@@ -364,6 +431,25 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		// Validate mutual-exclusive subnet flags
 		if subnetCIDR == "" && subnetName == "" {
 			return fmt.Errorf("--subnet-cidr or --subnet-name is required")
+		}
+
+		// Validate enum fields client-side to surface typos before the API call.
+		for _, check := range []struct {
+			val   string
+			flag  string
+			valid []string
+		}{
+			{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
+			{ikeHash, "ike-hash", vpnHashAlgorithms},
+			{ikeDHGroup, "ike-dh-group", vpnDHGroups},
+			{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
+			{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
+			{espHash, "esp-hash", vpnHashAlgorithms},
+			{espPFS, "esp-pfs", vpnPFSGroups},
+		} {
+			if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
+				return err
+			}
 		}
 
 		// Get project ID from flag or context
