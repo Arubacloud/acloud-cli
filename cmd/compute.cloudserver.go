@@ -36,7 +36,6 @@ func init() {
 	cloudserverCreateCmd.Flags().String("region", "", "Region code (required)")
 	cloudserverCreateCmd.Flags().String("zone", "", "Zone code (required, e.g., itbg1-a)")
 	cloudserverCreateCmd.Flags().String("flavor", "", "Flavor name (required)")
-	cloudserverCreateCmd.Flags().String("image", "", "Image ID or name (required)")
 	cloudserverCreateCmd.Flags().String("keypair-uri", "", "Keypair URI (e.g., /projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name})")
 	cloudserverCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	cloudserverCreateCmd.Flags().String("user-data-file", "", "Path to cloud-init YAML file (will be base64 encoded)")
@@ -48,7 +47,6 @@ func init() {
 	cloudserverCreateCmd.MarkFlagRequired("name")
 	cloudserverCreateCmd.MarkFlagRequired("region")
 	cloudserverCreateCmd.MarkFlagRequired("flavor")
-	cloudserverCreateCmd.MarkFlagRequired("image")
 	cloudserverCreateCmd.MarkFlagRequired("zone")
 
 	cloudserverGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
