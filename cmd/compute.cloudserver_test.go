@@ -202,7 +202,6 @@ func TestCloudServerCreateCmd(t *testing.T) {
 		"--region", "IT-BG",
 		"--zone", "itbg1-a",
 		"--flavor", "m1.small",
-		"--image", "img-001",
 		"--boot-disk-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001",
 		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
 		"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
