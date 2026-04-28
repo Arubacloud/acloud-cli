@@ -304,7 +304,6 @@ acloud compute cloudserver create \
   --zone "ITBG-1" \
   --flavor "CSO4A8" \
   --boot-disk-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Storage/blockStorages/697b3a0dce7dfeef9153256a" \
-  --image "ubuntu-22.04" \
   --vpc-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec" \
   --subnet-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec/subnets/694ba1737712ac0032dbe50a" \
   --security-group-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b75f9" \
@@ -432,4 +431,4 @@ You will be prompted for confirmation:
 Are you sure you want to delete cloud server '697c62605b79733376b3386a'? (yes/no): yes
 Cloud server '697c62605b79733376b3386a' deleted successfully.
 ```
----
+---
