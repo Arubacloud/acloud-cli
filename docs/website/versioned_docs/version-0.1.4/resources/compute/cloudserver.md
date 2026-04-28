@@ -24,7 +24,7 @@ acloud compute cloudserver create [flags]
 - `--name <string>` - Name for the cloud server
 - `--region <string>` - Region code (e.g., `ITBG-Bergamo`)
 - `--flavor <string>` - Flavor name (e.g., `small`, `medium`, `large`)
-- `--image <string>` - Image ID or name
+- `--boot-disk-uri <string>` - Bootable block storage URI (e.g., `/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}`)
 - `--vpc-uri <string>` - VPC URI (e.g., `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
 - `--subnet-uri <stringSlice>` - Subnet URI(s) (comma-separated)
 - `--security-group-uri <stringSlice>` - Security Group URI(s) (comma-separated)
@@ -43,8 +43,11 @@ acloud compute cloudserver create \
   --name "web-server" \
   --region "ITBG-Bergamo" \
   --flavor "small" \
-  --image "ubuntu-22.04" \
-  --keypair "my-keypair" \
+  --boot-disk-uri "/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}" \
+  --vpc-uri "/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}" \
+  --subnet-uri "/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}" \
+  --security-group-uri "/projects/{project-id}/providers/Aruba.Network/securityGroups/{sg-id}" \
+  --keypair-uri "/projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name}" \
   --tags "production,web" \
   --user-data-file "/path/to/cloud-init.yaml"
 ```
@@ -320,8 +323,11 @@ acloud compute cloudserver connect <TAB>
      --name "app-server" \
      --region "ITBG-Bergamo" \
      --flavor "medium" \
-     --image "your-image-id" \
-     --keypair "my-keypair" \
+     --boot-disk-uri "/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}" \
+     --vpc-uri "/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}" \
+     --subnet-uri "/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}" \
+     --security-group-uri "/projects/{project-id}/providers/Aruba.Network/securityGroups/{sg-id}" \
+     --keypair-uri "/projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name}" \
      --user-data-file "/path/to/cloud-init.yaml"
    ```
 
