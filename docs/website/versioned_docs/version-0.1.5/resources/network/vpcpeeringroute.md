@@ -78,6 +78,7 @@ acloud network vpcpeeringroute create <vpc-id> <peering-id> [flags]
 
 **Required Flags:**
 - `--name string` - VPC Peering Route name
+- `--region string` - Region code (e.g. ITBG-Bergamo)
 - `--local-network string` - Local network address in CIDR notation
 - `--remote-network string` - Remote network address in CIDR notation
 
@@ -92,12 +93,14 @@ acloud network vpcpeeringroute create <vpc-id> <peering-id> [flags]
 # Create a basic VPC peering route
 acloud network vpcpeeringroute create 689307f4745108d3c6343b5a 6949666e4d0cdc87949b7204 \
   --name "route-1" \
+  --region ITBG-Bergamo \
   --local-network "10.0.1.0/24" \
   --remote-network "10.1.1.0/24"
 
 # Create VPC peering route with billing period and tags
 acloud network vpcpeeringroute create 689307f4745108d3c6343b5a 6949666e4d0cdc87949b7204 \
   --name "production-route" \
+  --region ITBG-Bergamo \
   --local-network "10.0.2.0/24" \
   --remote-network "10.1.2.0/24" \
   --billing-period Month \
@@ -291,11 +294,13 @@ done
 # 3. Create routes for different subnets
 acloud network vpcpeeringroute create $VPC_ID $PEERING_ID \
   --name "subnet-1-route" \
+  --region ITBG-Bergamo \
   --local-network "10.0.1.0/24" \
   --remote-network "10.1.1.0/24"
 
 acloud network vpcpeeringroute create $VPC_ID $PEERING_ID \
   --name "subnet-2-route" \
+  --region ITBG-Bergamo \
   --local-network "10.0.2.0/24" \
   --remote-network "10.1.2.0/24" \
   --billing-period Month
