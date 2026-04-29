@@ -227,11 +227,11 @@ Billing period: Hour (default), Month, or Year.`,
 
 		// Optionally set Elastic IP
 		if elasticIPURI != "" {
-			createRequest.Properties.ElasticIP = types.ReferenceResource{URI: elasticIPURI}
+			createRequest.Properties.ElasticIP = &types.ReferenceResource{URI: elasticIPURI}
 		}
 
 		if keypairURI != "" {
-			createRequest.Properties.KeyPair = types.ReferenceResource{
+			createRequest.Properties.KeyPair = &types.ReferenceResource{
 				URI: keypairURI,
 			}
 		}
@@ -462,7 +462,7 @@ var cloudserverUpdateCmd = &cobra.Command{
 		}
 
 		if current.Properties.KeyPair.URI != "" {
-			updateRequest.Properties.KeyPair = current.Properties.KeyPair
+			updateRequest.Properties.KeyPair = &current.Properties.KeyPair
 		}
 
 		// Apply updates

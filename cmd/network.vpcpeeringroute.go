@@ -23,12 +23,14 @@ func init() {
 	vpcpeeringrouteCreateCmd.Flags().String("name", "", "VPC Peering Route name (required)")
 	vpcpeeringrouteCreateCmd.Flags().String("local-network", "", "Local network address in CIDR notation (required)")
 	vpcpeeringrouteCreateCmd.Flags().String("remote-network", "", "Remote network address in CIDR notation (required)")
+	vpcpeeringrouteCreateCmd.Flags().String("region", "", "Region code (required)")
 	vpcpeeringrouteCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
 	vpcpeeringrouteCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	vpcpeeringrouteCreateCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	vpcpeeringrouteCreateCmd.MarkFlagRequired("name")
 	vpcpeeringrouteCreateCmd.MarkFlagRequired("local-network")
 	vpcpeeringrouteCreateCmd.MarkFlagRequired("remote-network")
+	vpcpeeringrouteCreateCmd.MarkFlagRequired("region")
 
 	vpcpeeringrouteGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -107,6 +109,7 @@ with --remote-network. Both values should be valid CIDR blocks.
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud network vpcpeeringroute create <vpc-id> <peering-id> \
     --name my-route \
+    --region ITBG-Bergamo \
     --local-network 10.0.0.0/24 \
     --remote-network 10.1.0.0/24`,
 	Args: cobra.ExactArgs(2),
@@ -115,6 +118,7 @@ Billing period: Hour (default), Month, or Year.`,
 		peeringID := args[1]
 
 		name, _ := cmd.Flags().GetString("name")
+		region, _ := cmd.Flags().GetString("region")
 		localNetwork, _ := cmd.Flags().GetString("local-network")
 		remoteNetwork, _ := cmd.Flags().GetString("remote-network")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
@@ -133,9 +137,12 @@ Billing period: Hour (default), Month, or Year.`,
 
 		// Build the create request
 		req := types.VPCPeeringRouteRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: name,
-				Tags: tags,
+			Metadata: types.RegionalResourceMetadataRequest{
+				ResourceMetadataRequest: types.ResourceMetadataRequest{
+					Name: name,
+					Tags: tags,
+				},
+				Location: types.LocationRequest{Value: region},
 			},
 			Properties: types.VPCPeeringRoutePropertiesRequest{
 				LocalNetworkAddress:  localNetwork,
@@ -375,27 +382,36 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 			return fmt.Errorf("cannot update VPC peering route while it is in 'InCreation' state. Please wait until the VPC peering route is fully created")
 		}
 
+		// Preserve the region from the current resource for the update request.
+		var regionValue string
+		if current.Metadata.LocationResponse != nil {
+			regionValue = current.Metadata.LocationResponse.Value
+		}
+
 		// Build update request by merging user input with current values
 		req := types.VPCPeeringRouteRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: func() string {
-					if name != "" {
-						return name
-					}
-					if current.Metadata.Name != nil {
-						return *current.Metadata.Name
-					}
-					return ""
-				}(),
-				Tags: func() []string {
-					if cmd.Flags().Changed("tags") {
-						return tags
-					}
-					if current.Metadata.Tags != nil {
-						return current.Metadata.Tags
-					}
-					return []string{}
-				}(),
+			Metadata: types.RegionalResourceMetadataRequest{
+				ResourceMetadataRequest: types.ResourceMetadataRequest{
+					Name: func() string {
+						if name != "" {
+							return name
+						}
+						if current.Metadata.Name != nil {
+							return *current.Metadata.Name
+						}
+						return ""
+					}(),
+					Tags: func() []string {
+						if cmd.Flags().Changed("tags") {
+							return tags
+						}
+						if current.Metadata.Tags != nil {
+							return current.Metadata.Tags
+						}
+						return []string{}
+					}(),
+				},
+				Location: types.LocationRequest{Value: regionValue},
 			},
 			Properties: types.VPCPeeringRoutePropertiesRequest{
 				LocalNetworkAddress: func() string {
