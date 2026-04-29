@@ -682,6 +682,7 @@ test_vpc_peering_route() {
     local create_out
     create_out=$($ACLOUD_CMD network vpcpeeringroute create "$VPC_ID" "$PEERING_ID" \
         --name "${RESOURCE_PREFIX}-route" \
+        --region "$REGION" \
         --local-network 10.0.1.0/24 \
         --remote-network 10.0.2.0/24 \
         --billing-period Hour 2>&1)
