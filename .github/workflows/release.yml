@@ -33,3 +33,44 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           SCOOP_TAP_GITHUB_TOKEN: ${{ secrets.SCOOP_TAP_GITHUB_TOKEN }}
+
+  publish-apt:
+    name: Publish to apt repository
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout apt repo
+        uses: actions/checkout@v4
+        with:
+          repository: Arubacloud/apt
+          token: ${{ secrets.APT_REPO_GITHUB_TOKEN }}
+          path: apt-repo
+
+      - name: Install reprepro
+        run: sudo apt-get install -y reprepro
+
+      - name: Import GPG signing key
+        run: |
+          echo "${{ secrets.APT_SIGNING_KEY }}" | gpg --batch --import
+          echo "FCE74C4292A6302089B4C98442A7DE3F298D6FB8:6:" | gpg --import-ownertrust
+
+      - name: Download .deb packages
+        run: gh release download ${{ github.ref_name }} --pattern "*.deb" --dir debs/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add packages to apt repo
+        run: |
+          cd apt-repo
+          for deb in ../debs/*.deb; do
+            reprepro includedeb stable "$deb"
+          done
+
+      - name: Commit and push
+        run: |
+          cd apt-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat: publish acloud ${{ github.ref_name }}"
+          git push
