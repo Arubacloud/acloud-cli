@@ -55,7 +55,7 @@ jobs:
           echo "FCE74C4292A6302089B4C98442A7DE3F298D6FB8:6:" | gpg --import-ownertrust
 
       - name: Download .deb packages
-        run: gh release download ${{ github.ref_name }} --pattern "*.deb" --dir debs/
+        run: gh release download ${{ github.ref_name }} --repo ${{ github.repository }} --pattern "*.deb" --dir debs/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
