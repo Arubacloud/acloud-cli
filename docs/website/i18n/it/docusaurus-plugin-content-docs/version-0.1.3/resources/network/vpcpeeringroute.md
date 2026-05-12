@@ -78,6 +78,7 @@ acloud network vpcpeeringroute create <vpc-id> <peering-id> [flags]
 
 **Flag Richiesti:**
 - `--name string` - Nome VPC Peering Route
+- `--region string` - Codice regione (es. ITBG-Bergamo)
 - `--local-network string` - Indirizzo di rete locale in notazione CIDR
 - `--remote-network string` - Indirizzo di rete remoto in notazione CIDR
 
@@ -92,12 +93,14 @@ acloud network vpcpeeringroute create <vpc-id> <peering-id> [flags]
 # Crea una VPC peering route base
 acloud network vpcpeeringroute create 689307f4745108d3c6343b5a 6949666e4d0cdc87949b7204 \
   --name "route-1" \
+  --region ITBG-Bergamo \
   --local-network "10.0.1.0/24" \
   --remote-network "10.1.1.0/24"
 
 # Crea VPC peering route con periodo di fatturazione e tag
 acloud network vpcpeeringroute create 689307f4745108d3c6343b5a 6949666e4d0cdc87949b7204 \
   --name "production-route" \
+  --region ITBG-Bergamo \
   --local-network "10.0.2.0/24" \
   --remote-network "10.1.2.0/24" \
   --billing-period Month \
