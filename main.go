@@ -6,5 +6,6 @@ import "acloud/cmd"
 var Version string
 
 func main() {
+	cmd.SetVersion(Version)
 	cmd.Execute()
 }

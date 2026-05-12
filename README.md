@@ -32,45 +32,66 @@ This tool is designed for:
 
 ## Installation
 
-Precompiled binaries are available for Windows, Linux, and macOS.  
-No additional runtime dependencies are required.
+### macOS — Homebrew
 
-### Windows
+```bash
+brew tap Arubacloud/tap
+brew install acloud
+```
 
+### Linux — apt (Debian / Ubuntu)
+
+```bash
+curl -fsSL https://arubacloud.github.io/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/arubacloud.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/arubacloud.gpg] https://arubacloud.github.io/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/arubacloud.list
+sudo apt update && sudo apt install acloud
+```
+
+### Linux — rpm (RHEL / Fedora / Amazon Linux)
+
+```bash
+sudo rpm -i https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud_linux_amd64.rpm
+```
+
+### Windows — Scoop
+
+```powershell
+scoop bucket add arubacloud https://github.com/Arubacloud/scoop-bucket
+scoop install acloud
+```
+
+### Manual binary install
+
+Precompiled static binaries (no runtime dependencies) are on the [releases page](https://github.com/Arubacloud/acloud-cli/releases/latest).
+
+**Linux (amd64):**
+```bash
+curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
+chmod +x acloud-linux-amd64 && sudo mv acloud-linux-amd64 /usr/local/bin/acloud
+```
+
+**macOS (Apple Silicon):**
+```bash
+curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-arm64
+chmod +x acloud-darwin-arm64 && sudo mv acloud-darwin-arm64 /usr/local/bin/acloud
+```
+
+**Windows (PowerShell):**
 ```powershell
 Invoke-WebRequest `
   -Uri "https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-windows-amd64.exe" `
   -OutFile "acloud.exe"
 ```
 
-acloud.exe --help
+Move `acloud.exe` to a directory on your `PATH`.
 
-Optionally move acloud.exe to a directory included in your PATH.
+### Verify installation
 
-## Linux
-
-### Ubuntu 22.04+ and most modern distributions
 ```bash
-curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
-chmod +x acloud-linux-amd64
-sudo mv acloud-linux-amd64 /usr/local/bin/acloud
+acloud --version
 ```
 
-
-### Ubuntu 20.04 or older WSL distributions (GLIBC 2.31 compatible)
-```bash
-curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64-ubuntu20
-chmod +x acloud-linux-amd64-ubuntu20
-sudo mv acloud-linux-amd64-ubuntu20 /usr/local/bin/acloud
-```
-If you encounter GLIBC errors such as GLIBC_2.34 not found, use the -ubuntu20 binary.
-
-## MacOS
-```bash
-curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-amd64
-chmod +x acloud-darwin-amd64
-sudo mv acloud-darwin-amd64 /usr/local/bin/acloud
-```
 ---
 
 ## Configuration
