@@ -57,6 +57,15 @@ It provides a simple and intuitive way to manage your Aruba Cloud resources
 directly from your terminal.`,
 }
 
+// SetVersion sets the CLI version string shown by --version.
+// Pass the value injected via ldflags at build time; pass "" to show "dev".
+func SetVersion(v string) {
+	if v == "" {
+		v = "dev"
+	}
+	rootCmd.Version = v
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {

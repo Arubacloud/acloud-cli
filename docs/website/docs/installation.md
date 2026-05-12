@@ -4,128 +4,96 @@ This guide covers installing the Aruba Cloud CLI on your platform and initial co
 
 ## Installation
 
-### Download Pre-built Binary
+### macOS — Homebrew
 
-Download the latest release for your platform from the [releases page](https://github.com/Arubacloud/acloud-cli/releases).
+```bash
+brew tap Arubacloud/tap
+brew install acloud
+```
 
+Updates are picked up automatically with `brew upgrade acloud`.
+
+### Linux — apt (Debian / Ubuntu)
+
+Add the Arubacloud apt repository once, then install and update like any system package:
+
+```bash
+# Add the signing key
+curl -fsSL https://arubacloud.github.io/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/arubacloud.gpg
+
+# Add the repository
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/arubacloud.gpg] https://arubacloud.github.io/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/arubacloud.list
+
+# Install
+sudo apt update && sudo apt install acloud
+```
+
+Future releases are picked up with `sudo apt upgrade acloud`.
+
+### Linux — rpm (RHEL / Fedora / Amazon Linux)
+
+```bash
+sudo rpm -i https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud_linux_amd64.rpm
+```
+
+For ARM64 systems:
+```bash
+sudo rpm -i https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud_linux_arm64.rpm
+```
+
+### Windows — Scoop
+
+```powershell
+scoop bucket add arubacloud https://github.com/Arubacloud/scoop-bucket
+scoop install acloud
+```
+
+Updates are picked up with `scoop update acloud`.
+
+### Manual binary install
+
+Precompiled static binaries are available on the [releases page](https://github.com/Arubacloud/acloud-cli/releases/latest). All binaries are statically compiled with no external runtime dependencies and work on all major Linux distributions.
 
 #### Linux AMD64
 
-You can install the CLI using either the direct binary or the tarball:
-
-**Option 1: Download the direct binary**
 ```bash
-wget https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
-sudo mv acloud-linux-amd64 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
+curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
+sudo install -m 755 acloud-linux-amd64 /usr/local/bin/acloud
 ```
-
-**Option 2: Download and extract the tarball**
-```bash
-wget https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64.tar.gz
-tar -xzf acloud-linux-amd64.tar.gz
-sudo mv acloud /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
-```
-
-**For Ubuntu 20.04 or older WSL distributions (GLIBC 2.31 compatible):**
-
-If you encounter GLIBC version errors (e.g., `GLIBC_2.34 not found`), use the Ubuntu 20.04 compatible binary:
-```bash
-# Download and extract Ubuntu 20.04 compatible binary
-wget https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64-ubuntu20.tar.gz
-tar -xzf acloud-linux-amd64-ubuntu20.tar.gz
-
-# Move to PATH
-sudo mv acloud-linux-amd64-ubuntu20 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
-```
-
-> **Note:** The Ubuntu 20.04 compatible binary works on Ubuntu 20.04, 22.04, 24.04, and newer versions. Use this version if you're running older WSL distributions or encounter GLIBC compatibility issues.
 
 #### Linux ARM64
 
-**For Ubuntu 22.04+ or newer distributions:**
 ```bash
-# Download and extract
-wget https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-arm64.tar.gz
-tar -xzf acloud-linux-arm64.tar.gz
-
-# Move to PATH
-sudo mv acloud-linux-arm64 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
+curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-arm64
+sudo install -m 755 acloud-linux-arm64 /usr/local/bin/acloud
 ```
-
-**For Ubuntu 20.04 or older distributions (GLIBC 2.31 compatible):**
-
-If you encounter GLIBC version errors, use the Ubuntu 20.04 compatible binary:
-```bash
-# Download and extract Ubuntu 20.04 compatible binary
-wget https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-arm64-ubuntu20.tar.gz
-tar -xzf acloud-linux-arm64-ubuntu20.tar.gz
-
-# Move to PATH
-sudo mv acloud-linux-arm64-ubuntu20 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
-```
-
 
 #### macOS (Intel)
 
-You can install the CLI using either the direct binary or the tarball:
-
-**Option 1: Download the direct binary**
 ```bash
 curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-amd64
-sudo mv acloud-darwin-amd64 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
+sudo install -m 755 acloud-darwin-amd64 /usr/local/bin/acloud
 ```
-
-**Option 2: Download and extract the tarball**
-```bash
-curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-amd64.tar.gz
-tar -xzf acloud-darwin-amd64.tar.gz
-sudo mv acloud /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
-```
-
 
 #### macOS (Apple Silicon)
 
-You can install the CLI using either the direct binary or the tarball:
-
-**Option 1: Download the direct binary**
 ```bash
 curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-arm64
-sudo mv acloud-darwin-arm64 /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
+sudo install -m 755 acloud-darwin-arm64 /usr/local/bin/acloud
 ```
-
-**Option 2: Download and extract the tarball**
-```bash
-curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-arm64.tar.gz
-tar -xzf acloud-darwin-arm64.tar.gz
-sudo mv acloud /usr/local/bin/acloud
-sudo chmod +x /usr/local/bin/acloud
-```
-
 
 #### Windows
 
-You can install the CLI using either the direct binary or the zip archive:
+1. Download `acloud-windows-amd64.zip` from the [latest release](https://github.com/Arubacloud/acloud-cli/releases/latest)
+2. Extract the ZIP and move `acloud.exe` to a folder on your `PATH` (e.g. `C:\Program Files\acloud-cli\`)
 
-**Option 1: Download the direct binary**
-1. Download `acloud-windows-amd64.exe` from the [latest release](https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-windows-amd64.exe)
-2. Move it to a folder (e.g., `C:\\Program Files\\acloud-cli\\`)
-3. Add that folder to your system PATH
-4. Optionally, rename to `acloud.exe` for convenience
-
-**Option 2: Download and extract the zip archive**
-1. Download `acloud-windows-amd64.zip` from the [latest release](https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-windows-amd64.zip)
-2. Extract the ZIP file
-3. Move `acloud-windows-amd64.exe` to a folder (e.g., `C:\\Program Files\\acloud-cli\\`)
-4. Add that folder to your system PATH
-5. Optionally, rename to `acloud.exe` for convenience
+Or with PowerShell:
+```powershell
+Invoke-WebRequest `
+  -Uri "https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-windows-amd64.exe" `
+  -OutFile "acloud.exe"
+```
 
 ### Build from Source
 
@@ -477,16 +445,15 @@ The auto-completion system provides:
 
 ## Verifying Installation
 
-Test your installation:
-
 ```bash
-# Check version
+# Confirm the installed version
 acloud --version
+# acloud version v0.1.6
 
 # View available commands
 acloud --help
 
-# Test API connectivity
+# Test API connectivity (requires configured credentials)
 acloud management project list
 ```
 

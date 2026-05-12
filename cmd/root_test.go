@@ -13,6 +13,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestSetVersion(t *testing.T) {
+	orig := rootCmd.Version
+	t.Cleanup(func() { rootCmd.Version = orig })
+
+	SetVersion("v1.2.3")
+	if rootCmd.Version != "v1.2.3" {
+		t.Fatalf("expected v1.2.3, got %q", rootCmd.Version)
+	}
+
+	SetVersion("")
+	if rootCmd.Version != "dev" {
+		t.Fatalf("expected dev for empty version, got %q", rootCmd.Version)
+	}
+}
+
 // Helper function to check if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))

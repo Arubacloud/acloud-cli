@@ -23,7 +23,7 @@ YELLOW=\033[1;33m
 RED=\033[0;31m
 NC=\033[0m # No Color
 
-.PHONY: help build clean test test-coverage fmt vet lint install run e2e-test build-all
+.PHONY: help build clean test test-coverage fmt vet lint install run e2e-test build-all release-snapshot
 
 # Default target
 .DEFAULT_GOAL := help
@@ -51,21 +51,6 @@ build-linux: ## Build for Linux
 	@GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_NAME)-linux-amd64 .
 	@echo "$(GREEN)Build complete: $(BINARY_NAME)-linux-amd64$(NC)"
 
-build-linux-ubuntu20: ## Build for Linux (Ubuntu 20.04 compatible - GLIBC 2.31)
-	@echo "$(GREEN)Building for Linux (Ubuntu 20.04 compatible)...$(NC)"
-	@echo "$(YELLOW)Note: This requires Docker to build in Ubuntu 20.04 environment$(NC)"
-	@docker run --rm -v "$(PWD)":/workspace -w /workspace \
-		ubuntu:20.04 bash -c "\
-		apt-get update -qq && \
-		apt-get install -y -qq wget ca-certificates file > /dev/null 2>&1 && \
-		wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz && \
-		tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
-		export PATH=/usr/local/go/bin:\$$PATH && \
-		GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_NAME)-linux-amd64-ubuntu20 . && \
-		file $(BINARY_NAME)-linux-amd64-ubuntu20 && \
-		echo 'Build complete: $(BINARY_NAME)-linux-amd64-ubuntu20'"
-	@echo "$(GREEN)Build complete: $(BINARY_NAME)-linux-amd64-ubuntu20$(NC)"
-
 build-darwin: ## Build for macOS (Intel)
 	@echo "$(GREEN)Building for macOS (Intel)...$(NC)"
 	@GOOS=darwin GOARCH=amd64 go build $(BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_NAME)-darwin-amd64 .
@@ -78,6 +63,11 @@ build-darwin-arm: ## Build for macOS (Apple Silicon)
 
 build-all: build-windows build-linux build-darwin build-darwin-arm ## Build for all platforms
 	@echo "$(GREEN)All builds complete!$(NC)"
+
+release-snapshot: ## Build a local snapshot with GoReleaser (no publish, no tag required)
+	@echo "$(GREEN)Building release snapshot...$(NC)"
+	@goreleaser release --snapshot --clean
+	@echo "$(GREEN)Snapshot artifacts in dist/$(NC)"
 
 ##@ Testing
 
@@ -178,6 +168,7 @@ clean: ## Clean build artifacts
 	@rm -f $(BINARY_NAME)-linux-amd64
 	@rm -f $(BINARY_NAME)-darwin-amd64
 	@rm -f $(BINARY_NAME)-darwin-arm64
+	@rm -rf dist/
 	@rm -f coverage.out coverage.html
 	@echo "$(GREEN)Clean complete$(NC)"
 

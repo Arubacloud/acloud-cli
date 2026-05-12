@@ -40,6 +40,18 @@ make ci                 # lint + mod-verify + test-skip-client
 make pre-commit         # fmt + vet + tests
 ```
 
+## Release
+
+Releases are published by GoReleaser via the `release.yml` workflow on `v*` tag push.
+
+```bash
+goreleaser check                # validate .goreleaser.yaml without building
+make release-snapshot           # build all artifacts locally (no tag/publish required)
+                                # artifacts land in dist/
+```
+
+Install GoReleaser: `go install github.com/goreleaser/goreleaser/v2@latest`
+
 ## Testing Conventions
 
 - Unit tests use `t.TempDir()` for file isolation.
