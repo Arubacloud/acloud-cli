@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -86,6 +86,21 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
 	// Add global output format flag (TD-016)
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
+}
+
+// projectRef returns an opaque aruba.Ref for /projects/<projectID>. (TD-022)
+func projectRef(projectID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID)
+}
+
+// projectWrapper fetches the *aruba.Project for projectID so callers can chain
+// IntoProject(proj) on project-scoped resources. (TD-022)
+func projectWrapper(ctx context.Context, client aruba.Client, projectID string) (*aruba.Project, error) {
+	proj, err := client.FromProject().Get(ctx, projectRef(projectID))
+	if err != nil {
+		return nil, apiErrFromV2(err)
+	}
+	return proj, nil
 }
 
 // GetArubaClient creates and returns an Aruba Cloud SDK client using stored credentials
@@ -215,16 +230,23 @@ func fmtAPIError(statusCode int, title, detail *string) error {
 	return fmt.Errorf("%s", msg)
 }
 
-// apiErrFromResp returns an error for 4xx/5xx status codes, safely handling
-// the case where the SDK did not populate an error body. Returns nil for any status < 400.
-func apiErrFromResp(statusCode int, errResp *types.ErrorResponse) error {
-	if statusCode < 400 {
+// apiErrFromV2 extracts an *aruba.HTTPError from err and formats it via fmtAPIError.
+// Returns the original error if it isn't an HTTPError. Nil-safe on ErrResp/Title/Detail.
+// (TD-022)
+func apiErrFromV2(err error) error {
+	if err == nil {
 		return nil
 	}
-	if errResp != nil {
-		return fmtAPIError(statusCode, errResp.Title, errResp.Detail)
+	var httpErr *aruba.HTTPError
+	if !errors.As(err, &httpErr) {
+		return err
 	}
-	return fmtAPIError(statusCode, nil, nil)
+	var title, detail *string
+	if httpErr.ErrResp != nil {
+		title = httpErr.ErrResp.Title
+		detail = httpErr.ErrResp.Detail
+	}
+	return fmtAPIError(httpErr.StatusCode, title, detail)
 }
 
 // confirmDelete prompts the user for confirmation before a destructive operation.
@@ -295,22 +317,22 @@ func msgDryRun(kind, id string) string {
 	return fmt.Sprintf("[dry-run] Would delete %s '%s'. Resource exists and is accessible.", kind, id)
 }
 
-// listParams builds pagination RequestParameters from --limit and --offset flags (TD-017).
+// listOpts builds v0.2.0 CallOptions from --limit and --offset flags (TD-017, TD-022).
 // Returns nil when neither flag is set, preserving the existing nil-means-no-options contract.
-func listParams(cmd *cobra.Command) *types.RequestParameters {
+func listOpts(cmd *cobra.Command) []aruba.CallOption {
 	limit, _ := cmd.Flags().GetInt32("limit")
 	offset, _ := cmd.Flags().GetInt32("offset")
 	if limit == 0 && offset == 0 {
 		return nil
 	}
-	params := &types.RequestParameters{}
+	var opts []aruba.CallOption
 	if limit > 0 {
-		params.Limit = &limit
+		opts = append(opts, aruba.WithLimit(int(limit)))
 	}
 	if offset > 0 {
-		params.Offset = &offset
+		opts = append(opts, aruba.WithOffset(int(offset)))
 	}
-	return params
+	return opts
 }
 
 // TableColumn represents a column definition for the table printer

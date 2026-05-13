@@ -41,10 +41,10 @@ Issues are grouped by severity. Address Critical items before new features ship;
 
 ---
 
-### TD-022 · Pre-release SDK version (v0.1.x)
-`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.28`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
+### TD-022 · Pre-release SDK version (v0.1.x → v0.2.0 migration in progress)
+`go.mod` now depends on `github.com/Arubacloud/sdk-go v0.2.0`. The bump was the first step of the multi-PR migration tracked in #99; foundations (shared helpers in `cmd/root.go`, `StateActive` constant) landed via #100. Per-family migrations (#101-#110) and behavioural fixups (#111) are still open — `go build ./cmd` will remain red until those merge.
 
-**Fix:** Track the SDK release roadmap. When a `v1.0.0` is released, migrate and pin to it. Until then, pin to a specific minor version and treat any upgrade as potentially breaking.
+**Fix:** Close out #99's exit criteria, then mark TD-022 resolved.
 
 ---
 
