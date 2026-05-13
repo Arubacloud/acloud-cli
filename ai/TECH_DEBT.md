@@ -28,6 +28,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
 | TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 | TD-023 | Verbose error-body dump in `storage.backup` / `storage.restore` now uses `json.MarshalIndent(response.Error, …)`; generic `map[string]interface{}` unmarshal removed |
+| TD-024 | VPN IKE/ESP enum values documented: `vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups` vars added to `cmd/network.vpntunnel.go`; `vpnValidateEnum` helper validates all enum flags client-side before the API call; `docs/website/docs/resources/network/vpntunnel.md` updated with full reference tables |
 
 ---
 
@@ -41,16 +42,9 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ### TD-022 · Pre-release SDK version (v0.1.x)
-`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.27`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
+`go.mod` depends on `github.com/Arubacloud/sdk-go v0.1.28`. The `0.x` major version provides no semantic versioning stability guarantee — a minor-version bump may introduce breaking changes.
 
 **Fix:** Track the SDK release roadmap. When a `v1.0.0` is released, migrate and pin to it. Until then, pin to a specific minor version and treat any upgrade as potentially breaking.
-
----
-
-### TD-024 · VPN tunnel IKE/ESP/PSK enum values undocumented
-`vpntunnel create` exposes `--dhgroup`, `--pfs`, `--cloud-site`, `--onprem-site`, and sibling IKE/ESP flags as free-text strings. The SDK (`sdk-go@v0.1.27/pkg/types/network.vpn-tunnel.go:34,58,64-67`) models them as opaque `*string` with no enum constants, no Swagger/OpenAPI spec, and no sample payloads anywhere in this repo, the SDK tree, or `docs/`. The current e2e run succeeds with the values pinned in test.sh (ikev2, aes256, sha1, dh group 1, pfs enable, etc.), but those constants live only in the test script — the CLI accepts any string and the SDK has no enum validation, so a typo or future API change still produces an opaque "not valid" error.
-
-**Fix:** Obtain the API spec or a known-good payload from Aruba. Enumerate valid values for `dhGroup`, `pfs`, `cloudSite`, `onPremSite`, encode them as Go constants in `cmd/network.vpntunnel.go`, optionally validate client-side before the request, and document them in `docs/website/docs/resources/network/vpntunnel.md`. Mark resolved once the constants are documented; the e2e gate this previously referenced no longer exists.
 
 ---
 

@@ -9,6 +9,71 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var vpnEncryptionAlgorithms = []string{
+	types.VPNEncryptionAES128, types.VPNEncryptionAES192, types.VPNEncryptionAES256,
+	types.VPNEncryptionAES128CTR, types.VPNEncryptionAES192CTR, types.VPNEncryptionAES256CTR,
+	types.VPNEncryptionAES128CCM64, types.VPNEncryptionAES128CCM96, types.VPNEncryptionAES128CCM128,
+	types.VPNEncryptionAES192CCM64, types.VPNEncryptionAES192CCM96, types.VPNEncryptionAES192CCM128,
+	types.VPNEncryptionAES256CCM64, types.VPNEncryptionAES256CCM96, types.VPNEncryptionAES256CCM128,
+	types.VPNEncryptionAES128GCM64, types.VPNEncryptionAES128GCM96, types.VPNEncryptionAES128GCM128,
+	types.VPNEncryptionAES192GCM64, types.VPNEncryptionAES192GCM96, types.VPNEncryptionAES192GCM128,
+	types.VPNEncryptionAES256GCM64, types.VPNEncryptionAES256GCM96, types.VPNEncryptionAES256GCM128,
+	types.VPNEncryptionAES128GMAC, types.VPNEncryptionAES192GMAC, types.VPNEncryptionAES256GMAC,
+	types.VPNEncryption3DES,
+	types.VPNEncryptionBlowfish128, types.VPNEncryptionBlowfish192, types.VPNEncryptionBlowfish256,
+	types.VPNEncryptionCamellia128, types.VPNEncryptionCamellia192, types.VPNEncryptionCamellia256,
+	types.VPNEncryptionCamellia128CTR, types.VPNEncryptionCamellia192CTR, types.VPNEncryptionCamellia256CTR,
+	types.VPNEncryptionCamellia128CCM64, types.VPNEncryptionCamellia128CCM96, types.VPNEncryptionCamellia128CCM128,
+	types.VPNEncryptionCamellia192CCM64, types.VPNEncryptionCamellia192CCM96, types.VPNEncryptionCamellia192CCM128,
+	types.VPNEncryptionCamellia256CCM64, types.VPNEncryptionCamellia256CCM96, types.VPNEncryptionCamellia256CCM128,
+	types.VPNEncryptionSerpent128, types.VPNEncryptionSerpent192, types.VPNEncryptionSerpent256,
+	types.VPNEncryptionTwofish128, types.VPNEncryptionTwofish192, types.VPNEncryptionTwofish256,
+	types.VPNEncryptionCAST128, types.VPNEncryptionChaCha20Poly1305,
+}
+
+var vpnHashAlgorithms = []string{
+	types.VPNHashMD5, types.VPNHashMD5128,
+	types.VPNHashSHA1, types.VPNHashSHA1160,
+	types.VPNHashSHA256, types.VPNHashSHA25696,
+	types.VPNHashSHA384, types.VPNHashSHA512,
+	types.VPNHashAESXCBC, types.VPNHashAESCMAC,
+	types.VPNHashAES128GMAC, types.VPNHashAES192GMAC, types.VPNHashAES256GMAC,
+}
+
+var vpnDHGroups = []string{
+	types.VPNDHGroup1, types.VPNDHGroup2, types.VPNDHGroup5,
+	types.VPNDHGroup14, types.VPNDHGroup15, types.VPNDHGroup16, types.VPNDHGroup17, types.VPNDHGroup18,
+	types.VPNDHGroup19, types.VPNDHGroup20, types.VPNDHGroup21,
+	types.VPNDHGroup22, types.VPNDHGroup23, types.VPNDHGroup24,
+	types.VPNDHGroup25, types.VPNDHGroup26, types.VPNDHGroup27, types.VPNDHGroup28, types.VPNDHGroup29, types.VPNDHGroup30,
+	types.VPNDHGroup31, types.VPNDHGroup32,
+}
+
+var vpnDPDActions = []string{types.VPNDPDActionTrap, types.VPNDPDActionClear, types.VPNDPDActionRestart}
+
+var vpnPFSGroups = []string{
+	types.VPNPFSEnable,
+	types.VPNPFSDHGroup1, types.VPNPFSDHGroup2, types.VPNPFSDHGroup5,
+	types.VPNPFSDHGroup14, types.VPNPFSDHGroup15, types.VPNPFSDHGroup16, types.VPNPFSDHGroup17, types.VPNPFSDHGroup18,
+	types.VPNPFSDHGroup19, types.VPNPFSDHGroup20, types.VPNPFSDHGroup21,
+	types.VPNPFSDHGroup22, types.VPNPFSDHGroup23, types.VPNPFSDHGroup24,
+	types.VPNPFSDHGroup25, types.VPNPFSDHGroup26, types.VPNPFSDHGroup27, types.VPNPFSDHGroup28, types.VPNPFSDHGroup29, types.VPNPFSDHGroup30,
+	types.VPNPFSDHGroup31, types.VPNPFSDHGroup32,
+	types.VPNPFSDisable,
+}
+
+func vpnValidateEnum(value, flag string, valid []string) error {
+	if value == "" {
+		return nil
+	}
+	for _, v := range valid {
+		if value == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("--%s %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", flag, value)
+}
+
 func init() {
 
 	// VPNTunnel
@@ -33,21 +98,21 @@ func init() {
 	vpntunnelCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
 	vpntunnelCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	// IKE settings
-	vpntunnelCreateCmd.Flags().Int32("ike-lifetime", 0, "IKE lifetime (seconds)")
-	vpntunnelCreateCmd.Flags().String("ike-encryption", "", "IKE encryption algorithm (e.g. aes128, aes256, 3des, chacha20poly1305)")
-	vpntunnelCreateCmd.Flags().String("ike-hash", "", "IKE hash algorithm (e.g. sha1, sha256, sha384, sha512, md5)")
-	vpntunnelCreateCmd.Flags().String("ike-dh-group", "", "IKE DH group (e.g. 1, 2, 5, 14, 15, 16, 19, 20, 21)")
+	vpntunnelCreateCmd.Flags().Int32("ike-lifetime", 0, "IKE lifetime in seconds (0-86400)")
+	vpntunnelCreateCmd.Flags().String("ike-encryption", "", "IKE encryption algorithm (e.g. aes256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("ike-hash", "", "IKE hash algorithm (e.g. sha256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("ike-dh-group", "", "IKE DH group number (1, 2, 5, or 14-32)")
 	vpntunnelCreateCmd.Flags().String("ike-dpd-action", "", "IKE DPD action (trap, clear, restart)")
-	vpntunnelCreateCmd.Flags().Int32("ike-dpd-interval", 0, "IKE DPD interval (seconds)")
-	vpntunnelCreateCmd.Flags().Int32("ike-dpd-timeout", 0, "IKE DPD timeout (seconds)")
+	vpntunnelCreateCmd.Flags().Int32("ike-dpd-interval", 0, "IKE DPD interval in seconds (2-86400)")
+	vpntunnelCreateCmd.Flags().Int32("ike-dpd-timeout", 0, "IKE DPD timeout in seconds (2-86400)")
 	// ESP settings
-	vpntunnelCreateCmd.Flags().Int32("esp-lifetime", 0, "ESP lifetime (seconds)")
-	vpntunnelCreateCmd.Flags().String("esp-encryption", "", "ESP encryption algorithm (e.g. aes128, aes256, 3des, chacha20poly1305)")
-	vpntunnelCreateCmd.Flags().String("esp-hash", "", "ESP hash algorithm (e.g. sha1, sha256, sha384, sha512, md5)")
-	vpntunnelCreateCmd.Flags().String("esp-pfs", "", "ESP PFS group (enable, disable, dh-group1, dh-group2, dh-group5, dh-group14…dh-group32)")
+	vpntunnelCreateCmd.Flags().Int32("esp-lifetime", 0, "ESP lifetime in seconds (30-86400)")
+	vpntunnelCreateCmd.Flags().String("esp-encryption", "", "ESP encryption algorithm (default: aes256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("esp-hash", "", "ESP hash algorithm (e.g. sha256; see docs for full list)")
+	vpntunnelCreateCmd.Flags().String("esp-pfs", "", "ESP PFS group (enable, dh-group1..dh-group32, disable)")
 	// PSK settings
-	vpntunnelCreateCmd.Flags().String("psk-cloud-site", "", "PSK cloud site identifier")
-	vpntunnelCreateCmd.Flags().String("psk-onprem-site", "", "PSK on-prem site identifier")
+	vpntunnelCreateCmd.Flags().String("psk-cloud-site", "", "PSK ID for the Aruba (cloud) side — alphanumeric, '-' and '.', 3-100 chars")
+	vpntunnelCreateCmd.Flags().String("psk-onprem-site", "", "PSK ID for the customer (on-prem) side — alphanumeric, '-' and '.', 3-100 chars")
 	vpntunnelCreateCmd.Flags().String("psk", "", "Pre-shared key for authentication (PSK secret)")
 	vpntunnelCreateCmd.MarkFlagRequired("name")
 	vpntunnelCreateCmd.MarkFlagRequired("region")
@@ -364,6 +429,25 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		// Validate mutual-exclusive subnet flags
 		if subnetCIDR == "" && subnetName == "" {
 			return fmt.Errorf("--subnet-cidr or --subnet-name is required")
+		}
+
+		// Validate enum fields client-side to surface typos before the API call.
+		for _, check := range []struct {
+			val   string
+			flag  string
+			valid []string
+		}{
+			{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
+			{ikeHash, "ike-hash", vpnHashAlgorithms},
+			{ikeDHGroup, "ike-dh-group", vpnDHGroups},
+			{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
+			{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
+			{espHash, "esp-hash", vpnHashAlgorithms},
+			{espPFS, "esp-pfs", vpnPFSGroups},
+		} {
+			if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
+				return err
+			}
 		}
 
 		// Get project ID from flag or context
