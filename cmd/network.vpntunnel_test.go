@@ -282,6 +282,37 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
 		},
+		{
+			name:        "rejects invalid --ike-encryption before API call",
+			args:        append(baseArgs, "--ike-encryption", "rot13"),
+			wantErr:     true,
+			errContains: `"rot13" is not a valid value`,
+		},
+		{
+			name:        "rejects invalid --ike-dpd-action before API call",
+			args:        append(baseArgs, "--ike-dpd-action", "explode"),
+			wantErr:     true,
+			errContains: "is not a valid value",
+		},
+		{
+			name:        "rejects invalid --esp-pfs before API call",
+			args:        append(baseArgs, "--esp-pfs", "group99"),
+			wantErr:     true,
+			errContains: "is not a valid value",
+		},
+		{
+			name: "accepts valid --ike-encryption without API error",
+			args: append(baseArgs, "--ike-encryption", types.VPNEncryptionAES256),
+			setupMock: func(m *mockVPNTunnelsClient) {
+				id, name := "tun-new", "my-tunnel"
+				m.createFn = func(_ context.Context, _ string, _ types.VPNTunnelRequest, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
+					return &types.Response[types.VPNTunnelResponse]{
+						StatusCode: 200,
+						Data:       &types.VPNTunnelResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					}, nil
+				}
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -293,6 +324,61 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestVPNValidateEnum(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		flag    string
+		valid   []string
+		wantErr bool
+		errMsg  string
+	}{
+		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid encryption", value: types.VPNEncryptionAES256, flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid hash", value: types.VPNHashSHA256, flag: "ike-hash", valid: vpnHashAlgorithms},
+		{name: "valid dh-group", value: types.VPNDHGroup14, flag: "ike-dh-group", valid: vpnDHGroups},
+		{name: "valid dpd-action", value: types.VPNDPDActionTrap, flag: "ike-dpd-action", valid: vpnDPDActions},
+		{name: "valid pfs-group", value: types.VPNPFSDHGroup14, flag: "esp-pfs", valid: vpnPFSGroups},
+		{
+			name: "invalid encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnEncryptionAlgorithms,
+			wantErr: true, errMsg: `--ike-encryption "rot13" is not a valid value`,
+		},
+		{
+			name: "invalid hash rejected", value: "crc32", flag: "ike-hash", valid: vpnHashAlgorithms,
+			wantErr: true, errMsg: "--ike-hash",
+		},
+		{
+			name: "invalid dh-group rejected", value: "42", flag: "ike-dh-group", valid: vpnDHGroups,
+			wantErr: true, errMsg: "--ike-dh-group",
+		},
+		{
+			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnDPDActions,
+			wantErr: true, errMsg: "--ike-dpd-action",
+		},
+		{
+			name: "invalid pfs-group rejected", value: "group99", flag: "esp-pfs", valid: vpnPFSGroups,
+			wantErr: true, errMsg: "--esp-pfs",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := vpnValidateEnum(tc.value, tc.flag, tc.valid)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.errMsg != "" && !strings.Contains(err.Error(), tc.errMsg) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errMsg)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
 			}
 		})
 	}

@@ -9,59 +9,57 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Valid enum values sourced from the Aruba functional spec (VPN.006.011–VPN.006.014, VPN.006.042–VPN.006.044).
-
 var vpnEncryptionAlgorithms = []string{
-	"aes128", "aes192", "aes256",
-	"aes128ctr", "aes192ctr", "aes256ctr",
-	"aes128ccm64", "aes192ccm64", "aes256ccm64",
-	"aes128ccm96", "aes192ccm96", "aes256ccm96",
-	"aes128ccm128", "aes192ccm128", "aes256ccm128",
-	"aes128gcm64", "aes192gcm64", "aes256gcm64",
-	"aes128gcm96", "aes192gcm96", "aes256gcm96",
-	"aes128gcm128", "aes192gcm128", "aes256gcm128",
-	"aes128gmac", "aes192gmac", "aes256gmac",
-	"3des",
-	"blowfish128", "blowfish192", "blowfish256",
-	"camellia128", "camellia192", "camellia256",
-	"camellia128ctr", "camellia192ctr", "camellia256ctr",
-	"camellia128ccm64", "camellia192ccm64", "camellia256ccm64",
-	"camellia128ccm96", "camellia192ccm96", "camellia256ccm96",
-	"camellia128ccm128", "camellia192ccm128", "camellia256ccm128",
-	"serpent128", "serpent192", "serpent256",
-	"twofish128", "twofish192", "twofish256",
-	"cast128", "chacha20poly1305",
+	types.VPNEncryptionAES128, types.VPNEncryptionAES192, types.VPNEncryptionAES256,
+	types.VPNEncryptionAES128CTR, types.VPNEncryptionAES192CTR, types.VPNEncryptionAES256CTR,
+	types.VPNEncryptionAES128CCM64, types.VPNEncryptionAES128CCM96, types.VPNEncryptionAES128CCM128,
+	types.VPNEncryptionAES192CCM64, types.VPNEncryptionAES192CCM96, types.VPNEncryptionAES192CCM128,
+	types.VPNEncryptionAES256CCM64, types.VPNEncryptionAES256CCM96, types.VPNEncryptionAES256CCM128,
+	types.VPNEncryptionAES128GCM64, types.VPNEncryptionAES128GCM96, types.VPNEncryptionAES128GCM128,
+	types.VPNEncryptionAES192GCM64, types.VPNEncryptionAES192GCM96, types.VPNEncryptionAES192GCM128,
+	types.VPNEncryptionAES256GCM64, types.VPNEncryptionAES256GCM96, types.VPNEncryptionAES256GCM128,
+	types.VPNEncryptionAES128GMAC, types.VPNEncryptionAES192GMAC, types.VPNEncryptionAES256GMAC,
+	types.VPNEncryption3DES,
+	types.VPNEncryptionBlowfish128, types.VPNEncryptionBlowfish192, types.VPNEncryptionBlowfish256,
+	types.VPNEncryptionCamellia128, types.VPNEncryptionCamellia192, types.VPNEncryptionCamellia256,
+	types.VPNEncryptionCamellia128CTR, types.VPNEncryptionCamellia192CTR, types.VPNEncryptionCamellia256CTR,
+	types.VPNEncryptionCamellia128CCM64, types.VPNEncryptionCamellia128CCM96, types.VPNEncryptionCamellia128CCM128,
+	types.VPNEncryptionCamellia192CCM64, types.VPNEncryptionCamellia192CCM96, types.VPNEncryptionCamellia192CCM128,
+	types.VPNEncryptionCamellia256CCM64, types.VPNEncryptionCamellia256CCM96, types.VPNEncryptionCamellia256CCM128,
+	types.VPNEncryptionSerpent128, types.VPNEncryptionSerpent192, types.VPNEncryptionSerpent256,
+	types.VPNEncryptionTwofish128, types.VPNEncryptionTwofish192, types.VPNEncryptionTwofish256,
+	types.VPNEncryptionCAST128, types.VPNEncryptionChaCha20Poly1305,
 }
 
 var vpnHashAlgorithms = []string{
-	"md5", "md5_128",
-	"sha1", "sha1_160",
-	"sha256", "sha256_96",
-	"sha384", "sha512",
-	"aesxcbc", "aescmac",
-	"aes128gmac", "aes192gmac", "aes256gmac",
+	types.VPNHashMD5, types.VPNHashMD5128,
+	types.VPNHashSHA1, types.VPNHashSHA1160,
+	types.VPNHashSHA256, types.VPNHashSHA25696,
+	types.VPNHashSHA384, types.VPNHashSHA512,
+	types.VPNHashAESXCBC, types.VPNHashAESCMAC,
+	types.VPNHashAES128GMAC, types.VPNHashAES192GMAC, types.VPNHashAES256GMAC,
 }
 
 var vpnDHGroups = []string{
-	"1", "2", "5",
-	"14", "15", "16", "17", "18",
-	"19", "20", "21",
-	"22", "23", "24",
-	"25", "26", "27", "28", "29", "30",
-	"31", "32",
+	types.VPNDHGroup1, types.VPNDHGroup2, types.VPNDHGroup5,
+	types.VPNDHGroup14, types.VPNDHGroup15, types.VPNDHGroup16, types.VPNDHGroup17, types.VPNDHGroup18,
+	types.VPNDHGroup19, types.VPNDHGroup20, types.VPNDHGroup21,
+	types.VPNDHGroup22, types.VPNDHGroup23, types.VPNDHGroup24,
+	types.VPNDHGroup25, types.VPNDHGroup26, types.VPNDHGroup27, types.VPNDHGroup28, types.VPNDHGroup29, types.VPNDHGroup30,
+	types.VPNDHGroup31, types.VPNDHGroup32,
 }
 
-var vpnDPDActions = []string{"trap", "clear", "restart"}
+var vpnDPDActions = []string{types.VPNDPDActionTrap, types.VPNDPDActionClear, types.VPNDPDActionRestart}
 
 var vpnPFSGroups = []string{
-	"enable",
-	"dh-group1", "dh-group2", "dh-group5",
-	"dh-group14", "dh-group15", "dh-group16", "dh-group17", "dh-group18",
-	"dh-group19", "dh-group20", "dh-group21",
-	"dh-group22", "dh-group23", "dh-group24",
-	"dh-group25", "dh-group26", "dh-group27", "dh-group28", "dh-group29", "dh-group30",
-	"dh-group31", "dh-group32",
-	"disable",
+	types.VPNPFSEnable,
+	types.VPNPFSDHGroup1, types.VPNPFSDHGroup2, types.VPNPFSDHGroup5,
+	types.VPNPFSDHGroup14, types.VPNPFSDHGroup15, types.VPNPFSDHGroup16, types.VPNPFSDHGroup17, types.VPNPFSDHGroup18,
+	types.VPNPFSDHGroup19, types.VPNPFSDHGroup20, types.VPNPFSDHGroup21,
+	types.VPNPFSDHGroup22, types.VPNPFSDHGroup23, types.VPNPFSDHGroup24,
+	types.VPNPFSDHGroup25, types.VPNPFSDHGroup26, types.VPNPFSDHGroup27, types.VPNPFSDHGroup28, types.VPNPFSDHGroup29, types.VPNPFSDHGroup30,
+	types.VPNPFSDHGroup31, types.VPNPFSDHGroup32,
+	types.VPNPFSDisable,
 }
 
 func vpnValidateEnum(value, flag string, valid []string) error {
