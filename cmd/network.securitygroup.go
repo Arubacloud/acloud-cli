@@ -3,9 +3,22 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+// securityGroupRef is shared with securityrule.go and subnet.go (via vpcRef).
+func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/securitygroups/" + sgID)
+}
+
+func securityGroupListPayload(l *aruba.List[*aruba.SecurityGroup]) any {
+	if r, ok := l.Raw().(*types.Response[types.SecurityGroupList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
 
 func init() {
 	// SecurityGroup
@@ -67,20 +80,21 @@ after the group is created.`,
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		req := types.SecurityGroupRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: name,
-				Tags: tags,
-			},
+
+		sg := aruba.NewSecurityGroup().
+			IntoVPC(vpcRef(projectID, vpcID)).
+			Named(name)
+		if len(tags) > 0 {
+			sg.ReplaceTags(tags...)
 		}
-		resp, err := client.FromNetwork().SecurityGroups().Create(ctx, projectID, vpcID, req, nil)
+
+		created, err := client.FromNetwork().SecurityGroups().Create(ctx, sg)
 		if err != nil {
-			return fmt.Errorf("creating security group: %w", err)
+			return fmt.Errorf("creating security group: %w", apiErrFromV2(err))
 		}
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-		if resp != nil && resp.Data != nil && resp.Data.Metadata.ID != nil {
+
+		r := created.Raw()
+		if r != nil && r.Metadata.ID != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -88,22 +102,14 @@ after the group is created.`,
 				{Header: "STATUS", Width: 15},
 			}
 			region := ""
-			if resp.Data.Metadata.LocationResponse != nil {
-				region = resp.Data.Metadata.LocationResponse.Value
+			if r.Metadata.LocationResponse != nil {
+				region = string(r.Metadata.LocationResponse.Value)
 			}
-			row := []string{
-				name,
-				*resp.Data.Metadata.ID,
-				region,
-				func() string {
-					if resp.Data.Status.State != nil {
-						return *resp.Data.Status.State
-					} else {
-						return ""
-					}
-				}(),
+			status := ""
+			if r.Status.State != nil {
+				status = *r.Status.State
 			}
-			PrintOutput(resp.Data, headers, [][]string{row})
+			PrintOutput(r, headers, [][]string{{name, *r.Metadata.ID, region, status}})
 		} else {
 			fmt.Println(msgCreatedAsync("Security group", name))
 		}
@@ -128,15 +134,13 @@ var securitygroupGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromNetwork().SecurityGroups().Get(ctx, projectID, vpcID, sgID, nil)
+		got, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
 		if err != nil {
-			return fmt.Errorf("getting security group: %w", err)
+			return fmt.Errorf("getting security group: %w", apiErrFromV2(err))
 		}
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-		if resp != nil && resp.Data != nil {
-			sg := resp.Data
+
+		sg := got.Raw()
+		if sg != nil {
 			fmt.Println("\nSecurity Group Details:")
 			fmt.Println("======================")
 			if sg.Metadata.ID != nil {
@@ -149,9 +153,7 @@ var securitygroupGetCmd = &cobra.Command{
 				fmt.Printf("Name:            %s\n", *sg.Metadata.Name)
 			}
 			if sg.Metadata.LocationResponse != nil {
-				if sg.Metadata.LocationResponse != nil {
-					fmt.Printf("Region:          %s\n", sg.Metadata.LocationResponse.Value)
-				}
+				fmt.Printf("Region:          %s\n", sg.Metadata.LocationResponse.Value)
 			}
 			if sg.Metadata.CreationDate != nil {
 				fmt.Printf("Creation Date:   %s\n", sg.Metadata.CreationDate.Format(DateLayout))
@@ -190,14 +192,12 @@ var securitygroupListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromNetwork().SecurityGroups().List(ctx, projectID, vpcID, listParams(cmd))
+		list, err := client.FromNetwork().SecurityGroups().List(ctx, vpcRef(projectID, vpcID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing security groups: %w", err)
+			return fmt.Errorf("listing security groups: %w", apiErrFromV2(err))
 		}
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
+
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -205,26 +205,23 @@ var securitygroupListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 15},
 			}
 			var rows [][]string
-			for _, sg := range resp.Data.Values {
-				name := ""
-				if sg.Metadata.Name != nil {
-					name = *sg.Metadata.Name
-				}
-				id := ""
-				if sg.Metadata.ID != nil {
-					id = *sg.Metadata.ID
-				}
+			for _, sg := range list.Items() {
+				r := sg.Raw()
+				name := sg.Name()
+				id := sg.SecurityGroupID()
 				region := ""
-				if sg.Metadata.LocationResponse != nil {
-					region = sg.Metadata.LocationResponse.Value
-				}
 				status := ""
-				if sg.Status.State != nil {
-					status = *sg.Status.State
+				if r != nil {
+					if r.Metadata.LocationResponse != nil {
+						region = string(r.Metadata.LocationResponse.Value)
+					}
+					if r.Status.State != nil {
+						status = *r.Status.State
+					}
 				}
 				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintOutput(resp.Data, headers, rows)
+			PrintOutput(securityGroupListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No security groups found.")
 		}
@@ -254,87 +251,56 @@ var securitygroupUpdateCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		// Fetch current security group details
-		getResp, err := client.FromNetwork().SecurityGroups().Get(ctx, projectID, vpcID, sgID, nil)
-		if err != nil || getResp == nil || getResp.Data == nil {
-			return fmt.Errorf("fetching current security group: %w", err)
+
+		cur, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
+		if err != nil {
+			return fmt.Errorf("fetching current security group: %w", apiErrFromV2(err))
 		}
-		current := getResp.Data
-		// Block update if security group is in 'InCreation' state
-		if current.Status.State != nil && *current.Status.State == StateInCreation {
+		r := cur.Raw()
+		if r == nil {
+			return fmt.Errorf("security group not found")
+		}
+		if r.Status.State != nil && *r.Status.State == StateInCreation {
 			return fmt.Errorf("cannot update security group while it is in 'InCreation' state. Please wait until the security group is fully created")
 		}
-		// Get region value
-		regionValue := ""
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
+
+		if name != "" {
+			cur.Named(name)
 		}
-		if regionValue == "" {
-			return fmt.Errorf("unable to determine region value for security group")
+		if cmd.Flags().Changed("tags") {
+			cur.ReplaceTags(tags...)
 		}
-		// Build update request by merging user input with all current valid fields
-		req := types.SecurityGroupRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: func() string {
-					if name != "" {
-						return name
-					}
-					if current.Metadata.Name != nil {
-						return *current.Metadata.Name
-					}
-					return ""
-				}(),
-				Tags: func() []string {
-					if cmd.Flags().Changed("tags") {
-						return tags
-					}
-					if current.Metadata.Tags != nil {
-						return current.Metadata.Tags
-					}
-					return []string{}
-				}(),
-			},
-		}
-		resp, err := client.FromNetwork().SecurityGroups().Update(ctx, projectID, vpcID, sgID, req, nil)
+
+		updated, err := client.FromNetwork().SecurityGroups().Update(ctx, cur)
 		if err != nil {
-			return fmt.Errorf("updating security group: %w", err)
+			return fmt.Errorf("updating security group: %w", apiErrFromV2(err))
 		}
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-		if resp != nil && resp.Data != nil {
+
+		ur := updated.Raw()
+		if ur != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
 				{Header: "REGION", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			updateRegion := ""
-			if resp.Data.Metadata.LocationResponse != nil {
-				updateRegion = resp.Data.Metadata.LocationResponse.Value
+			updName := ""
+			if ur.Metadata.Name != nil {
+				updName = *ur.Metadata.Name
 			}
-			row := []string{
-				func() string {
-					if resp.Data.Metadata.Name != nil {
-						return *resp.Data.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if resp.Data.Metadata.ID != nil {
-						return *resp.Data.Metadata.ID
-					}
-					return ""
-				}(),
-				updateRegion,
-				func() string {
-					if resp.Data.Status.State != nil {
-						return *resp.Data.Status.State
-					}
-					return ""
-				}(),
+			updID := ""
+			if ur.Metadata.ID != nil {
+				updID = *ur.Metadata.ID
 			}
-			PrintOutput(resp.Data, headers, [][]string{row})
+			updRegion := ""
+			if ur.Metadata.LocationResponse != nil {
+				updRegion = string(ur.Metadata.LocationResponse.Value)
+			}
+			updStatus := ""
+			if ur.Status.State != nil {
+				updStatus = *ur.Status.State
+			}
+			PrintOutput(ur, headers, [][]string{{updName, updID, updRegion, updStatus}})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security group", sgID))
 		}
@@ -350,10 +316,7 @@ var securitygroupDeleteCmd = &cobra.Command{
 		vpcID := args[0]
 		sgID := args[1]
 
-		// Get skip confirmation flag
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
-
-		// Prompt for confirmation unless --yes flag is used
 		if !skipConfirm {
 			ok, err := confirmDelete("security group", sgID)
 			if err != nil {
@@ -377,21 +340,18 @@ var securitygroupDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().SecurityGroups().Get(ctx, projectID, vpcID, sgID, nil)
+			_, err = client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
 			if err != nil {
-				return fmt.Errorf("dry-run: security group not found or inaccessible: %w", err)
+				return fmt.Errorf("dry-run: security group not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("security group", sgID))
 			return nil
 		}
 
-		resp, err := client.FromNetwork().SecurityGroups().Delete(ctx, projectID, vpcID, sgID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting security group: %w", err)
+		if err := client.FromNetwork().SecurityGroups().Delete(ctx, securityGroupRef(projectID, vpcID, sgID)); err != nil {
+			return fmt.Errorf("deleting security group: %w", apiErrFromV2(err))
 		}
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
+
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},
 			{Header: "STATUS", Width: 15},

@@ -81,6 +81,49 @@ func cloudServerRef(projectID, serverID string) aruba.Ref {
 }
 ```
 
+**Multi-level nested Refs (network family)** — VPC-scoped resources (Subnet,
+SecurityGroup, VPCPeering) require 3-segment Refs; deeper resources (SecurityRule,
+VPCPeeringRoute, VPNRoute) require 4-segment Refs encoding the full ancestry. The
+path-segment casing matters: `subnets`, `securitygroups`, `securityrules`,
+`loadbalancers` are lowercase; `vpcPeerings`, `vpcPeeringRoutes`, `vpnTunnels`,
+`vpnRoutes`, `elasticIps` are camelCase (matches
+`internal/clients/network/path.go`, which is `internal/` and not importable).
+Each file declares a file-local `<resource>Ref` helper and reuses the parent Ref
+helper from the sibling file where it is defined once:
+
+| Helper | Defined in | URI template |
+|---|---|---|
+| `vpcRef(pid, vid)` | `network.vpc.go` | `/projects/<pid>/providers/Aruba.Network/vpcs/<vid>` |
+| `securityGroupRef(pid, vid, sgid)` | `network.securitygroup.go` | `…/vpcs/<vid>/securitygroups/<sgid>` |
+| `vpcPeeringRef(pid, vid, peerid)` | `network.vpcpeering.go` | `…/vpcs/<vid>/vpcPeerings/<peerid>` |
+| `vpnTunnelRef(pid, tid)` | `network.vpntunnel.go` | `…/vpnTunnels/<tid>` |
+
+**Read-only sub-client** — `LoadBalancersClient` exposes only `List` and `Get`.
+There is no `NewLoadBalancer()` factory and no Create/Update/Delete. The
+`network.loadbalancer.go` command file reflects this: it has only `list` and `get`
+subcommands.
+
+**Deeply-nested VPN sub-builders** — `aruba.NewVPNTunnel()` composes four
+independent sub-builders: `NewVPNIPConfig()`, `NewVPNIKE()`, `NewVPNESP()`,
+`NewVPNPSK()`. Each is constructed separately and attached via
+`WithIPConfig`/`WithIKESettings`/`WithESPSettings`/`WithPSKSettings`.
+
+**VPN `fromResponse` does not rehydrate sub-builders** — `VPNTunnel.fromResponse()`
+only populates top-level fields (`vpnType`, `vpnClientProtocol`, `billingPeriod`,
+`peerClientPublicIP`). A naïve wrapper `Update` would drop the IKE/ESP/PSK/IPConfig
+sub-builders from the PUT body. `network.vpntunnel.go` works around this with a
+file-local `vpnTunnelReattachSettings(cur *aruba.VPNTunnel)` helper that
+reconstructs the sub-builders from `cur.Raw().Properties.*` and re-attaches them
+before calling `Update`.
+
+**VPN crypto enums split per direction** — v0.2.0 replaces the unified
+`types.VPNEncryption*` / `types.VPNHash*` / `types.VPNDHGroup*` / etc. constants
+with per-direction types: `aruba.IKEEncryption` / `aruba.ESPEncryption`,
+`aruba.IKEHash` / `aruba.ESPHash`, `aruba.IKEDHGroup`, `aruba.IKEDPDAction`,
+`aruba.ESPPFSGroup`. The CLI exposes seven separate `[]string` enum slices
+(`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, etc.) and keys each
+`--ike-*` / `--esp-*` flag to the correct family in the validation table.
+
 **Operational methods on hydrated wrappers** — some operations (`PowerOn`, `PowerOff`,
 `SetPassword`) are methods on `*aruba.<T>`, not on the sub-client. They require a
 prior hydrating `Get`; calling them on a freshly-constructed `New<T>()` wrapper will

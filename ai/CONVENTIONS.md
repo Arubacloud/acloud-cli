@@ -193,6 +193,19 @@ wrapper with `.IntoProject(projectRef(projectID))` and use a file-local
 `<resource>Ref(projectID, id)` helper (encoding both project + resource IDs in the
 URI) for `Get` and `Delete`.
 
+**Multi-segment ancestry Refs** — For nested resources (e.g. `Subnet` inside `VPC`,
+`SecurityRule` inside `SecurityGroup` inside `VPC`), each file declares a file-local
+`<resource>Ref(...)` helper that hand-builds the full URI string including all
+ancestor IDs. Parent Ref helpers (`vpcRef`, `securityGroupRef`, `vpcPeeringRef`,
+`vpnTunnelRef`) are defined once in their respective files and imported by sibling
+files — never redefined. Path-segment casing must match the API exactly (see
+`ARCHITECTURE.md` for the casing table).
+
+**Read-only resources** — Resources that the API exposes as read-only (e.g.
+`LoadBalancer`) have only `list` and `get` subcommands; no `create`, `update`, or
+`delete`. Do not add a `NewLoadBalancer()` builder call or Create/Update/Delete
+command vars.
+
 ### list
 ```go
 client, err := GetArubaClient()

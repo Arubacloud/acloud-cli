@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,22 @@ import (
 func TestElasticIPListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockElasticIPsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockElasticIPsClient) {
+			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticList], error) {
-					return &types.Response[types.ElasticList]{
-						StatusCode: 200,
-						Data: &types.ElasticList{
-							Values: []types.ElasticIPResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+					Values: []types.ElasticIPResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "eip-001") {
@@ -41,26 +36,21 @@ func TestElasticIPListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticList], error) {
-					return &types.Response[types.ElasticList]{StatusCode: 200, Data: &types.ElasticList{}}, nil
-				}
+			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockElasticIPsClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"network", "elasticip", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticList], error) {
-					return &types.Response[types.ElasticList]{
-						StatusCode: 200,
-						Data: &types.ElasticList{
-							Values: []types.ElasticIPResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+					Values: []types.ElasticIPResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +60,19 @@ func TestElasticIPListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticList], error) {
-					return &types.Response[types.ElasticList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +80,11 @@ func TestElasticIPListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockElasticIPsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "elasticip", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{elasticIPsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestElasticIPListCmd(t *testing.T) {
 func TestElasticIPGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockElasticIPsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockElasticIPsClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return &types.Response[types.ElasticIPResponse]{
-						StatusCode: 200,
-						Data:       &types.ElasticIPResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "eip-001") {
@@ -138,24 +116,17 @@ func TestElasticIPGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return &types.Response[types.ElasticIPResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +134,11 @@ func TestElasticIPGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockElasticIPsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{elasticIPsMock: m})),
-				[]string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -181,62 +151,52 @@ func TestElasticIPCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockElasticIPsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG"},
-			setupMock: func(m *mockElasticIPsClient) {
-				id, name := "eip-new", "my-eip"
-				m.createFn = func(_ context.Context, _ string, _ types.ElasticIPRequest, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return &types.Response[types.ElasticIPResponse]{
-						StatusCode: 200,
-						Data:       &types.ElasticIPResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "eip-001", "my-eip"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-new") {
+				if !strings.Contains(out, "eip-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--region", "IT-BG"},
+			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--region", "IT-BG", "--billing-period", "monthly"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --region",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip"},
+			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--billing-period", "monthly"},
 			wantErr:     true,
 			errContains: "region",
 		},
 		{
-			name: "SDK error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG"},
-			setupMock: func(m *mockElasticIPsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.ElasticIPRequest, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			name: "server error propagates",
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG"},
-			setupMock: func(m *mockElasticIPsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.ElasticIPRequest, _ *types.RequestParameters) (*types.Response[types.ElasticIPResponse], error) {
-					return &types.Response[types.ElasticIPResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -244,11 +204,86 @@ func TestElasticIPCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockElasticIPsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{elasticIPsMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestElasticIPUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "eip-001", "my-eip"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "eip-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-Get server error",
+			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update server error",
+			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "eip-001", "my-eip"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -260,17 +295,17 @@ func TestElasticIPCreateCmd(t *testing.T) {
 func TestElasticIPDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockElasticIPsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "eip-001") {
@@ -280,11 +315,12 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "eip-001", "my-eip"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "eip-001") {
@@ -293,24 +329,19 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockElasticIPsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -318,15 +349,11 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockElasticIPsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{elasticIPsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

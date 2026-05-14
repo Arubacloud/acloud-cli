@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,23 @@ import (
 func TestVPCPeeringListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockVPCPeeringsClient) {
+			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-001", "my-peering"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
-					return &types.Response[types.VPCPeeringList]{
-						StatusCode: 200,
-						Data: &types.VPCPeeringList{
-							Values: []types.VPCPeeringResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					jsonResponse(200, types.VPCPeeringList{
+						Values: []types.VPCPeeringResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "peer-001") {
@@ -41,26 +37,23 @@ func TestVPCPeeringListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
-					return &types.Response[types.VPCPeeringList]{StatusCode: 200, Data: &types.VPCPeeringList{}}, nil
-				}
+			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					jsonResponse(200, types.VPCPeeringList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockVPCPeeringsClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-001", "my-peering"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
-					return &types.Response[types.VPCPeeringList]{
-						StatusCode: 200,
-						Data: &types.VPCPeeringList{
-							Values: []types.VPCPeeringResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					jsonResponse(200, types.VPCPeeringList{
+						Values: []types.VPCPeeringResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +63,21 @@ func TestVPCPeeringListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringList], error) {
-					return &types.Response[types.VPCPeeringList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +85,11 @@ func TestVPCPeeringListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +101,21 @@ func TestVPCPeeringListCmd(t *testing.T) {
 func TestVPCPeeringGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockVPCPeeringsClient) {
+			args: []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-001", "my-peering"
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return &types.Response[types.VPCPeeringResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "peer-001") {
@@ -138,24 +124,21 @@ func TestVPCPeeringGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return &types.Response[types.VPCPeeringResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +146,11 @@ func TestVPCPeeringGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringsMock: m})),
-				[]string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -178,25 +160,30 @@ func TestVPCPeeringGetCmd(t *testing.T) {
 }
 
 func TestVPCPeeringCreateCmd(t *testing.T) {
+	baseArgs := []string{
+		"network", "vpcpeering", "create", "vpc-001",
+		"--project-id", "proj-123",
+		"--name", "my-peering",
+		"--region", "IT-BG",
+		"--peer-vpc-id", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002",
+	}
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockVPCPeeringsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			args: []string{"network", "vpcpeering", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-peering", "--peer-vpc-id", "vpc-002", "--region", "IT-BG"},
-			setupMock: func(m *mockVPCPeeringsClient) {
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-new", "my-peering"
-				m.createFn = func(_ context.Context, _, _ string, _ types.VPCPeeringRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return &types.Response[types.VPCPeeringResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "peer-new") {
@@ -206,31 +193,32 @@ func TestVPCPeeringCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "vpcpeering", "create", "vpc-001", "--project-id", "proj-123", "--peer-vpc-id", "vpc-002", "--region", "IT-BG"},
+			args:        removeFlag(baseArgs, "--name", "my-peering"),
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
-			args: []string{"network", "vpcpeering", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-peering", "--peer-vpc-id", "vpc-002", "--region", "IT-BG"},
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.VPCPeeringRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			name:        "missing required flag --peer-vpc-id",
+			args:        removeFlag(baseArgs, "--peer-vpc-id", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"),
+			wantErr:     true,
+			errContains: "peer-vpc-id",
+		},
+		{
+			name: "server error propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
-			name: "API error propagates",
-			args: []string{"network", "vpcpeering", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-peering", "--peer-vpc-id", "vpc-002", "--region", "IT-BG"},
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.VPCPeeringRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringResponse], error) {
-					return &types.Response[types.VPCPeeringResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -238,11 +226,91 @@ func TestVPCPeeringCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringsMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestVPCPeeringUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "vpcpeering", "update", "vpc-001", "peer-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "peer-001", "my-peering"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				updID, updName := "peer-001", "new-name"
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "peer-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no fields provided returns error",
+			args:        []string{"network", "vpcpeering", "update", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv:    nil,
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "server error on update propagates",
+			args: []string{"network", "vpcpeering", "update", "vpc-001", "peer-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "peer-001", "my-peering"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+		{
+			name: "API 404 on get propagates",
+			args: []string{"network", "vpcpeering", "update", "vpc-001", "peer-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -254,17 +322,18 @@ func TestVPCPeeringCreateCmd(t *testing.T) {
 func TestVPCPeeringDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "vpcpeering", "delete", "vpc-001", "peer-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "peer-001") {
@@ -273,12 +342,14 @@ func TestVPCPeeringDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			name: "--dry-run registers only GET",
+			args: []string{"network", "vpcpeering", "delete", "vpc-001", "peer-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "peer-001", "my-peering"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					jsonResponse(200, types.VPCPeeringResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "peer-001") {
@@ -287,24 +358,21 @@ func TestVPCPeeringDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeering", "delete", "vpc-001", "peer-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeering", "delete", "vpc-001", "peer-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -312,15 +380,11 @@ func TestVPCPeeringDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "vpcpeering", "delete", "vpc-001", "peer-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
