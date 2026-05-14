@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,26 +11,23 @@ import (
 func TestProjectListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockProjectClient)
+		setupSrv    func(*arubaTestServer)
+		args        []string
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockProjectClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
-					return &types.Response[types.ProjectList]{
-						StatusCode: 200,
-						Data: &types.ProjectList{
-							Values: []types.ProjectResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+					Values: []types.ProjectResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
+			args: []string{"management", "project", "list"},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "proj-001") {
 					t.Errorf("expected ID in output, got: %s", out)
@@ -41,27 +36,22 @@ func TestProjectListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockProjectClient) {
-				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
-					return &types.Response[types.ProjectList]{StatusCode: 200, Data: &types.ProjectList{}}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{}))
 			},
+			args: []string{"management", "project", "list"},
 		},
 		{
 			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockProjectClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
-					return &types.Response[types.ProjectList]{
-						StatusCode: 200,
-						Data: &types.ProjectList{
-							Values: []types.ProjectResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+					Values: []types.ProjectResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
+			args: []string{"management", "project", "list", "--output", "json"},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
 				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
@@ -70,40 +60,31 @@ func TestProjectListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects", errorResponse(500, "Internal Server Error", "boom"))
 			},
+			args:        []string{"management", "project", "list"},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.listFn = func(_ context.Context, _ *types.RequestParameters) (*types.Response[types.ProjectList], error) {
-					return &types.Response[types.ProjectList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects", errorResponse(404, "Not Found", "resource not found"))
 			},
+			args:        []string{"management", "project", "list"},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockProjectClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"management", "project", "list"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withProject(m)), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestProjectListCmd(t *testing.T) {
 func TestProjectGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockProjectClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockProjectClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				m.getFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return &types.Response[types.ProjectResponse]{
-						StatusCode: 200,
-						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "proj-001") {
@@ -138,24 +116,17 @@ func TestProjectGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.getFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.getFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return &types.Response[types.ProjectResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,11 +134,11 @@ func TestProjectGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockProjectClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withProject(m)), []string{"management", "project", "get", "proj-001"})
+			out, err := runCmdCapture(srv.Client(), []string{"management", "project", "get", "proj-001"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -180,7 +151,7 @@ func TestProjectCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockProjectClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -188,14 +159,11 @@ func TestProjectCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: []string{"management", "project", "create", "--name", "my-project"},
-			setupMock: func(m *mockProjectClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-new", "my-project"
-				m.createFn = func(_ context.Context, _ types.ProjectRequest, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return &types.Response[types.ProjectResponse]{
-						StatusCode: 200,
-						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "proj-new") {
@@ -210,12 +178,10 @@ func TestProjectCreateCmd(t *testing.T) {
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: []string{"management", "project", "create", "--name", "my-project"},
-			setupMock: func(m *mockProjectClient) {
-				m.createFn = func(_ context.Context, _ types.ProjectRequest, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -223,13 +189,8 @@ func TestProjectCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: []string{"management", "project", "create", "--name", "my-project"},
-			setupMock: func(m *mockProjectClient) {
-				m.createFn = func(_ context.Context, _ types.ProjectRequest, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return &types.Response[types.ProjectResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -237,11 +198,82 @@ func TestProjectCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockProjectClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withProject(m)), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestProjectUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"management", "project", "update", "proj-001", "--description", "new desc"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "proj-001", "my-project"
+				srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "proj-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing flags",
+			args:        []string{"management", "project", "update", "proj-001"},
+			wantErr:     true,
+			errContains: "at least one of",
+		},
+		{
+			name: "pre-Get API error",
+			args: []string{"management", "project", "update", "proj-001", "--description", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "Update server error",
+			args: []string{"management", "project", "update", "proj-001", "--description", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "proj-001", "my-project"
+				srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -253,17 +285,17 @@ func TestProjectCreateCmd(t *testing.T) {
 func TestProjectDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockProjectClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockProjectClient) {
-				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"management", "project", "delete", "proj-001", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "proj-001") {
@@ -273,18 +305,14 @@ func TestProjectDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockProjectClient) {
+			args: []string{"management", "project", "delete", "proj-001", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				m.getFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.ProjectResponse], error) {
-					return &types.Response[types.ProjectResponse]{
-						StatusCode: 200,
-						Data:       &types.ProjectResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
-				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+				// Only register Get; if Delete is called the harness t.Errorf on the
+				// unregistered DELETE route — stronger than the old t.Fatal guard.
+				srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "proj-001") {
@@ -293,24 +321,19 @@ func TestProjectDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"management", "project", "delete", "proj-001", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockProjectClient) {
-				m.deleteFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"management", "project", "delete", "proj-001", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -318,15 +341,11 @@ func TestProjectDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockProjectClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"management", "project", "delete", "proj-001", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withProject(m)), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

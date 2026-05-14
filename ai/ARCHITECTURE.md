@@ -43,31 +43,55 @@ If `LoadConfig()` fails (missing `~/.acloud.yaml`), the error is wrapped:
 
 ## SDK Call Pattern
 
-All resource operations follow the builder pattern through the client:
+SDK v0.2.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
+sub-client; each CRUD method returns a hydrated wrapper type or `*aruba.List[T]`
+rather than raw `types.*Response` structs.
 
 ```go
-client.FromStorage().Volumes().Create(ctx, projectID, request, nil)
-client.FromCompute().CloudServers().Get(ctx, projectID, id, nil)
-client.FromNetwork().VPCs().List(ctx, projectID, nil)
+// Top-level resources (e.g. project) — addressed by aruba.Ref:
+client.FromProject().Get(ctx, projectRef(id))      // → (*aruba.Project, error)
+client.FromProject().List(ctx, listOpts(cmd)...)   // → (*aruba.List[*aruba.Project], error)
+client.FromProject().Create(ctx, proj)             // → (*aruba.Project, error)
+client.FromProject().Update(ctx, proj)             // → (*aruba.Project, error)
+client.FromProject().Delete(ctx, projectRef(id))   // → error
+
+// Project-scoped resources — wrapper built with IntoProject(projectRef):
+client.FromCompute().CloudServers().Get(ctx, ref)  // → (*aruba.CloudServer, error)
+client.FromStorage().BlockStorages().List(ctx, ...)// → (*aruba.List[*aruba.BlockStorage], error)
+
+// Regional resources carry .InRegion(region) on the wrapper builder.
+// Zonal resources additionally carry .InZone(zone).
+// Resources that need WaitUntilActive call it on the returned wrapper.
 ```
 
-- The 4th argument (`options`) is always `nil` in current commands.
-- `ctx` is always `context.Background()`, declared inline in the handler.
-- The response carries `.IsError()`, `.StatusCode`, `.Error.Title`, `.Error.Detail`, and `.Data`.
+**Ref addressing** — resources are addressed by `aruba.Ref` (an interface with `URI()
+string`). Use `aruba.URI("/projects/"+id)` (wrapped by `projectRef` in `cmd/root.go`)
+for top-level refs and chain `IntoProject(proj)` / `IntoVPC(vpc)` on wrappers for
+scoped resources.
 
-**Response error check pattern:**
+**Error handling** — non-2xx responses surface as `*aruba.HTTPError` in the error
+return. There is no `response.IsError()` check. Use `apiErrFromV2(err)` (in
+`cmd/root.go`) to format HTTP errors while passing transport errors through. Always
+wrap with a verb prefix:
+
 ```go
-if response != nil && response.IsError() && response.Error != nil {
-    fmt.Printf("Failed - Status: %d\n", response.StatusCode)
-    if response.Error.Title != nil {
-        fmt.Printf("Error: %s\n", *response.Error.Title)
-    }
-    if response.Error.Detail != nil {
-        fmt.Printf("Detail: %s\n", *response.Error.Detail)
-    }
-    return
+result, err := client.From<Svc>().<Resource>().Op(ctx, ...)
+if err != nil {
+    return fmt.Errorf("<verb> <resource>: %w", apiErrFromV2(err))
 }
 ```
+
+**Rendering** — wrapper types (`*aruba.<T>`) carry only unexported fields and are not
+JSON-marshalable. For table columns the wrapper exposes (`.ID()`, `.Name()`,
+`.State()`, `.CreatedAt()`, …) use the accessors directly. For fields the wrapper
+omits (e.g. `ResourcesNumber` on `*aruba.Project`) and for `-o json`/`-o yaml`
+payloads, re-parse the typed `types.<T>Response` from the wrapper's `RawHTTP()` raw
+body via a file-local `<resource>FromRaw` helper. For list `-o json`, extract the
+typed list via `list.Raw()` (stores the original `*types.Response[types.<T>List]`)
+via a file-local `<resource>ListPayload` helper.
+
+**`ctx`** — use `newCtx()` (30-second timeout, in `cmd/root.go`) for all SDK calls.
+Completion functions that run interactively may keep `context.Background()`.
 
 ---
 

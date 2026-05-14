@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +45,36 @@ func init() {
 	projectListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 }
 
+// projectFromRaw re-parses the full types.ProjectResponse from a Project
+// wrapper's raw HTTP body. The v0.2.0 *aruba.Project has only unexported fields
+// (not JSON-marshalable) and no accessor for Properties.ResourcesNumber, so
+// commands that render the RESOURCES column or emit -o json/yaml re-parse the
+// wire shape here. Returns nil on empty/malformed body — mirrors the v0.1.x
+// `response.Data == nil` async branch.
+func projectFromRaw(p *aruba.Project) *types.ProjectResponse {
+	if p == nil {
+		return nil
+	}
+	_, body := p.RawHTTP()
+	if len(body) == 0 {
+		return nil
+	}
+	var pr types.ProjectResponse
+	if err := json.Unmarshal(body, &pr); err != nil {
+		return nil
+	}
+	return &pr
+}
+
+// projectListPayload extracts the typed *types.ProjectList from a List wrapper
+// for -o json/yaml rendering; the List[*Project] wrapper is not JSON-marshalable.
+func projectListPayload(l *aruba.List[*aruba.Project]) any {
+	if r, ok := l.Raw().(*types.Response[types.ProjectList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
+
 // completeProjectID provides completion for project IDs
 func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Allow completion even if args exist - user might be completing a partial ID
@@ -55,21 +87,22 @@ func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]
 
 	// List projects
 	ctx := context.Background()
-	response, err := client.FromProject().List(ctx, nil)
+	list, err := client.FromProject().List(ctx)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, project := range response.Data.Values {
-			if project.Metadata.ID != nil && project.Metadata.Name != nil {
-				id := *project.Metadata.ID
-				// Filter by partial input - use HasPrefix for more reliable matching
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					// Format: "id\tname" - the tab separates the completion from the description
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *project.Metadata.Name))
-				}
+	if list != nil {
+		for _, project := range list.Items() {
+			id := project.ID()
+			if id == "" {
+				continue
+			}
+			// Filter by partial input - use HasPrefix for more reliable matching
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				// Format: "id\tname" - the tab separates the completion from the description
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, project.Name()))
 			}
 		}
 	}
@@ -108,19 +141,13 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 		}
 
 		// Build the create request
-		createRequest := types.ProjectRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: name,
-				Tags: tags,
-			},
-			Properties: types.ProjectPropertiesRequest{
-				Default: setDefault,
-			},
-		}
-
-		// Add description if provided
+		proj := aruba.NewProject().Named(name)
+		proj.ReplaceTags(tags...)
 		if description != "" {
-			createRequest.Properties.Description = &description
+			proj.WithDescription(description)
+		}
+		if setDefault {
+			proj.AsDefault()
 		}
 
 		// Debug output if verbose
@@ -140,16 +167,13 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 		// Create the project using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromProject().Create(ctx, createRequest, nil)
+		created, err := client.FromProject().Create(ctx, proj)
 		if err != nil {
-			return fmt.Errorf("creating project: %w", err)
+			return fmt.Errorf("creating project: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		pr := projectFromRaw(created)
+		if pr != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -158,26 +182,26 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 			}
 			row := []string{
 				func() string {
-					if response.Data.Metadata.ID != nil {
-						return *response.Data.Metadata.ID
+					if pr.Metadata.ID != nil {
+						return *pr.Metadata.ID
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Metadata.Name != nil {
-						return *response.Data.Metadata.Name
+					if pr.Metadata.Name != nil {
+						return *pr.Metadata.Name
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Properties.Default {
+					if pr.Properties.Default {
 						return "Yes"
 					}
 					return "No"
 				}(),
-				fmt.Sprintf("%d", response.Data.Properties.ResourcesNumber),
+				fmt.Sprintf("%d", pr.Properties.ResourcesNumber),
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(pr, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Project", name))
 		}
@@ -201,18 +225,13 @@ var projectGetCmd = &cobra.Command{
 		// Get project details using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromProject().Get(ctx, projectID, nil)
+		got, err := projectWrapper(ctx, client, projectID)
 		if err != nil {
 			return fmt.Errorf("getting project: %w", err)
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
-			project := response.Data
-
+		project := projectFromRaw(got)
+		if project != nil {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(project, nil, nil)
@@ -290,58 +309,37 @@ var projectUpdateCmd = &cobra.Command{
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// First, get the current project details to preserve existing values
+		// First, get the current project details to preserve existing values.
+		// projectWrapper calls Get and normalises any API error via apiErrFromV2.
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResponse, err := client.FromProject().Get(ctx, projectID, nil)
+		current, err := projectWrapper(ctx, client, projectID)
 		if err != nil {
 			return fmt.Errorf("fetching current project: %w", err)
 		}
 
-		if getResponse != nil && getResponse.IsError() {
-			return apiErrFromResp(getResponse.StatusCode, getResponse.Error)
-		}
-
-		if getResponse == nil || getResponse.Data == nil {
+		if current.ID() == "" {
 			return fmt.Errorf("project not found or no data returned")
 		}
 
-		currentProject := getResponse.Data
-
-		// Build the update request with current values as defaults
-		updateRequest := types.ProjectRequest{
-			Metadata: types.ResourceMetadataRequest{
-				Name: *currentProject.Metadata.Name,
-				Tags: currentProject.Metadata.Tags,
-			},
-			Properties: types.ProjectPropertiesRequest{
-				Default: currentProject.Properties.Default,
-			},
-		}
-
-		// Update description if provided
+		// Apply overrides on the hydrated wrapper — current already carries the
+		// fetched name/tags/description/default, so only changed flags need setting.
+		// This also fixes the v0.1.x nil-panic on *currentProject.Metadata.Name.
 		if description != "" {
-			updateRequest.Properties.Description = &description
-		} else if currentProject.Properties.Description != nil {
-			updateRequest.Properties.Description = currentProject.Properties.Description
+			current.WithDescription(description)
 		}
-
-		// Update tags if provided
 		if cmd.Flags().Changed("tags") {
-			updateRequest.Metadata.Tags = tags
+			current.ReplaceTags(tags...)
 		}
 
 		// Update the project using the SDK
-		response, err := client.FromProject().Update(ctx, projectID, updateRequest, nil)
+		updated, err := client.FromProject().Update(ctx, current)
 		if err != nil {
-			return fmt.Errorf("updating project: %w", err)
+			return fmt.Errorf("updating project: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		pr := projectFromRaw(updated)
+		if pr != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -350,26 +348,26 @@ var projectUpdateCmd = &cobra.Command{
 			}
 			row := []string{
 				func() string {
-					if response.Data.Metadata.ID != nil {
-						return *response.Data.Metadata.ID
+					if pr.Metadata.ID != nil {
+						return *pr.Metadata.ID
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Metadata.Name != nil {
-						return *response.Data.Metadata.Name
+					if pr.Metadata.Name != nil {
+						return *pr.Metadata.Name
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Properties.Default {
+					if pr.Properties.Default {
 						return "Yes"
 					}
 					return "No"
 				}(),
-				fmt.Sprintf("%d", response.Data.Properties.ResourcesNumber),
+				fmt.Sprintf("%d", pr.Properties.ResourcesNumber),
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(pr, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Project", projectID))
 		}
@@ -409,7 +407,7 @@ var projectDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromProject().Get(ctx, projectID, nil)
+			_, err = projectWrapper(ctx, client, projectID)
 			if err != nil {
 				return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
 			}
@@ -418,13 +416,8 @@ var projectDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the project using the SDK
-		resp, err := client.FromProject().Delete(ctx, projectID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting project: %w", err)
-		}
-
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
+		if err := client.FromProject().Delete(ctx, projectRef(projectID)); err != nil {
+			return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{
@@ -455,16 +448,12 @@ var projectListCmd = &cobra.Command{
 		// List projects using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromProject().List(ctx, listParams(cmd))
+		list, err := client.FromProject().List(ctx, listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing projects: %w", err)
+			return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			// Define table columns
 			headers := []TableColumn{
 				{Header: "NAME", Width: 40},
@@ -474,28 +463,21 @@ var projectListCmd = &cobra.Command{
 
 			// Build rows
 			var rows [][]string
-			for _, project := range response.Data.Values {
-				name := ""
-				if project.Metadata.Name != nil && *project.Metadata.Name != "" {
-					name = *project.Metadata.Name
-				}
-
-				id := ""
-				if project.Metadata.ID != nil && *project.Metadata.ID != "" {
-					id = *project.Metadata.ID
-				}
+			for _, project := range list.Items() {
+				name := project.Name()
+				id := project.ID()
 
 				// Format creation date as dd-mm-yyyy
 				creationDate := "N/A"
-				if project.Metadata.CreationDate != nil && !project.Metadata.CreationDate.IsZero() {
-					creationDate = project.Metadata.CreationDate.Format("02-01-2006")
+				if ca := project.CreatedAt(); !ca.IsZero() {
+					creationDate = ca.Format("02-01-2006")
 				}
 
 				rows = append(rows, []string{name, id, creationDate})
 			}
 
 			// Print the table
-			PrintOutput(response.Data, headers, rows)
+			PrintOutput(projectListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No projects found")
 		}

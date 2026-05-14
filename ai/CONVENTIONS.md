@@ -176,29 +176,41 @@ Never dereference a response pointer without a nil guard.
 
 ## Standard Command Bodies
 
+SDK v0.2.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
+typed client whose CRUD methods take/return hydrated wrapper types (`*aruba.<T>`,
+`*aruba.List[*aruba.<T>]`) rather than raw request/response structs. Non-2xx
+responses surface as `*aruba.HTTPError` in the error return — there is no separate
+`response.IsError()` check. Use `apiErrFromV2(err)` to format HTTP errors; wrap with
+a verb prefix for all error sites.
+
+**Wrapper note:** `*aruba.<T>` wrapper types carry only unexported fields and are not
+JSON-marshalable. For fields the wrapper does not expose as an accessor, and for
+`-o json`/`-o yaml` payloads, re-parse the wire `types.<T>Response` from the
+wrapper's `RawHTTP()` body via a file-local `<resource>FromRaw` helper (see the
+`management.project.go` reference implementation).
+
 ### list
 ```go
-projectID, err := GetProjectID(cmd)
-if err != nil { fmt.Printf("Error: %v\n", err); return }
-
 client, err := GetArubaClient()
-if err != nil { fmt.Printf("Error initializing client: %v\n", err); return }
+if err != nil { return fmt.Errorf("initializing client: %w", err) }
 
-ctx := context.Background()
-response, err := client.From<Svc>().<Resource>().List(ctx, projectID, nil)
-if err != nil { fmt.Printf("Error listing <resources>: %v\n", err); return }
+ctx, cancel := newCtx()
+defer cancel()
+list, err := client.From<Svc>().<Resource>().List(ctx, listOpts(cmd)...)
+if err != nil { return fmt.Errorf("listing <resources>: %w", apiErrFromV2(err)) }
 
-if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
+if list != nil && len(list.Items()) > 0 {
     headers := []TableColumn{
         {Header: "NAME", Width: 30},
         {Header: "ID",   Width: 26},
         // ...
     }
     var rows [][]string
-    for _, r := range response.Data.Values {
-        rows = append(rows, []string{safePtrStr(r.Metadata.Name), safePtrStr(r.Metadata.ID), ...})
+    for _, r := range list.Items() {
+        rows = append(rows, []string{r.Name(), r.ID(), ...})
     }
-    PrintOutput(response.Data, headers, rows)
+    // For -o json/yaml, extract the typed list from Raw() — see <resource>ListPayload.
+    PrintOutput(<resource>ListPayload(list), headers, rows)
 } else {
     fmt.Println("No <resources> found")
 }
@@ -207,46 +219,71 @@ if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 ### get
 ```go
 resourceID := args[0]
-// GetProjectID, GetArubaClient, context.Background() ...
-resp, err := client.From<Svc>().<Resource>().Get(ctx, projectID, resourceID, nil)
-if err != nil { ... return }
-// check resp.IsError() ...
+client, err := GetArubaClient()
+if err != nil { return fmt.Errorf("initializing client: %w", err) }
 
-// Honour -o json / -o yaml before the human-formatted block
-format := resolveOutputFormat()
-if format == OutputFormatJSON || format == OutputFormatYAML {
-    PrintOutput(resp.Data, nil, nil)
-    return nil
+ctx, cancel := newCtx()
+defer cancel()
+got, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
+if err != nil { return fmt.Errorf("getting <resource>: %w", apiErrFromV2(err)) }
+
+// Re-parse for fields the wrapper omits and for -o json/yaml (wrapper is not marshalable).
+resource := <resource>FromRaw(got)
+if resource != nil {
+    format := resolveOutputFormat()
+    if format == OutputFormatJSON || format == OutputFormatYAML {
+        PrintOutput(resource, nil, nil)
+        return nil
+    }
+    fmt.Println("\n<Resource> Details:")
+    fmt.Println("===================")
+    if resource.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resource.Metadata.ID) }
+    // ...
+} else {
+    fmt.Println("<Resource> not found")
 }
-
-fmt.Println("\n<Resource> Details:")
-fmt.Println("===================")
-if resp.Data.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resp.Data.Metadata.ID) }
-// ...
 ```
 
 ### create
 ```go
-// 1. GetProjectID
-// 2. Extract flags; validate required ones early
-// 3. GetArubaClient
-// 4. Build types.<Resource>Request{} (nested struct)
-// 5. Call .Create(ctx, projectID, request, nil)
-// 6. Check err, then response.IsError()
-// 7. PrintOutput with single-row result (pass response.Data as first arg)
-PrintOutput(response.Data, headers, [][]string{row})
+// 1. Extract flags; validate required ones early
+// 2. GetArubaClient
+// 3. Build wrapper via aruba.New<T>() fluent setters:
+wrapper := aruba.New<T>().Named(name)
+if description != "" { wrapper.WithDescription(description) }
+// ...
+// 4. Call Create:
+ctx, cancel := newCtx()
+defer cancel()
+created, err := client.From<Svc>().<Resource>().Create(ctx, wrapper, ...)
+if err != nil { return fmt.Errorf("creating <resource>: %w", apiErrFromV2(err)) }
+// 5. Re-parse for output (wrapper not marshalable; may expose extra fields):
+resource := <resource>FromRaw(created)
+if resource != nil {
+    PrintOutput(resource, headers, [][]string{row})
+} else {
+    fmt.Println(msgCreatedAsync("<Resource>", name))
+}
 ```
 
 ### update
 ```go
-// 1. Get current resource via .Get() to preserve unmodified fields
-// 2. Build request from current values
-// 3. Overwrite only flags that were explicitly Changed:
-if name != "" { updateReq.Metadata.Name = name }
-if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
-// 4. Call .Update(ctx, projectID, id, request, nil)
-// 5. PrintOutput with single-row result
-PrintOutput(response.Data, headers, [][]string{row})
+// 1. Get current resource via Get to preserve unmodified fields:
+current, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
+if err != nil { return fmt.Errorf("fetching current <resource>: %w", apiErrFromV2(err)) }
+// 2. Apply only the flags that were explicitly Changed:
+if description != "" { current.WithDescription(description) }
+if cmd.Flags().Changed("tags") { current.ReplaceTags(tags...) }
+// 3. Call Update with the hydrated wrapper (ID is preserved from Get):
+updated, err := client.From<Svc>().<Resource>().Update(ctx, current, ...)
+if err != nil { return fmt.Errorf("updating <resource>: %w", apiErrFromV2(err)) }
+// 4. Re-parse and render:
+resource := <resource>FromRaw(updated)
+if resource != nil {
+    PrintOutput(resource, headers, [][]string{row})
+} else {
+    fmt.Println(msgUpdatedAsync("<Resource>", id))
+}
 ```
 
 ### delete
@@ -254,8 +291,8 @@ PrintOutput(response.Data, headers, [][]string{row})
 // 1. --dry-run: call Get to validate existence, print msgDryRun, return nil
 dryRun, _ := cmd.Flags().GetBool("dry-run")
 if dryRun {
-    // GetProjectID, GetArubaClient, call .Get() to validate
-    if err != nil { return fmt.Errorf("getting <resource>: %w", err) }
+    _, err := client.From<Svc>().<Resource>().Get(ctx, <ref>)
+    if err != nil { return fmt.Errorf("dry-run: <resource> not found or inaccessible: %w", apiErrFromV2(err)) }
     fmt.Println(msgDryRun("<resource type>", id))
     return nil
 }
@@ -265,9 +302,12 @@ confirmed, err := confirmDelete("<resource type>", id)
 if err != nil { return err }
 if !confirmed { return nil }
 
-// 3. GetProjectID, GetArubaClient, .Delete(ctx, projectID, id, nil)
-// 4. Success message:
-fmt.Println(msgDeleted("<resource type>", id))
+// 3. GetArubaClient, Delete — returns error only (no response object):
+if err := client.From<Svc>().<Resource>().Delete(ctx, <ref>); err != nil {
+    return fmt.Errorf("deleting <resource>: %w", apiErrFromV2(err))
+}
+// 4. Success output (use PrintOutput for -o json support):
+PrintOutput(result, headers, [][]string{row})
 ```
 
 `confirmDelete(resourceType, id string) (bool, error)` is a helper in `cmd/root.go` that detects non-interactive stdin and skips the prompt when `--yes` is set or when stdin is not a terminal. Use it — do not inline the prompt.
