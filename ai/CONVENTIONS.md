@@ -278,10 +278,33 @@ fmt.Println(msgDeleted("<resource type>", id))
 
 - Tests live in `package cmd` (same package as the code).
 - Use `t.TempDir()` for isolated file paths; override `HOME` (or `USERPROFILE` on Windows) to redirect config/context files.
-- Clear the client cache after each test:
-  ```go
-  resetClientState()  // helper in cmd/root.go (TD-018)
-  ```
 - Use `defer cleanup()` to restore environment variables.
 - Skip live-API tests with `ACLOUD_TEST_SKIP_CLIENT=true`.
 - Table-driven tests are preferred for multiple input/output cases.
+
+### Test client — httptest harness (v0.2.0+)
+
+Since SDK v0.2.0, wrapper types (`aruba.CloudServer`, `aruba.VPC`, …) carry unexported internal state that can only be populated by the SDK's own adapters. Hand-built fake structs cannot produce a hydrated wrapper with real `.ID()`/`.State()`/`List[T]` values.
+
+Use the `arubaTestServer` harness in `cmd/mock_test.go` instead:
+
+```go
+func TestMyCommand(t *testing.T) {
+    srv := newArubaTestServer(t)          // real aruba.Client pointed at httptest.Server
+    srv.OnGet("/projects/p1/cloudServers", jsonResponse(200, types.CloudServerList{
+        // ... fixture fields ...
+    }))
+
+    err := runCmd(srv.Client(), []string{"cloud-server", "list", "--project-id", "p1"})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+}
+```
+
+- Register routes with `OnGet`/`OnPost`/`OnPut`/`OnDelete`/`OnPatch` before calling `runCmd`.
+- `jsonResponse(status, body)` marshals `body` (a `types.*Response` or `types.*List`) to JSON.
+- `errorResponse(status, title, detail)` emits a `types.ErrorResponse` body so the SDK surfaces an `*aruba.HTTPError`.
+- Unregistered routes cause `t.Errorf` (not a silent 404) — mis-keyed paths fail loudly.
+- `runCmd`/`runCmdCapture`/`resetCmdFlags`/`strPtr` helpers are unchanged; pass `srv.Client()` where the old code passed a `newMockClient(...)`.
+- Clear the client cache after each test (handled automatically by `runCmd` via `defer resetClientState()`).
