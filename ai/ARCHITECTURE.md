@@ -69,6 +69,33 @@ string`). Use `aruba.URI("/projects/"+id)` (wrapped by `projectRef` in `cmd/root
 for top-level refs and chain `IntoProject(proj)` / `IntoVPC(vpc)` on wrappers for
 scoped resources.
 
+**Combined-URI Refs for project-scoped Get/Delete** — `List` and builder `IntoProject`
+only need the project Ref (`projectRef(id)`). `Get` and `Delete` on project-scoped
+resources require a single Ref encoding *both* the project and resource IDs. Declare
+a file-local helper for each resource:
+
+```go
+func cloudServerRef(projectID, serverID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID +
+        "/providers/Aruba.Compute/cloudServers/" + serverID)
+}
+```
+
+**Operational methods on hydrated wrappers** — some operations (`PowerOn`, `PowerOff`,
+`SetPassword`) are methods on `*aruba.<T>`, not on the sub-client. They require a
+prior hydrating `Get`; calling them on a freshly-constructed `New<T>()` wrapper will
+fail. `PowerOn`/`PowerOff` re-hydrate the wrapper from the response; `SetPassword`
+does not — render from the pre-`Get` result:
+
+```go
+cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(pid, id))
+if err != nil { return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err)) }
+if err := cs.PowerOn(ctx); err != nil {
+    return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
+}
+// cs is now re-hydrated; render from cs.Raw()
+```
+
 **Error handling** — non-2xx responses surface as `*aruba.HTTPError` in the error
 return. There is no `response.IsError()` check. Use `apiErrFromV2(err)` (in
 `cmd/root.go`) to format HTTP errors while passing transport errors through. Always
@@ -83,12 +110,17 @@ if err != nil {
 
 **Rendering** — wrapper types (`*aruba.<T>`) carry only unexported fields and are not
 JSON-marshalable. For table columns the wrapper exposes (`.ID()`, `.Name()`,
-`.State()`, `.CreatedAt()`, …) use the accessors directly. For fields the wrapper
-omits (e.g. `ResourcesNumber` on `*aruba.Project`) and for `-o json`/`-o yaml`
-payloads, re-parse the typed `types.<T>Response` from the wrapper's `RawHTTP()` raw
-body via a file-local `<resource>FromRaw` helper. For list `-o json`, extract the
-typed list via `list.Raw()` (stores the original `*types.Response[types.<T>List]`)
-via a file-local `<resource>ListPayload` helper.
+`.State()`, `.CreatedAt()`, …) use the accessors directly. Two cases for full-payload
+rendering:
+
+- **`Raw()` returns the full typed response** (e.g. `*aruba.CloudServer.Raw()` →
+  `*types.CloudServerResponse`) — use it directly; no re-parse helper needed.
+- **`Raw()` returns only metadata** (e.g. `*aruba.Project`) — re-parse the typed
+  `types.<T>Response` from the wrapper's `RawHTTP()` raw body via a file-local
+  `<resource>FromRaw` helper.
+
+For list `-o json`, extract the typed list via `list.Raw()` (stores the original
+`*types.Response[types.<T>List]`) via a file-local `<resource>ListPayload` helper.
 
 **`ctx`** — use `newCtx()` (30-second timeout, in `cmd/root.go`) for all SDK calls.
 Completion functions that run interactively may keep `context.Background()`.
