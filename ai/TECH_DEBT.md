@@ -28,7 +28,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
 | TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 | TD-023 | Verbose error-body dump in `storage.backup` / `storage.restore` now uses `json.MarshalIndent(response.Error, …)`; generic `map[string]interface{}` unmarshal removed |
-| TD-024 | VPN IKE/ESP enum values documented: `vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups` vars added to `cmd/network.vpntunnel.go`; `vpnValidateEnum` helper validates all enum flags client-side before the API call; `docs/website/docs/resources/network/vpntunnel.md` updated with full reference tables |
+| TD-024 | VPN crypto enums split per-direction in v0.2.0: the five unified slices (`vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups`) are replaced with seven per-direction slices (`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, `vpnIKEHashAlgorithms`, `vpnESPHashAlgorithms`, `vpnIKEDHGroups`, `vpnIKEDPDActions`, `vpnESPPFSGroups`) built from `aruba.IKE*`/`aruba.ESP*` constants; each `--ike-*`/`--esp-*` flag is keyed to its correct family in the validation table; accepted string values are unchanged (CLI behaviour byte-identical) |
 
 ---
 
@@ -42,9 +42,13 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ---
 
 ### TD-022 · Pre-release SDK version (v0.1.x → v0.2.0 migration in progress)
-`go.mod` now depends on `github.com/Arubacloud/sdk-go v0.2.0`. The bump was the first step of the multi-PR migration tracked in #99; foundations (shared helpers in `cmd/root.go`, `StateActive` constant) landed via #100. Per-family migrations (#101-#110) and behavioural fixups (#111) are still open — `go build ./cmd` will remain red until those merge.
+`go.mod` now depends on `github.com/Arubacloud/sdk-go v0.2.0`. Migration status:
+- #100 (shared helpers), #101 (`arubaTestServer` harness), #102 (`management.project`), #103 (`compute`: cloudserver + keypair), #104 (`network` family: 10 resources) — all merged onto `feat/sdk-v0.2.0-upgrade`.
+- #105–#110 (storage, database, container, kms, other families) — still open.
 
-**Fix:** Close out #99's exit criteria, then mark TD-022 resolved.
+`go build ./cmd` remains red until #105–#110 land. `make e2e-network` requires live credentials (validated after integration branch complete).
+
+**Fix:** Close out #99's exit criteria (#105–#110 + #111), then mark TD-022 resolved.
 
 ---
 

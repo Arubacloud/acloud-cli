@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,22 @@ import (
 func TestSubnetListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSubnetsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockSubnetsClient) {
+			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetList], error) {
-					return &types.Response[types.SubnetList]{
-						StatusCode: 200,
-						Data: &types.SubnetList{
-							Values: []types.SubnetResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{
+					Values: []types.SubnetResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sub-001") {
@@ -41,26 +36,21 @@ func TestSubnetListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockSubnetsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetList], error) {
-					return &types.Response[types.SubnetList]{StatusCode: 200, Data: &types.SubnetList{}}, nil
-				}
+			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockSubnetsClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetList], error) {
-					return &types.Response[types.SubnetList]{
-						StatusCode: 200,
-						Data: &types.SubnetList{
-							Values: []types.SubnetResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{
+					Values: []types.SubnetResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +60,19 @@ func TestSubnetListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetList], error) {
-					return &types.Response[types.SubnetList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +80,11 @@ func TestSubnetListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSubnetsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{subnetsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestSubnetListCmd(t *testing.T) {
 func TestSubnetGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSubnetsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockSubnetsClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return &types.Response[types.SubnetResponse]{
-						StatusCode: 200,
-						Data:       &types.SubnetResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sub-001") {
@@ -138,24 +116,17 @@ func TestSubnetGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return &types.Response[types.SubnetResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +134,11 @@ func TestSubnetGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSubnetsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{subnetsMock: m})),
-				[]string{"network", "subnet", "get", "vpc-001", "sub-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"network", "subnet", "get", "vpc-001", "sub-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -181,7 +151,7 @@ func TestSubnetCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockSubnetsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -189,17 +159,14 @@ func TestSubnetCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
-			setupMock: func(m *mockSubnetsClient) {
-				id, name := "sub-new", "my-subnet"
-				m.createFn = func(_ context.Context, _, _ string, _ types.SubnetRequest, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return &types.Response[types.SubnetResponse]{
-						StatusCode: 200,
-						Data:       &types.SubnetResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sub-001", "my-subnet"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "sub-new") {
+				if !strings.Contains(out, "sub-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
@@ -217,12 +184,10 @@ func TestSubnetCreateCmd(t *testing.T) {
 			errContains: "region",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
-			setupMock: func(m *mockSubnetsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.SubnetRequest, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -230,13 +195,8 @@ func TestSubnetCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
-			setupMock: func(m *mockSubnetsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.SubnetRequest, _ *types.RequestParameters) (*types.Response[types.SubnetResponse], error) {
-					return &types.Response[types.SubnetResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -244,11 +204,86 @@ func TestSubnetCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSubnetsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{subnetsMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestSubnetUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sub-001", "my-subnet"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sub-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-Get server error",
+			args: []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update server error",
+			args: []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sub-001", "my-subnet"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -260,17 +295,17 @@ func TestSubnetCreateCmd(t *testing.T) {
 func TestSubnetDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSubnetsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockSubnetsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "subnet", "delete", "vpc-001", "sub-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sub-001") {
@@ -280,11 +315,12 @@ func TestSubnetDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockSubnetsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			args: []string{"network", "subnet", "delete", "vpc-001", "sub-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sub-001", "my-subnet"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sub-001") {
@@ -293,24 +329,19 @@ func TestSubnetDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "subnet", "delete", "vpc-001", "sub-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSubnetsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "subnet", "delete", "vpc-001", "sub-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -318,15 +349,11 @@ func TestSubnetDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSubnetsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "subnet", "delete", "vpc-001", "sub-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{subnetsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -43,11 +44,22 @@ func init() {
 	vpcDeleteCmd.ValidArgsFunction = completeVPCID
 }
 
+// vpcRef builds the combined project+VPC Ref used by Get/Delete/Update; also
+// used as the parent Ref for VPC-scoped resources (subnet, securitygroup, vpcpeering).
+func vpcRef(projectID, vpcID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID)
+}
+
+func vpcListPayload(l *aruba.List[*aruba.VPC]) any {
+	if r, ok := l.Raw().(*types.Response[types.VPCList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
+
 // Completion functions for network resources
 
 func completeVPCID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	// Allow completion even if args exist - user might be completing a partial ID
-
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -59,20 +71,21 @@ func completeVPCID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	}
 
 	ctx := context.Background()
-	response, err := client.FromNetwork().VPCs().List(ctx, projectID, nil)
+	list, err := client.FromNetwork().VPCs().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, vpc := range response.Data.Values {
-			if vpc.Metadata.ID != nil && vpc.Metadata.Name != nil {
-				id := *vpc.Metadata.ID
-				// Filter by partial input - use HasPrefix for more reliable matching
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *vpc.Metadata.Name))
-				}
+	if list != nil {
+		for _, vpc := range list.Items() {
+			id := vpc.VPCID()
+			name := vpc.Name()
+			if id == "" {
+				continue
+			}
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -98,67 +111,49 @@ network resources are created within a VPC.`,
   acloud network vpc create --name prod-vpc --region IT-BG --tags env=prod,team=infra`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get flags
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Build the create request (default and preset are always false)
-		setDefault := false
-		setPreset := false
-		createRequest := types.VPCRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: types.VPCPropertiesRequest{
-				Properties: &types.VPCProperties{
-					Default: &setDefault,
-					Preset:  &setPreset,
-				},
-			},
+		vpc := aruba.NewVPC().
+			IntoProject(projectRef(projectID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			NotDefault().
+			WithPreset(false)
+		if len(tags) > 0 {
+			vpc.ReplaceTags(tags...)
 		}
 
-		// Create the VPC using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromNetwork().VPCs().Create(ctx, projectID, createRequest, nil)
+		created, err := client.FromNetwork().VPCs().Create(ctx, vpc)
 		if err != nil {
-			return fmt.Errorf("creating VPC: %w", err)
+			return fmt.Errorf("creating VPC: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		r := created.Raw()
+		if r != nil {
 			fmt.Printf("\n%s\n", msgCreated("VPC", name))
-			if response.Data.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *response.Data.Metadata.ID)
+			if r.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *r.Metadata.ID)
 			}
-			if response.Data.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *response.Data.Metadata.Name)
+			if r.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *r.Metadata.Name)
 			}
-			fmt.Printf("Default: %t\n", response.Data.Properties.Default)
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", response.Data.Metadata.Tags)
+			fmt.Printf("Default: %t\n", r.Properties.Default)
+			if len(r.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", r.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgCreatedAsync("VPC", name))
@@ -174,34 +169,25 @@ var vpcGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Get VPC details using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromNetwork().VPCs().Get(ctx, projectID, vpcID, nil)
+		got, err := client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
 		if err != nil {
-			return fmt.Errorf("getting VPC details: %w", err)
+			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
-			vpc := response.Data
-
-			// Display VPC details
+		vpc := got.Raw()
+		if vpc != nil {
 			fmt.Println("\nVPC Details:")
 			fmt.Println("============")
 
@@ -250,95 +236,66 @@ var vpcUpdateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 
-		// Get flags
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		// At least one update flag must be provided
 		if name == "" && len(tags) == 0 {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// First, get the current VPC to preserve existing properties
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResponse, err := client.FromNetwork().VPCs().Get(ctx, projectID, vpcID, nil)
+		cur, err := client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
 		if err != nil {
-			return fmt.Errorf("getting VPC details: %w", err)
+			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
 
-		if getResponse == nil || getResponse.Data == nil {
+		r := cur.Raw()
+		if r == nil {
 			return fmt.Errorf("VPC not found")
 		}
 
-		// Check if VPC is in InCreation state
-		if getResponse.Data.Status.State != nil && *getResponse.Data.Status.State == StateInCreation {
+		if r.Status.State != nil && *r.Status.State == StateInCreation {
 			return fmt.Errorf("cannot update VPC while it is in 'InCreation' state. Please wait until the VPC is fully created")
 		}
 
-		// Get region value
-		regionValue := ""
-		if getResponse.Data.Metadata.LocationResponse != nil {
-			regionValue = getResponse.Data.Metadata.LocationResponse.Value
-		}
-		if regionValue == "" {
+		if cur.Region() == "" {
 			return fmt.Errorf("unable to determine region value for VPC")
 		}
 
-		// Build the update request, preserving existing values
-		updateRequest := types.VPCRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: *getResponse.Data.Metadata.Name,
-					Tags: getResponse.Data.Metadata.Tags,
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.VPCPropertiesRequest{
-				Properties: &types.VPCProperties{
-					Default: &getResponse.Data.Properties.Default,
-				},
-			},
-		}
-
-		// Apply updates
 		if name != "" {
-			updateRequest.Metadata.Name = name
+			cur.Named(name)
 		}
-		if len(tags) > 0 {
-			updateRequest.Metadata.Tags = tags
+		if cmd.Flags().Changed("tags") {
+			cur.ReplaceTags(tags...)
 		}
 
-		// Update the VPC using the SDK
-		response, err := client.FromNetwork().VPCs().Update(ctx, projectID, vpcID, updateRequest, nil)
+		updated, err := client.FromNetwork().VPCs().Update(ctx, cur)
 		if err != nil {
-			return fmt.Errorf("updating VPC: %w", err)
+			return fmt.Errorf("updating VPC: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil {
+		ur := updated.Raw()
+		if ur != nil {
 			fmt.Printf("\n%s\n", msgUpdated("VPC", vpcID))
-			if response.Data.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *response.Data.Metadata.ID)
+			if ur.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *ur.Metadata.ID)
 			}
-			if response.Data.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *response.Data.Metadata.Name)
+			if ur.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *ur.Metadata.Name)
 			}
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", response.Data.Metadata.Tags)
+			if len(ur.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", ur.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC", vpcID))
@@ -354,10 +311,8 @@ var vpcDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 
-		// Get skip confirmation flag
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
 
-		// Prompt for confirmation unless --yes flag is used
 		if !skipConfirm {
 			ok, err := confirmDelete("VPC", vpcID)
 			if err != nil {
@@ -368,13 +323,11 @@ var vpcDeleteCmd = &cobra.Command{
 			}
 		}
 
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
@@ -385,21 +338,16 @@ var vpcDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().VPCs().Get(ctx, projectID, vpcID, nil)
+			_, err = client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
 			if err != nil {
-				return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", err)
+				return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("VPC", vpcID))
 			return nil
 		}
 
-		// Delete the VPC using the SDK
-		deleteResp, err := client.FromNetwork().VPCs().Delete(ctx, projectID, vpcID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting VPC: %w", err)
-		}
-		if deleteResp != nil && deleteResp.IsError() {
-			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
+		if err := client.FromNetwork().VPCs().Delete(ctx, vpcRef(projectID, vpcID)); err != nil {
+			return fmt.Errorf("deleting VPC: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("VPC", vpcID))
@@ -412,31 +360,24 @@ var vpcListCmd = &cobra.Command{
 	Short: "List all VPCs",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Get projectID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// List VPCs using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromNetwork().VPCs().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromNetwork().VPCs().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing VPCs: %w", err)
-		}
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+			return fmt.Errorf("listing VPCs: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
-			// Define table columns
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 40},
 				{Header: "ID", Width: 25},
@@ -445,36 +386,29 @@ var vpcListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 15},
 			}
 
-			// Build rows
 			var rows [][]string
-			for _, vpc := range response.Data.Values {
-				name := ""
-				if vpc.Metadata.Name != nil && *vpc.Metadata.Name != "" {
-					name = *vpc.Metadata.Name
-				}
-
-				id := ""
-				if vpc.Metadata.ID != nil {
-					id = *vpc.Metadata.ID
-				}
+			for _, vpc := range list.Items() {
+				r := vpc.Raw()
+				name := vpc.Name()
+				id := vpc.VPCID()
 
 				region := ""
-				if vpc.Metadata.LocationResponse != nil {
-					region = vpc.Metadata.LocationResponse.Value
-				}
-
-				subnets := fmt.Sprintf("%d", len(vpc.Properties.LinkedResources))
-
+				subnets := "0"
 				status := ""
-				if vpc.Status.State != nil {
-					status = *vpc.Status.State
+				if r != nil {
+					if r.Metadata.LocationResponse != nil {
+						region = string(r.Metadata.LocationResponse.Value)
+					}
+					subnets = fmt.Sprintf("%d", len(r.Properties.LinkedResources))
+					if r.Status.State != nil {
+						status = *r.Status.State
+					}
 				}
 
 				rows = append(rows, []string{name, id, region, subnets, status})
 			}
 
-			// Print the table
-			PrintOutput(response.Data, headers, rows)
+			PrintOutput(vpcListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No VPCs found")
 		}

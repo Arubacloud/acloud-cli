@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -26,10 +28,19 @@ func init() {
 
 }
 
+func loadBalancerRef(projectID, lbID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/loadbalancers/" + lbID)
+}
+
+func loadBalancerListPayload(l *aruba.List[*aruba.LoadBalancer]) any {
+	if r, ok := l.Raw().(*types.Response[types.LoadBalancerList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
+
 // Completion functions for network resources
 func completeLoadBalancerID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	// Allow completion even if args exist - user might be completing a partial ID
-
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -41,20 +52,21 @@ func completeLoadBalancerID(cmd *cobra.Command, args []string, toComplete string
 	}
 
 	ctx := context.Background()
-	response, err := client.FromNetwork().LoadBalancers().List(ctx, projectID, nil)
+	list, err := client.FromNetwork().LoadBalancers().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, lb := range response.Data.Values {
-			if lb.Metadata.ID != nil && lb.Metadata.Name != nil {
-				id := *lb.Metadata.ID
-				// Filter by partial input - use HasPrefix for more reliable matching
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *lb.Metadata.Name))
-				}
+	if list != nil {
+		for _, lb := range list.Items() {
+			id := lb.LoadBalancerID()
+			name := lb.Name()
+			if id == "" {
+				continue
+			}
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -74,31 +86,24 @@ var loadbalancerListCmd = &cobra.Command{
 	Short: "List all Load Balancers",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// List Load Balancers using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromNetwork().LoadBalancers().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromNetwork().LoadBalancers().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing Load Balancers: %w", err)
-		}
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+			return fmt.Errorf("listing Load Balancers: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
-			// Define table columns
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -107,39 +112,31 @@ var loadbalancerListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 15},
 			}
 
-			// Build rows
 			var rows [][]string
-			for _, lb := range response.Data.Values {
-				name := ""
-				if lb.Metadata.Name != nil && *lb.Metadata.Name != "" {
-					name = *lb.Metadata.Name
-				}
-
-				id := ""
-				if lb.Metadata.ID != nil {
-					id = *lb.Metadata.ID
-				}
+			for _, lb := range list.Items() {
+				r := lb.Raw()
+				name := lb.Name()
+				id := lb.LoadBalancerID()
 
 				region := ""
-				if lb.Metadata.LocationResponse != nil {
-					region = lb.Metadata.LocationResponse.Value
-				}
-
 				address := ""
-				if lb.Properties.Address != nil {
-					address = *lb.Properties.Address
-				}
-
 				status := ""
-				if lb.Status.State != nil {
-					status = *lb.Status.State
+				if r != nil {
+					if r.Metadata.LocationResponse != nil {
+						region = string(r.Metadata.LocationResponse.Value)
+					}
+					if r.Properties.Address != nil {
+						address = *r.Properties.Address
+					}
+					if r.Status.State != nil {
+						status = *r.Status.State
+					}
 				}
 
 				rows = append(rows, []string{name, id, region, address, status})
 			}
 
-			// Print the table
-			PrintOutput(response.Data, headers, rows)
+			PrintOutput(loadBalancerListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No Load Balancers found")
 		}
@@ -154,33 +151,25 @@ var loadbalancerGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		lbID := args[0]
 
-		// Get project ID from flag or context
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
 		}
 
-		// Get SDK client
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Get Load Balancer details using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromNetwork().LoadBalancers().Get(ctx, projectID, lbID, nil)
+		got, err := client.FromNetwork().LoadBalancers().Get(ctx, loadBalancerRef(projectID, lbID))
 		if err != nil {
-			return fmt.Errorf("getting Load Balancer details: %w", err)
-		}
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+			return fmt.Errorf("getting Load Balancer details: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil {
-			lb := response.Data
-
-			// Display Load Balancer details
+		lb := got.Raw()
+		if lb != nil {
 			fmt.Println("\nLoad Balancer Details:")
 			fmt.Println("======================")
 

@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,54 +11,49 @@ import (
 func TestVPNTunnelListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPNTunnelsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				id, name := "tun-001", "my-tunnel"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-					return &types.Response[types.VPNTunnelList]{
-						StatusCode: 200,
-						Data: &types.VPNTunnelList{
-							Values: []types.VPNTunnelResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					jsonResponse(200, types.VPNTunnelList{
+						Values: []types.VPNTunnelResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "tun-001") {
+				if !strings.Contains(out, "vpn-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-					return &types.Response[types.VPNTunnelList]{StatusCode: 200, Data: &types.VPNTunnelList{}}, nil
-				}
+			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					jsonResponse(200, types.VPNTunnelList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				id, name := "tun-001", "my-tunnel"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-					return &types.Response[types.VPNTunnelList]{
-						StatusCode: 200,
-						Data: &types.VPNTunnelList{
-							Values: []types.VPNTunnelResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+			name: "--output json emits valid JSON",
+			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					jsonResponse(200, types.VPNTunnelList{
+						Values: []types.VPNTunnelResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +63,21 @@ func TestVPNTunnelListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-					return &types.Response[types.VPNTunnelList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +85,11 @@ func TestVPNTunnelListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPNTunnelsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "vpntunnel", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -114,13 +100,14 @@ func TestVPNTunnelListCmd(t *testing.T) {
 
 func TestVPNTunnelListCmd_RedactsPSKSecret(t *testing.T) {
 	const secret = "super-secret-psk-value"
-	id, name := "tun-001", "my-tunnel"
+	id, name := "vpn-001", "my-tunnel"
 	s := secret
-	m := &mockVPNTunnelsClient{
-		listFn: func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelList], error) {
-			return &types.Response[types.VPNTunnelList]{
-				StatusCode: 200,
-				Data: &types.VPNTunnelList{
+
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+				jsonResponse(200, types.VPNTunnelList{
 					Values: []types.VPNTunnelResponse{{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 						Properties: types.VPNTunnelPropertiesResponse{
@@ -129,17 +116,10 @@ func TestVPNTunnelListCmd_RedactsPSKSecret(t *testing.T) {
 							},
 						},
 					}},
-				},
-			}, nil
-		},
-	}
-
-	for _, format := range []string{"json", "yaml"} {
-		t.Run(format, func(t *testing.T) {
+				}))
 			out := captureStdout(func() {
 				rootCmd.PersistentFlags().Set("output", format)
-				_ = runCmd(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})),
-					[]string{"network", "vpntunnel", "list", "--project-id", "proj-123"})
+				_ = runCmd(srv.Client(), []string{"network", "vpntunnel", "list", "--project-id", "proj-123"})
 				rootCmd.PersistentFlags().Set("output", "table")
 			})
 			if strings.Contains(out, secret) {
@@ -152,47 +132,44 @@ func TestVPNTunnelListCmd_RedactsPSKSecret(t *testing.T) {
 func TestVPNTunnelGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPNTunnelsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				id, name := "tun-001", "my-tunnel"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return &types.Response[types.VPNTunnelResponse]{
-						StatusCode: 200,
-						Data:       &types.VPNTunnelResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			args: []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "tun-001") {
+				if !strings.Contains(out, "vpn-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return &types.Response[types.VPNTunnelResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -200,12 +177,11 @@ func TestVPNTunnelGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPNTunnelsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})),
-				[]string{"network", "vpntunnel", "get", "tun-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -228,7 +204,7 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockVPNTunnelsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -236,17 +212,15 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: baseArgs,
-			setupMock: func(m *mockVPNTunnelsClient) {
-				id, name := "tun-new", "my-tunnel"
-				m.createFn = func(_ context.Context, _ string, _ types.VPNTunnelRequest, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return &types.Response[types.VPNTunnelResponse]{
-						StatusCode: 200,
-						Data:       &types.VPNTunnelResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-new", "my-tunnel"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "tun-new") {
+				if !strings.Contains(out, "vpn-new") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
@@ -258,69 +232,228 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
-			args: baseArgs,
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.VPNTunnelRequest, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
-			},
+			name:        "missing required flag --peer-ip",
+			args:        removeFlag(baseArgs, "--peer-ip", "1.2.3.4"),
 			wantErr:     true,
-			errContains: "creating",
+			errContains: "peer-ip",
 		},
 		{
-			name: "API error propagates",
-			args: baseArgs,
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.VPNTunnelRequest, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return &types.Response[types.VPNTunnelResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
-			},
+			name:        "missing required flag --vpc-uri",
+			args:        removeFlag(baseArgs, "--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"),
 			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			errContains: "vpc-uri",
 		},
 		{
 			name:        "rejects invalid --ike-encryption before API call",
-			args:        append(baseArgs, "--ike-encryption", "rot13"),
+			args:        append(append([]string(nil), baseArgs...), "--ike-encryption", "rot13"),
 			wantErr:     true,
 			errContains: `"rot13" is not a valid value`,
 		},
 		{
 			name:        "rejects invalid --ike-dpd-action before API call",
-			args:        append(baseArgs, "--ike-dpd-action", "explode"),
+			args:        append(append([]string(nil), baseArgs...), "--ike-dpd-action", "explode"),
 			wantErr:     true,
 			errContains: "is not a valid value",
 		},
 		{
 			name:        "rejects invalid --esp-pfs before API call",
-			args:        append(baseArgs, "--esp-pfs", "group99"),
+			args:        append(append([]string(nil), baseArgs...), "--esp-pfs", "group99"),
 			wantErr:     true,
 			errContains: "is not a valid value",
 		},
 		{
 			name: "accepts valid --ike-encryption without API error",
-			args: append(baseArgs, "--ike-encryption", types.VPNEncryptionAES256),
-			setupMock: func(m *mockVPNTunnelsClient) {
-				id, name := "tun-new", "my-tunnel"
-				m.createFn = func(_ context.Context, _ string, _ types.VPNTunnelRequest, _ *types.RequestParameters) (*types.Response[types.VPNTunnelResponse], error) {
-					return &types.Response[types.VPNTunnelResponse]{
-						StatusCode: 200,
-						Data:       &types.VPNTunnelResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			args: append(append([]string(nil), baseArgs...), "--ike-encryption", "aes256"),
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-new", "my-tunnel"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
+		},
+		{
+			name: "server error propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "creating",
+		},
+		{
+			name: "API 404 propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+					errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPNTunnelsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestVPNTunnelUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "vpntunnel", "update", "vpn-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				updID, updName := "vpn-001", "new-name"
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpn-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no fields provided returns error",
+			args:        []string{"network", "vpntunnel", "update", "vpn-001", "--project-id", "proj-123"},
+			setupSrv:    nil,
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "server error on update propagates",
+			args: []string{"network", "vpntunnel", "update", "vpn-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+		{
+			name: "API 404 on get propagates",
+			args: []string{"network", "vpntunnel", "update", "vpn-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestVPNTunnelDeleteCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success with --yes",
+			args: []string{"network", "vpntunnel", "delete", "vpn-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, nil))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpn-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--dry-run registers only GET",
+			args: []string{"network", "vpntunnel", "delete", "vpn-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "vpn-001", "my-tunnel"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					jsonResponse(200, types.VPNTunnelResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "vpn-001") {
+					t.Errorf("expected ID in dry-run output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "server error propagates",
+			args: []string{"network", "vpntunnel", "delete", "vpn-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "deleting",
+		},
+		{
+			name: "API 404 propagates",
+			args: []string{"network", "vpntunnel", "delete", "vpn-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
+					errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -338,30 +471,28 @@ func TestVPNValidateEnum(t *testing.T) {
 		wantErr bool
 		errMsg  string
 	}{
-		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
-		{name: "valid encryption", value: types.VPNEncryptionAES256, flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
-		{name: "valid hash", value: types.VPNHashSHA256, flag: "ike-hash", valid: vpnHashAlgorithms},
-		{name: "valid dh-group", value: types.VPNDHGroup14, flag: "ike-dh-group", valid: vpnDHGroups},
-		{name: "valid dpd-action", value: types.VPNDPDActionTrap, flag: "ike-dpd-action", valid: vpnDPDActions},
-		{name: "valid pfs-group", value: types.VPNPFSDHGroup14, flag: "esp-pfs", valid: vpnPFSGroups},
+		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
+		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
+		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnIKEHashAlgorithms},
+		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnIKEDHGroups},
+		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnIKEDPDActions},
+		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnESPPFSGroups},
+		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnESPEncryptionAlgorithms},
+		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnESPHashAlgorithms},
 		{
-			name: "invalid encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnEncryptionAlgorithms,
+			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms,
 			wantErr: true, errMsg: `--ike-encryption "rot13" is not a valid value`,
 		},
 		{
-			name: "invalid hash rejected", value: "crc32", flag: "ike-hash", valid: vpnHashAlgorithms,
+			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnIKEHashAlgorithms,
 			wantErr: true, errMsg: "--ike-hash",
 		},
 		{
-			name: "invalid dh-group rejected", value: "42", flag: "ike-dh-group", valid: vpnDHGroups,
-			wantErr: true, errMsg: "--ike-dh-group",
-		},
-		{
-			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnDPDActions,
+			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnIKEDPDActions,
 			wantErr: true, errMsg: "--ike-dpd-action",
 		},
 		{
-			name: "invalid pfs-group rejected", value: "group99", flag: "esp-pfs", valid: vpnPFSGroups,
+			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnESPPFSGroups,
 			wantErr: true, errMsg: "--esp-pfs",
 		},
 	}
@@ -379,84 +510,6 @@ func TestVPNValidateEnum(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-			}
-		})
-	}
-}
-
-func TestVPNTunnelDeleteCmd(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupMock   func(*mockVPNTunnelsClient)
-		wantErr     bool
-		errContains string
-		assertOut   func(*testing.T, string)
-	}{
-		{
-			name: "success with --yes",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
-			},
-			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "tun-001") {
-					t.Errorf("expected ID in output, got: %s", out)
-				}
-			},
-		},
-		{
-			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
-			},
-			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "tun-001") {
-					t.Errorf("expected ID in dry-run output, got: %s", out)
-				}
-			},
-		},
-		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
-			},
-			wantErr:     true,
-			errContains: "deleting",
-		},
-		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPNTunnelsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
-			},
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPNTunnelsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
-			}
-			args := []string{"network", "vpntunnel", "delete", "tun-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpnTunnelsMock: m})), args)
-			checkErr(t, err, tc.wantErr, tc.errContains)
-			if tc.assertOut != nil {
-				tc.assertOut(t, out)
 			}
 		})
 	}

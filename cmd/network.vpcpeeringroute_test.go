@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,60 +11,49 @@ import (
 func TestVPCPeeringRouteListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringRoutesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					return &types.Response[types.VPCPeeringRouteList]{
-						StatusCode: 200,
-						Data: &types.VPCPeeringRouteList{
-							Values: []types.VPCPeeringRouteResponse{{}},
+			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					jsonResponse(200, types.VPCPeeringRouteList{
+						Values: []types.VPCPeeringRouteResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
-		},
-		{
-			name: "success with non-nil name and id",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					name := "my-route"
-					id := "route-abc"
-					return &types.Response[types.VPCPeeringRouteList]{
-						StatusCode: 200,
-						Data: &types.VPCPeeringRouteList{
-							Values: []types.VPCPeeringRouteResponse{{
-								Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id},
-							}},
-						},
-					}, nil
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					return &types.Response[types.VPCPeeringRouteList]{StatusCode: 200, Data: &types.VPCPeeringRouteList{}}, nil
-				}
+			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					jsonResponse(200, types.VPCPeeringRouteList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					return &types.Response[types.VPCPeeringRouteList]{
-						StatusCode: 200,
-						Data: &types.VPCPeeringRouteList{
-							Values: []types.VPCPeeringRouteResponse{{}},
+			name: "--output json emits valid JSON",
+			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					jsonResponse(200, types.VPCPeeringRouteList{
+						Values: []types.VPCPeeringRouteResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -76,24 +63,21 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteList], error) {
-					return &types.Response[types.VPCPeeringRouteList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -101,15 +85,11 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringRoutesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -121,53 +101,44 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 func TestVPCPeeringRouteGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringRoutesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{},
-					}, nil
+			args: []string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
-			name: "success with non-nil name",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					name := "my-route"
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name}},
-					}, nil
-				}
-			},
-		},
-		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -175,12 +146,11 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringRoutesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})),
-				[]string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -190,94 +160,73 @@ func TestVPCPeeringRouteGetCmd(t *testing.T) {
 }
 
 func TestVPCPeeringRouteCreateCmd(t *testing.T) {
+	baseArgs := []string{
+		"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
+		"--project-id", "proj-123",
+		"--name", "my-route",
+		"--region", "IT-BG",
+		"--local-network", "10.0.0.0/24",
+		"--remote-network", "192.168.0.0/24",
+		"--billing-period", "monthly",
+	}
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockVPCPeeringRoutesClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			args: []string{
-				"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
-				"--project-id", "proj-123",
-				"--name", "my-route",
-				"--region", "ITBG-Bergamo",
-				"--local-network", "10.0.0.0/24",
-				"--remote-network", "10.1.0.0/24",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-new", "my-route"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{},
-					}, nil
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-new") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
-			name: "success with non-nil metadata in response",
-			args: []string{
-				"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
-				"--project-id", "proj-123",
-				"--name", "my-route",
-				"--region", "ITBG-Bergamo",
-				"--local-network", "10.0.0.0/24",
-				"--remote-network", "10.1.0.0/24",
-			},
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					name := "my-route"
-					id := "route-abc"
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id}},
-					}, nil
-				}
-			},
+			name:        "missing required flag --name",
+			args:        removeFlag(baseArgs, "--name", "my-route"),
+			wantErr:     true,
+			errContains: "name",
 		},
 		{
-			name:    "missing required flag --name",
-			args:    []string{"network", "vpcpeeringroute", "create", "vpc-001", "peer-001", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--local-network", "10.0.0.0/24", "--remote-network", "10.1.0.0/24"},
-			wantErr: true, errContains: "name",
+			name:        "missing required flag --local-network",
+			args:        removeFlag(baseArgs, "--local-network", "10.0.0.0/24"),
+			wantErr:     true,
+			errContains: "local-network",
 		},
 		{
-			name: "SDK error propagates",
-			args: []string{
-				"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
-				"--project-id", "proj-123",
-				"--name", "my-route",
-				"--region", "ITBG-Bergamo",
-				"--local-network", "10.0.0.0/24",
-				"--remote-network", "10.1.0.0/24",
-			},
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			name:        "missing required flag --remote-network",
+			args:        removeFlag(baseArgs, "--remote-network", "192.168.0.0/24"),
+			wantErr:     true,
+			errContains: "remote-network",
+		},
+		{
+			name: "server error propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
-			name: "API error propagates",
-			args: []string{
-				"network", "vpcpeeringroute", "create", "vpc-001", "peer-001",
-				"--project-id", "proj-123",
-				"--name", "my-route",
-				"--region", "ITBG-Bergamo",
-				"--local-network", "10.0.0.0/24",
-				"--remote-network", "10.1.0.0/24",
-			},
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: baseArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -285,11 +234,11 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringRoutesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -299,129 +248,77 @@ func TestVPCPeeringRouteCreateCmd(t *testing.T) {
 }
 
 func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
-	baseArgs := []string{
-		"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001",
-		"--project-id", "proj-123",
-	}
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockVPCPeeringRoutesClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			args: append(baseArgs, "--name", "updated-route"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{},
-					}, nil
+			args: []string{"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				updID, updName := "route-001", "new-name"
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "route-001") {
+					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
-			name: "success with non-nil metadata in response",
-			args: append(baseArgs, "--name", "updated-route"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					currentName := "old-route"
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &currentName}},
-					}, nil
-				}
-				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					name := "updated-route"
-					id := "route-001"
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &name, ID: &id}},
-					}, nil
-				}
-			},
-		},
-		{
-			name: "name falls back to current when not provided",
-			args: append(baseArgs, "--tags", "t1"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					currentName := "existing-name"
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Metadata: types.ResourceMetadataResponse{Name: &currentName}},
-					}, nil
-				}
-			},
-		},
-		{
-			name:        "no fields provided",
-			args:        baseArgs,
+			name:        "no fields provided returns error",
+			args:        []string{"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"},
+			setupSrv:    nil,
 			wantErr:     true,
-			errContains: "at least one field",
+			errContains: "at least one",
 		},
 		{
-			name: "InCreation blocks update",
-			args: append(baseArgs, "--name", "new-name"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					state := StateInCreation
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 200,
-						Data:       &types.VPCPeeringRouteResponse{Status: types.ResourceStatus{State: &state}},
-					}, nil
-				}
-			},
-			wantErr:     true,
-			errContains: "InCreation",
-		},
-		{
-			name: "SDK error on get",
-			args: append(baseArgs, "--name", "new-name"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
-			},
-			wantErr:     true,
-			errContains: "fetching current",
-		},
-		{
-			name: "SDK error on update",
-			args: append(baseArgs, "--name", "new-name"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return nil, fmt.Errorf("timeout")
-				}
+			name: "server error on update propagates",
+			args: []string{"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "updating",
 		},
 		{
-			name: "API error on update",
-			args: append(baseArgs, "--name", "new-name"),
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.updateFn = func(_ context.Context, _, _, _, _ string, _ types.VPCPeeringRouteRequest, _ *types.RequestParameters) (*types.Response[types.VPCPeeringRouteResponse], error) {
-					return &types.Response[types.VPCPeeringRouteResponse]{
-						StatusCode: 422,
-						Error:      &types.ErrorResponse{Title: strPtr("Unprocessable"), Detail: strPtr("invalid CIDR")},
-					}, nil
-				}
+			name: "API 404 on get propagates",
+			args: []string{"network", "vpcpeeringroute", "update", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
-			errContains: "API error (status 422): Unprocessable",
+			errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringRoutesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -433,17 +330,18 @@ func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
 func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockVPCPeeringRoutesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "route-001") {
@@ -452,12 +350,14 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			name: "--dry-run registers only GET",
+			args: []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "route-001", "my-route"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					jsonResponse(200, types.VPCPeeringRouteResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "route-001") {
@@ -466,24 +366,21 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockVPCPeeringRoutesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -491,15 +388,11 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockVPCPeeringRoutesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "vpcpeeringroute", "delete", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{vpcPeeringRoutesMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

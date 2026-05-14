@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,22 @@ import (
 func TestSecurityGroupListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockSecurityGroupsClient) {
+			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
-					return &types.Response[types.SecurityGroupList]{
-						StatusCode: 200,
-						Data: &types.SecurityGroupList{
-							Values: []types.SecurityGroupResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{
+					Values: []types.SecurityGroupResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sg-001") {
@@ -41,26 +36,21 @@ func TestSecurityGroupListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
-					return &types.Response[types.SecurityGroupList]{StatusCode: 200, Data: &types.SecurityGroupList{}}, nil
-				}
+			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockSecurityGroupsClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
-					return &types.Response[types.SecurityGroupList]{
-						StatusCode: 200,
-						Data: &types.SecurityGroupList{
-							Values: []types.SecurityGroupResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{
+					Values: []types.SecurityGroupResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +60,19 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupList], error) {
-					return &types.Response[types.SecurityGroupList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +80,11 @@ func TestSecurityGroupListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestSecurityGroupListCmd(t *testing.T) {
 func TestSecurityGroupGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockSecurityGroupsClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return &types.Response[types.SecurityGroupResponse]{
-						StatusCode: 200,
-						Data:       &types.SecurityGroupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sg-001") {
@@ -138,24 +116,17 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return &types.Response[types.SecurityGroupResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +134,11 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})),
-				[]string{"network", "securitygroup", "get", "vpc-001", "sg-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"network", "securitygroup", "get", "vpc-001", "sg-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -181,7 +151,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockSecurityGroupsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -189,17 +159,14 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
-			setupMock: func(m *mockSecurityGroupsClient) {
-				id, name := "sg-new", "my-sg"
-				m.createFn = func(_ context.Context, _, _ string, _ types.SecurityGroupRequest, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return &types.Response[types.SecurityGroupResponse]{
-						StatusCode: 200,
-						Data:       &types.SecurityGroupResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sg-001", "my-sg"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "sg-new") {
+				if !strings.Contains(out, "sg-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
@@ -217,12 +184,10 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 			errContains: "region",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.SecurityGroupRequest, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -230,13 +195,8 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.SecurityGroupRequest, _ *types.RequestParameters) (*types.Response[types.SecurityGroupResponse], error) {
-					return &types.Response[types.SecurityGroupResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -244,12 +204,90 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			err := runCmd(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestSecurityGroupUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sg-001", "my-sg"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "sg-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-Get server error",
+			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update server error",
+			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sg-001", "my-sg"
+				state := "Active"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Status:   types.ResourceStatus{State: &state},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
 		})
 	}
 }
@@ -257,17 +295,17 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 func TestSecurityGroupDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sg-001") {
@@ -277,11 +315,12 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "sg-001", "my-sg"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sg-001") {
@@ -290,24 +329,19 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupsClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -315,15 +349,11 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupsMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
