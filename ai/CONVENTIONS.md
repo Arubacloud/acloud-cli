@@ -184,10 +184,14 @@ responses surface as `*aruba.HTTPError` in the error return — there is no sepa
 a verb prefix for all error sites.
 
 **Wrapper note:** `*aruba.<T>` wrapper types carry only unexported fields and are not
-JSON-marshalable. For fields the wrapper does not expose as an accessor, and for
-`-o json`/`-o yaml` payloads, re-parse the wire `types.<T>Response` from the
-wrapper's `RawHTTP()` body via a file-local `<resource>FromRaw` helper (see the
-`management.project.go` reference implementation).
+JSON-marshalable. For single-resource rendering and `-o json`/`-o yaml` payloads,
+use `.Raw()` directly when the wrapper exposes the full typed response (e.g.
+`*aruba.CloudServer.Raw()` → `*types.CloudServerResponse`). Only fall back to re-
+parsing via `RawHTTP()` when `.Raw()` returns only metadata (e.g. `*aruba.Project`
+— see `management.project.go`). For project-scoped resources, build the create
+wrapper with `.IntoProject(projectRef(projectID))` and use a file-local
+`<resource>Ref(projectID, id)` helper (encoding both project + resource IDs in the
+URI) for `Get` and `Delete`.
 
 ### list
 ```go
