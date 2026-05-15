@@ -46,11 +46,12 @@ Issues are grouped by severity. Address Critical items before new features ship;
 - #100 (shared helpers), #101 (`arubaTestServer` harness), #102 (`management.project`), #103 (`compute`: cloudserver + keypair), #104 (`network` family: 10 resources) — all merged onto `feat/sdk-v0.2.0-upgrade`.
 - #105 (storage family: blockstorage, snapshot, backup, restore) — merged onto `feat/sdk-v0.2.0-upgrade`.
 - #106 (database family: dbaas, database, user, backup) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #107–#110 (container, kms, other families) — still open.
+- #107 (container family: kaas, containerregistry) — merged onto `feat/sdk-v0.2.0-upgrade`.
+- #108–#110 (schedule, kms, other families) — still open.
 
-`go build ./cmd` remains red until #107–#110 land. `make e2e-network` requires live credentials (validated after integration branch complete).
+`go build ./cmd` remains red until #108–#110 land. After fixing container, the next visible errors are in `schedule.job.go` (pre-existing v0.1.x API usage, same migration required). `make e2e-network` requires live credentials (validated after integration branch complete).
 
-**Fix:** Close out #99's exit criteria (#107–#110 + #111), then mark TD-022 resolved.
+**Fix:** Close out #99's exit criteria (#108–#110 + #111), then mark TD-022 resolved.
 
 ---
 

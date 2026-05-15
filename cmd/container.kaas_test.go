@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,22 @@ import (
 func TestKaaSListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKaaSClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockKaaSClient) {
+			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
-					return &types.Response[types.KaaSList]{
-						StatusCode: 200,
-						Data: &types.KaaSList{
-							Values: []types.KaaSResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+					Values: []types.KaaSResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kaas-001") {
@@ -41,26 +36,21 @@ func TestKaaSListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockKaaSClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
-					return &types.Response[types.KaaSList]{StatusCode: 200, Data: &types.KaaSList{}}, nil
-				}
+			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockKaaSClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"container", "kaas", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
-					return &types.Response[types.KaaSList]{
-						StatusCode: 200,
-						Data: &types.KaaSList{
-							Values: []types.KaaSResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+					Values: []types.KaaSResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +60,19 @@ func TestKaaSListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSList], error) {
-					return &types.Response[types.KaaSList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +80,11 @@ func TestKaaSListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKaaSClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"container", "kaas", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestKaaSListCmd(t *testing.T) {
 func TestKaaSGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKaaSClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockKaaSClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return &types.Response[types.KaaSResponse]{
-						StatusCode: 200,
-						Data:       &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kaas-001") {
@@ -138,24 +116,17 @@ func TestKaaSGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return &types.Response[types.KaaSResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +134,11 @@ func TestKaaSGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKaaSClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
-				[]string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -188,7 +158,7 @@ func TestKaaSCreateCmd(t *testing.T) {
 		"--node-cidr-address", "10.0.0.0/16",
 		"--node-cidr-name", "node-cidr",
 		"--security-group-name", "my-sg",
-		"--kubernetes-version", "1.28.0",
+		"--kubernetes-version", "1.32.3",
 		"--node-pool-name", "default-pool",
 		"--node-pool-nodes", "1",
 		"--node-pool-instance", "n1.standard",
@@ -197,7 +167,7 @@ func TestKaaSCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockKaaSClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -205,14 +175,11 @@ func TestKaaSCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: baseArgs,
-			setupMock: func(m *mockKaaSClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-new", "my-cluster"
-				m.createFn = func(_ context.Context, _ string, _ types.KaaSRequest, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return &types.Response[types.KaaSResponse]{
-						StatusCode: 200,
-						Data:       &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kaas-new") {
@@ -227,12 +194,16 @@ func TestKaaSCreateCmd(t *testing.T) {
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
+			name:        "missing required flag --kubernetes-version",
+			args:        removeFlag(baseArgs, "--kubernetes-version", "1.32.3"),
+			wantErr:     true,
+			errContains: "kubernetes-version",
+		},
+		{
+			name: "server error propagates",
 			args: baseArgs,
-			setupMock: func(m *mockKaaSClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.KaaSRequest, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -240,13 +211,8 @@ func TestKaaSCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: baseArgs,
-			setupMock: func(m *mockKaaSClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.KaaSRequest, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return &types.Response[types.KaaSResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -254,11 +220,11 @@ func TestKaaSCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKaaSClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -270,17 +236,17 @@ func TestKaaSCreateCmd(t *testing.T) {
 func TestKaaSDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKaaSClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockKaaSClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kaas-001") {
@@ -290,15 +256,12 @@ func TestKaaSDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockKaaSClient) {
+			args: []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSResponse], error) {
-					return &types.Response[types.KaaSResponse]{StatusCode: 200, Data: &types.KaaSResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}}}, nil
-				}
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kaas-001") {
@@ -307,24 +270,19 @@ func TestKaaSDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -332,15 +290,11 @@ func TestKaaSDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKaaSClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"container", "kaas", "delete", "kaas-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withContainer(&mockContainerClient{kaasClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -352,30 +306,39 @@ func TestKaaSDeleteCmd(t *testing.T) {
 func TestKaaSConnectCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKaaSClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 	}{
 		{
-			// connect calls DownloadKubeconfig; SDK error must propagate before file I/O or kubectl
-			name: "SDK error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.downloadKubeconfigFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSKubeconfigResponse], error) {
-					return nil, fmt.Errorf("unauthorized")
-				}
+			// connect calls Get first, then DownloadKubeconfig on the wrapper
+			name: "getting cluster fails",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "getting KaaS cluster",
+		},
+		{
+			name: "downloading kubeconfig fails",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kaas-001", "my-cluster"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001/download", errorResponse(500, "Internal Server Error", "unauthorized"))
 			},
 			wantErr:     true,
 			errContains: "downloading kubeconfig",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockKaaSClient) {
-				m.downloadKubeconfigFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KaaSKubeconfigResponse], error) {
-					return &types.Response[types.KaaSKubeconfigResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API error on download propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kaas-001", "my-cluster"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001/download", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -383,12 +346,11 @@ func TestKaaSConnectCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKaaSClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			err := runCmd(newMockClient(withContainer(&mockContainerClient{kaasClient: m})),
-				[]string{"container", "kaas", "connect", "kaas-001", "--project-id", "proj-123"})
+			err := runCmd(srv.Client(), []string{"container", "kaas", "connect", "kaas-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 		})
 	}
