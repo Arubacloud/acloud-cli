@@ -57,7 +57,7 @@ client.FromProject().Delete(ctx, projectRef(id))   // → error
 
 // Project-scoped resources — wrapper built with IntoProject(projectRef):
 client.FromCompute().CloudServers().Get(ctx, ref)  // → (*aruba.CloudServer, error)
-client.FromStorage().BlockStorages().List(ctx, ...)// → (*aruba.List[*aruba.BlockStorage], error)
+client.FromStorage().Volumes().List(ctx, ...)      // → (*aruba.List[*aruba.BlockStorage], error)
 
 // Regional resources carry .InRegion(region) on the wrapper builder.
 // Zonal resources additionally carry .InZone(zone).
@@ -80,6 +80,46 @@ func cloudServerRef(projectID, serverID string) aruba.Ref {
         "/providers/Aruba.Compute/cloudServers/" + serverID)
 }
 ```
+
+**Storage family sub-clients and Refs** — The four storage sub-clients are
+`Volumes()`, `Snapshots()`, `Backups()`, `Restores()`. There is no `BlockStorages()`
+alias. Each file declares a file-local Ref helper:
+
+| Helper | Defined in | URI template |
+|---|---|---|
+| `volumeRef(pid, vid)` | `storage.blockstorage.go` | `/projects/<pid>/providers/Aruba.Storage/blockstorages/<vid>` |
+| `snapshotRef(pid, sid)` | `storage.snapshot.go` | `/projects/<pid>/providers/Aruba.Storage/snapshots/<sid>` |
+| `backupRef(pid, bid)` | `storage.backup.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>` |
+| `restoreRef(pid, bid, rid)` | `storage.restore.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>/restores/<rid>` |
+
+Note: path segments use **all-lowercase** (`blockstorages`, `snapshots`, `backups`,
+`restores`) matching `internal/clients/storage/path.go`.
+
+**Cross-family pre-validation** — `StorageBackup` Create fetches the source volume
+(`Volumes().Get(ctx, volumeRef(...))`) before building the backup wrapper. `StorageRestore`
+Create fetches both the parent backup (`Backups().Get`) **and** the target volume
+(`Volumes().Get`) before building the restore wrapper.
+
+**`StorageRestore` diverges from the project-scoped pattern** in two ways:
+- Builder uses `IntoBackup(bk)` (not `IntoProject`) — the backup Ref carries the project ID implicitly.
+- `Restores().List(ctx, backup Ref, ...)` is **backup-scoped**, not project-scoped.
+
+```go
+// Backup Create — cross-family pre-validation then builder:
+vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+bk := aruba.NewStorageBackup().IntoProject(projectRef(projectID)).Named(name).
+    InRegion(aruba.Region(region)).OfType(aruba.StorageBackupType(t)).FromVolume(vol)
+
+// Restore Create — dual cross-family pre-validation:
+bk, err  := client.FromStorage().Backups().Get(ctx, backupRef(projectID, backupID))
+target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+rs := aruba.NewStorageRestore().IntoBackup(bk).Named(name).InRegion(aruba.Region(region)).ToVolume(target)
+
+// Restore List — backup-scoped:
+list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
+```
+
+All four storage wrappers' `Raw()` returns the **full** typed response (e.g. `*types.StorageBackupResponse`). No `RawHTTP()` re-parse is needed, unlike `*aruba.Project`.
 
 **Multi-level nested Refs (network family)** — VPC-scoped resources (Subnet,
 SecurityGroup, VPCPeering) require 3-segment Refs; deeper resources (SecurityRule,
@@ -352,13 +392,16 @@ func completeBlockStorageID(cmd *cobra.Command, args []string, toComplete string
     if err != nil { return nil, cobra.ShellCompDirectiveNoFileComp }
 
     ctx := context.Background()
-    response, err := client.FromStorage().Volumes().List(ctx, projectID, nil)
+    list, err := client.FromStorage().Volumes().List(ctx, projectRef(projectID))
     if err != nil { return nil, cobra.ShellCompDirectiveNoFileComp }
 
     var completions []string
-    for _, v := range response.Data.Values {
-        if v.Metadata.ID != nil && strings.HasPrefix(*v.Metadata.ID, toComplete) {
-            completions = append(completions, fmt.Sprintf("%s\t%s", *v.Metadata.ID, *v.Metadata.Name))
+    if list != nil {
+        for _, v := range list.Items() {
+            id := v.ID()
+            if toComplete == "" || strings.HasPrefix(id, toComplete) {
+                completions = append(completions, fmt.Sprintf("%s\t%s", id, v.Name()))
+            }
         }
     }
     return completions, cobra.ShellCompDirectiveNoFileComp

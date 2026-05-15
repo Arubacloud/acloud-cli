@@ -365,3 +365,70 @@ func TestMyCommand(t *testing.T) {
 - Unregistered routes cause `t.Errorf` (not a silent 404) — mis-keyed paths fail loudly.
 - `runCmd`/`runCmdCapture`/`resetCmdFlags`/`strPtr` helpers are unchanged; pass `srv.Client()` where the old code passed a `newMockClient(...)`.
 - Clear the client cache after each test (handled automatically by `runCmd` via `defer resetClientState()`).
+
+---
+
+## Storage-Specific Patterns
+
+The storage family has three patterns that diverge from the canonical command bodies above.
+
+### Cross-family pre-validation in Backup Create
+
+`StorageBackup.Create` requires a source volume. The file validates the volume exists
+before building the backup wrapper. The volume GET response **must** include a URI
+field so the SDK can carry it through the builder chain.
+
+```go
+// Pre-validate source volume (cross-family Get)
+vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
+
+bk := aruba.NewStorageBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
+    FromVolume(vol)
+if retentionDays > 0 { bk.WithRetentionDays(int(retentionDays)) }
+
+created, err := client.FromStorage().Backups().Create(ctx, bk)
+if err != nil { return fmt.Errorf("creating backup: %w", apiErrFromV2(err)) }
+```
+
+### Restore Create: dual cross-family Gets + IntoBackup/ToVolume
+
+`StorageRestore` is parented on a Backup (not a project). Use `IntoBackup(bk)` (not
+`IntoProject`) — it extracts projectID and backupID from the backup's URI. Both the
+backup GET and volume GET responses **must** include a URI field. `ToVolume(target)`
+extracts the URI from the volume wrapper.
+
+```go
+// Pre-validate parent backup AND target volume
+bk, err := client.FromStorage().Backups().Get(ctx, backupRef(projectID, backupID))
+if err != nil { return fmt.Errorf("getting backup: %w", apiErrFromV2(err)) }
+target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
+
+rs := aruba.NewStorageRestore().
+    IntoBackup(bk).       // parents on backup, NOT IntoProject(...)
+    Named(name).
+    InRegion(aruba.Region(region)).
+    ToVolume(target)
+
+created, err := client.FromStorage().Restores().Create(ctx, rs)
+if err != nil { return fmt.Errorf("creating restore: %w", apiErrFromV2(err)) }
+```
+
+### Restore List: backup-scoped (not project-scoped)
+
+Unlike all other storage resources, `StorageRestoreClient.List` takes a **backup Ref**
+as its first argument, not a project Ref.
+
+```go
+// Use backupRef(projectID, backupID), NOT projectRef(projectID)
+list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
+if err != nil { return fmt.Errorf("listing restores: %w", apiErrFromV2(err)) }
+```
+
+In tests, register the list route under the backup-scoped path:
+`/projects/{p}/providers/Aruba.Storage/backups/{bid}/restores`
