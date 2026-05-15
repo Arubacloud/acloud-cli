@@ -432,3 +432,57 @@ if err != nil { return fmt.Errorf("listing restores: %w", apiErrFromV2(err)) }
 
 In tests, register the list route under the backup-scoped path:
 `/projects/{p}/providers/Aruba.Storage/backups/{bid}/restores`
+
+---
+
+## Database-specific patterns
+
+### Family B create (Database, User)
+
+Family B resources (Database, User) use `IntoDBaaS(dbaasRef(projectID, dbaasID))` rather than `IntoProject`. Name/username is the path identifier.
+
+```go
+// Database create
+db := aruba.NewDatabase().
+    IntoDBaaS(dbaasRef(projectID, dbaasID)).
+    Named(name)
+created, err := client.FromDatabase().Databases().Create(ctx, db)
+
+// User create
+u := aruba.NewUser().
+    IntoDBaaS(dbaasRef(projectID, dbaasID)).
+    WithUsername(username).
+    WithPassword(password)
+created, err := client.FromDatabase().Users().Create(ctx, u)
+```
+
+### DBaaSBackup create (no pre-validation Gets)
+
+Pass constructed Refs directly — `FromDBaaS` and `FromDatabase` accept any `aruba.Ref`:
+
+```go
+bk := aruba.NewDBaaSBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    FromDBaaS(dbaasRef(projectID, dbaasID)).
+    FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+created, err := client.FromDatabase().Backups().Create(ctx, bk)
+```
+
+### Dbaas-scoped List
+
+Database and User List are scoped to a DBaaS instance, not a project:
+
+```go
+list, err := client.FromDatabase().Databases().List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)
+list, err := client.FromDatabase().Users().List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)
+```
+
+DBaaS and Backup List are project-scoped (standard pattern):
+
+```go
+list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID), listOpts(cmd)...)
+list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID), listOpts(cmd)...)
+```
