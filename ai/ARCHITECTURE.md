@@ -452,3 +452,87 @@ updateReq := buildRequestFrom(current)    // preserve current values
 if name != "" { updateReq.Metadata.Name = name }
 if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
 ```
+
+---
+
+## Database Family
+
+`client.FromDatabase()` returns a `DatabaseClient` with four sub-clients:
+
+| Sub-client | Method | Resources |
+|---|---|---|
+| `DBaaS()` | `FromDatabase().DBaaS()` | DBaaS instances (project-scoped) |
+| `Databases()` | `FromDatabase().Databases()` | Databases inside a DBaaS (dbaas-scoped) |
+| `Backups()` | `FromDatabase().Backups()` | DBaaS Backups (project-scoped) |
+| `Users()` | `FromDatabase().Users()` | Users inside a DBaaS (dbaas-scoped) |
+
+**Note:** There is no `BlockStorages()` alias — `Volumes()` is the correct name for storage. Similarly, `FromDatabase().Backups()` (database backups) is distinct from `FromStorage().Backups()` (storage backups).
+
+### Two wrapper families
+
+**Family A** (DBaaS, DBaaSBackup) — standard `Metadata/Properties/Status` envelope. Uses `IntoProject(projectRef(projectID))` for the builder.
+
+**Family B** (Database, User) — flat request, name/username IS the path identifier, no `Metadata.ID` in responses. Uses `IntoDBaaS(dbaasRef(projectID, dbaasID))` for the builder. `Database.ID()` returns the name; `User.ID()` returns the username.
+
+### Ref helpers (declared per file)
+
+```go
+func dbaasRef(projectID, dbaasID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+}
+func databaseRef(projectID, dbaasID, name string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + name)
+}
+func userRef(projectID, dbaasID, username string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username)
+}
+func databaseBackupRef(projectID, backupID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/backups/" + backupID)
+}
+```
+
+### List scoping
+
+- **DBaaS / Backup List** — project-scoped: `List(ctx, projectRef(projectID), listOpts(cmd)...)`
+- **Database / User List** — dbaas-scoped: `List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)`
+
+### DBaaS Update — round-trip
+
+`DBaaS.fromResponse()` back-populates `engine`, `flavor`, `sizeGB`, `billingPeriod`, and networking refs automatically. The update pattern is just:
+
+```go
+current, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
+if name != "" { current.Named(name) }
+if cmd.Flags().Changed("size-gb") { current.WithSizeGB(sizeGB) }
+updated, err := client.FromDatabase().DBaaS().Update(ctx, current)
+```
+
+No manual field reconstruction is needed — all unchanged fields survive the round-trip.
+
+### Backup Create — no pre-validation Gets
+
+`FromDBaaS(Ref)` and `FromDatabase(Ref)` on the `DBaaSBackup` builder accept any `aruba.Ref` and call `.URI()` on them. Pass the constructed Refs directly — no pre-validation Gets needed:
+
+```go
+bk := aruba.NewDBaaSBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    FromDBaaS(dbaasRef(projectID, dbaasID)).
+    FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+created, err := client.FromDatabase().Backups().Create(ctx, bk)
+```
+
+The old v0.1.x code performed 2 cross-family Gets just to obtain URIs (and used a malformed URI for the database ref). The v0.2.0 builder eliminates both round-trips.
+
+### BackupsClient — no Update
+
+`BackupsClient` exposes only `List / Get / Create / Delete`. There is no Update method. The `backupUpdateCmd` stub in `database.backup.go` returns an informational error without calling the SDK.
+
+### Identity accessors
+
+- DBaaS: `d.DBaaSID()` (equivalent to `d.ID()`)
+- DBaaSBackup: `b.DBaaSBackupID()` (use this, not `b.ID()`)
+- Database: `db.DatabaseID()` (returns the name, which is the path identifier)
+- User: `u.Username()` (returns the username, which is the path identifier)
