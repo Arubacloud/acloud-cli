@@ -44,11 +44,12 @@ Issues are grouped by severity. Address Critical items before new features ship;
 ### TD-022 · Pre-release SDK version (v0.1.x → v0.2.0 migration in progress)
 `go.mod` now depends on `github.com/Arubacloud/sdk-go v0.2.0`. Migration status:
 - #100 (shared helpers), #101 (`arubaTestServer` harness), #102 (`management.project`), #103 (`compute`: cloudserver + keypair), #104 (`network` family: 10 resources) — all merged onto `feat/sdk-v0.2.0-upgrade`.
-- #105–#110 (storage, database, container, kms, other families) — still open.
+- #105 (storage family: blockstorage, snapshot, backup, restore) — merged onto `feat/sdk-v0.2.0-upgrade`.
+- #106–#110, #111 (database, container, kms, other families) — still open.
 
-`go build ./cmd` remains red until #105–#110 land. `make e2e-network` requires live credentials (validated after integration branch complete).
+`go build ./cmd` remains red until #106–#110 land. `make e2e-network` requires live credentials (validated after integration branch complete).
 
-**Fix:** Close out #99's exit criteria (#105–#110 + #111), then mark TD-022 resolved.
+**Fix:** Close out #99's exit criteria (#106–#110 + #111), then mark TD-022 resolved.
 
 ---
 
