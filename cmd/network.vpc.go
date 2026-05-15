@@ -239,7 +239,7 @@ var vpcUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -259,6 +259,8 @@ var vpcUpdateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
+		// SDK VPC.Get does not backfill projectID from the Ref (unlike other resources).
+		cur.IntoProject(projectRef(projectID))
 
 		r := cur.Raw()
 		if r == nil {

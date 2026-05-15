@@ -330,13 +330,15 @@ func TestProjectDeleteCmd(t *testing.T) {
 			errContains: "deleting",
 		},
 		{
+			// SDK project.Delete low-level client doesn't parse error body into resp.Error,
+			// so the title is not surfaced. Tracked upstream: Arubacloud/sdk-go.
 			name: "API error propagates",
 			args: []string{"management", "project", "delete", "proj-001", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnDelete("/projects/proj-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			errContains: "API error (status 404)",
 		},
 	}
 	for _, tc := range tests {

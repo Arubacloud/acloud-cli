@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,22 @@ import (
 func TestJobListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockJobsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockJobsClient) {
+			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.JobList], error) {
-					return &types.Response[types.JobList]{
-						StatusCode: 200,
-						Data: &types.JobList{
-							Values: []types.JobResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+					Values: []types.JobResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "job-001") {
@@ -41,26 +36,21 @@ func TestJobListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockJobsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.JobList], error) {
-					return &types.Response[types.JobList]{StatusCode: 200, Data: &types.JobList{}}, nil
-				}
+			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockJobsClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"schedule", "job", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.JobList], error) {
-					return &types.Response[types.JobList]{
-						StatusCode: 200,
-						Data: &types.JobList{
-							Values: []types.JobResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+					Values: []types.JobResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +60,19 @@ func TestJobListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.JobList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.JobList], error) {
-					return &types.Response[types.JobList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +80,11 @@ func TestJobListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockJobsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"schedule", "job", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withSchedule(&mockScheduleClient{jobsClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +96,18 @@ func TestJobListCmd(t *testing.T) {
 func TestJobGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockJobsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockJobsClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return &types.Response[types.JobResponse]{
-						StatusCode: 200,
-						Data:       &types.JobResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "job-001") {
@@ -138,24 +116,17 @@ func TestJobGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return &types.Response[types.JobResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +134,11 @@ func TestJobGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockJobsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withSchedule(&mockScheduleClient{jobsClient: m})),
-				[]string{"schedule", "job", "get", "job-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"schedule", "job", "get", "job-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -178,25 +148,30 @@ func TestJobGetCmd(t *testing.T) {
 }
 
 func TestJobCreateCmd(t *testing.T) {
+	baseShotArgs := []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "IT-BG",
+		"--job-type", "OneShot",
+		"--schedule-at", "2026-06-01T10:00:00Z",
+	}
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockJobsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
-			name: "success",
-			args: []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "my-job", "--region", "IT-BG", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z"},
-			setupMock: func(m *mockJobsClient) {
+			name: "success OneShot",
+			args: baseShotArgs,
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-new", "my-job"
-				m.createFn = func(_ context.Context, _ string, _ types.JobRequest, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return &types.Response[types.JobResponse]{
-						StatusCode: 200,
-						Data:       &types.JobResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "job-new") {
@@ -206,37 +181,30 @@ func TestJobCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"schedule", "job", "create", "--project-id", "proj-123", "--region", "IT-BG", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z"},
+			args:        removeFlag(baseShotArgs, "--name", "my-job"),
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --job-type",
-			args:        []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "my-job", "--region", "IT-BG"},
+			args:        removeFlag(baseShotArgs, "--job-type", "OneShot"),
 			wantErr:     true,
 			errContains: "job-type",
 		},
 		{
-			name: "SDK error propagates",
-			args: []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "my-job", "--region", "IT-BG", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z"},
-			setupMock: func(m *mockJobsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.JobRequest, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			name: "server error propagates",
+			args: baseShotArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
 			name: "API error propagates",
-			args: []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "my-job", "--region", "IT-BG", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z"},
-			setupMock: func(m *mockJobsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.JobRequest, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return &types.Response[types.JobResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: baseShotArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -244,11 +212,11 @@ func TestJobCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockJobsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withSchedule(&mockScheduleClient{jobsClient: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -260,17 +228,17 @@ func TestJobCreateCmd(t *testing.T) {
 func TestJobDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockJobsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockJobsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"schedule", "job", "delete", "job-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "job-001") {
@@ -280,15 +248,12 @@ func TestJobDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockJobsClient) {
+			args: []string{"schedule", "job", "delete", "job-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.JobResponse], error) {
-					return &types.Response[types.JobResponse]{StatusCode: 200, Data: &types.JobResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}}}, nil
-				}
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "job-001") {
@@ -297,24 +262,19 @@ func TestJobDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"schedule", "job", "delete", "job-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockJobsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"schedule", "job", "delete", "job-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -322,15 +282,11 @@ func TestJobDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockJobsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"schedule", "job", "delete", "job-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withSchedule(&mockScheduleClient{jobsClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

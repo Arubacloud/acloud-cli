@@ -624,3 +624,58 @@ The response field is still `resource.Properties.PublicIp.URI` (unchanged wire f
 ### KubernetesVersion constants
 
 v0.2.0 removed `KubernetesVersion1313`. Available: `aruba.KubernetesVersion1323`, `KubernetesVersion1332`, `KubernetesVersion1341`. The CLI accepts any string via `aruba.KubernetesVersion(version)` — validation is left to the API.
+
+## Schedule Family
+
+`cmd/schedule.job.go` — one resource, managed via `client.FromSchedule().Jobs()`.
+
+### Ref helpers
+
+```go
+func jobRef(projectID, jobID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
+}
+func jobFromRaw(j *aruba.Job) *types.JobResponse { return j.Raw() }
+func jobListPayload(l *aruba.List[*aruba.Job]) any {
+    if r, ok := l.Raw().(*types.Response[types.JobList]); ok && r != nil {
+        return r.Data
+    }
+    return nil
+}
+```
+
+### Identity accessors
+
+`j.JobID()` (not `j.ID()`), `j.Name()`, `j.Region()` (→ `aruba.Region`, cast with `string()`), `j.JobType()` (→ `types.JobType`), `j.Enabled()` bool, `j.State()` string.
+
+### Schedule modes — mutually exclusive
+
+```go
+// One-shot:
+j.OneShotAt(t)
+
+// Recurring:
+j.WithCron(cronExpr).RecurringUntil(endTime)
+```
+
+Call `j.Err()` after builder setup to surface any validation errors before the Create call.
+
+### `WithEnabled(false)` omitempty limitation
+
+The `enabled` field in the Job request body is tagged `omitempty`. Passing `false` via `WithEnabled(false)` has no effect on the wire — the field is omitted and the server keeps the previous value. This is an upstream SDK bug tracked in `Arubacloud/sdk-go`. Disabling a job via Update is currently a no-op.
+
+## Security (KMS) Family
+
+`cmd/security.kms.go` — migrated to v0.2.0 in #108 (alongside schedule).
+
+### Ref helpers
+
+```go
+func kmsRef(projectID, kmsID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
+}
+```
+
+### Identity accessor
+
+`k.KMSID()` (not `k.ID()`). Other accessors: `k.Name()`, `k.Region()`, `k.State()`, `k.Raw()` → `*types.KMSResponse`.

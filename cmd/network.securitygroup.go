@@ -10,7 +10,7 @@ import (
 
 // securityGroupRef is shared with securityrule.go and subnet.go (via vpcRef).
 func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/securitygroups/" + sgID)
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/security-groups/" + sgID)
 }
 
 func securityGroupListPayload(l *aruba.List[*aruba.SecurityGroup]) any {

@@ -541,3 +541,49 @@ r := aruba.NewContainerRegistry().
 if concurrentUsers != "" { r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) }
 created, err := client.FromContainer().ContainerRegistry().Create(ctx, r)
 ```
+
+## Schedule-Specific Patterns
+
+### Job Create — OneShot vs Recurring (mutually exclusive)
+
+```go
+j := aruba.NewJob().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    OfType(aruba.JobType(jobType)).
+    WithEnabled(enabled)
+
+if cronExpr != "" {
+    endTime, _ := time.Parse(time.RFC3339, endTimeStr)
+    j.WithCron(cronExpr).RecurringUntil(endTime)
+} else {
+    shotTime, _ := time.Parse(time.RFC3339, shotTimeStr)
+    j.OneShotAt(shotTime)
+}
+
+if err := j.Err(); err != nil {
+    return fmt.Errorf("invalid job configuration: %w", err)
+}
+
+ctx, cancel := newCtx(); defer cancel()
+created, err := client.FromSchedule().Jobs().Create(ctx, j)
+if err != nil { return fmt.Errorf("creating schedule job: %w", apiErrFromV2(err)) }
+```
+
+`j.Err()` surfaces builder validation failures (e.g. mixing OneShot and Recurring). Always check it before the Create call.
+
+### Job Update
+
+```go
+cur, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
+if err != nil { return fmt.Errorf("getting schedule job: %w", apiErrFromV2(err)) }
+
+if name != "" { cur.Named(name) }
+if enabledSet { cur.WithEnabled(enabled) }  // enabledSet = cmd.Flags().Changed("enabled")
+if cmd.Flags().Changed("tags") { cur.ReplaceTags(tags...) }
+
+updated, err := client.FromSchedule().Jobs().Update(ctx, cur)
+```
+
+Note: `WithEnabled(false)` is a no-op on the wire due to `omitempty` in the SDK request type. See ARCHITECTURE.md.

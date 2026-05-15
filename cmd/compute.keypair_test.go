@@ -173,9 +173,9 @@ func TestKeyPairCreateCmd(t *testing.T) {
 			name: "success",
 			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
 			setupSrv: func(srv *arubaTestServer) {
-				kpName := "my-kp"
+				kpID, kpName := "kp-new", "my-kp"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairResponse{
-					Metadata: types.ResourceMetadataResponse{Name: &kpName},
+					Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
