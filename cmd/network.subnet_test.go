@@ -232,8 +232,9 @@ func TestSubnetUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
 				state := "Active"
+				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
-					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
 					Status:   types.ResourceStatus{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
@@ -267,8 +268,9 @@ func TestSubnetUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
 				state := "Active"
+				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
-					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
 					Status:   types.ResourceStatus{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(500, "Internal Server Error", "boom"))

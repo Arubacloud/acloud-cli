@@ -308,7 +308,7 @@ var elasticipUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 

@@ -321,7 +321,7 @@ var subnetUpdateCmd = &cobra.Command{
 		dhcpEnabled, _ := cmd.Flags().GetBool("dhcp-enabled")
 		dhcpRoutes, _ := cmd.Flags().GetStringSlice("dhcp-routes")
 		dhcpDNS, _ := cmd.Flags().GetStringSlice("dhcp-dns")
-		if name == "" && cidr == "" && !cmd.Flags().Changed("tags") && !cmd.Flags().Changed("dhcp-enabled") && len(dhcpRoutes) == 0 && len(dhcpDNS) == 0 {
+		if name == "" && cidr == "" && !cmd.Flags().Changed("tags") && !cmd.Flags().Changed("dhcp-enabled") && !cmd.Flags().Changed("dhcp-routes") && !cmd.Flags().Changed("dhcp-dns") {
 			return fmt.Errorf("at least one of --name, --cidr, --tags, --dhcp-enabled, --dhcp-routes, or --dhcp-dns must be provided")
 		}
 		projectID, err := GetProjectID(cmd)

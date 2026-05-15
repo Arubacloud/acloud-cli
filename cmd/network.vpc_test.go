@@ -232,8 +232,9 @@ func TestVPCUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpc-001", "my-vpc"
 				state := "Active"
+				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
-					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
 					Status:   types.ResourceStatus{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
@@ -267,8 +268,9 @@ func TestVPCUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpc-001", "my-vpc"
 				state := "Active"
+				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
-					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
 					Status:   types.ResourceStatus{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", errorResponse(500, "Internal Server Error", "boom"))

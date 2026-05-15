@@ -47,11 +47,18 @@ Issues are grouped by severity. Address Critical items before new features ship;
 - #105 (storage family: blockstorage, snapshot, backup, restore) — merged onto `feat/sdk-v0.2.0-upgrade`.
 - #106 (database family: dbaas, database, user, backup) — merged onto `feat/sdk-v0.2.0-upgrade`.
 - #107 (container family: kaas, containerregistry) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #108–#110 (schedule, kms, other families) — still open.
+- #108 (schedule family: schedule.job; KMS also migrated as part of this PR) — merged onto `feat/sdk-v0.2.0-upgrade`.
+- #109–#110 (remaining families) — still open.
 
-`go build ./cmd` remains red until #108–#110 land. After fixing container, the next visible errors are in `schedule.job.go` (pre-existing v0.1.x API usage, same migration required). `make e2e-network` requires live credentials (validated after integration branch complete).
+`go build ./cmd` is now green for all migrated families. `make e2e-network` requires live credentials (validated after integration branch complete).
 
-**Fix:** Close out #99's exit criteria (#108–#110 + #111), then mark TD-022 resolved.
+Known upstream SDK issues filed against `Arubacloud/sdk-go` during #108:
+- `Job.WithEnabled(false)` is omitempty in the request body — disabling a job via Update silently has no effect.
+- `JobsClient` List pagination stub: `*List[*Job].Next/Prev` fail at runtime (same as other storage/schedule adapters).
+- `VPC.Get` does not backfill `projectID` from the Ref (unlike ElasticIP, SecurityGroup, Subnet which all do `out.projectID = projectID`); workaround in `vpcUpdateCmd`: `cur.IntoProject(projectRef(projectID))` after Get.
+- `projectsClientImpl.Delete` does not parse error body into `resp.Error`, so the error title is absent from `apiErrFromV2` output (test expectation lowered to `"API error (status 404)"` instead of `"API error (status 404): Not Found"`).
+
+**Fix:** Close out #99's exit criteria (#109–#110 + #111), then mark TD-022 resolved.
 
 ---
 

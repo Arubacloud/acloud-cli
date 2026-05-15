@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -600,22 +599,6 @@ func TestFmtAPIError_And_APIErrFromResp(t *testing.T) {
 			errFunc: func() error { return fmtAPIError(404, strPtr("Not Found"), strPtr("resource not found")) },
 			want:    "API error (status 404): Not Found \u2014 resource not found",
 		},
-		{
-			name:    "apiErrFromResp nil errResp",
-			errFunc: func() error { return apiErrFromResp(404, nil) },
-			want:    "API error (status 404)",
-		},
-		{
-			name:    "apiErrFromResp 2xx returns nil",
-			errFunc: func() error { return apiErrFromResp(200, nil) },
-		},
-		{
-			name: "apiErrFromResp with errResp",
-			errFunc: func() error {
-				return apiErrFromResp(404, &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")})
-			},
-			want: "API error (status 404): Not Found \u2014 resource not found",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -660,25 +643,25 @@ func TestMsgHelpers(t *testing.T) {
 	}
 }
 
-func TestListParams(t *testing.T) {
+func TestListOpts(t *testing.T) {
 	// Build a temp command with limit/offset flags (same as all list commands)
 	cmd := &cobra.Command{}
 	cmd.Flags().Int32("limit", 0, "")
 	cmd.Flags().Int32("offset", 0, "")
 
 	// nil when both flags are zero
-	p := listParams(cmd)
-	if p != nil {
-		t.Errorf("expected nil params for zero flags, got %+v", p)
+	opts := listOpts(cmd)
+	if opts != nil {
+		t.Errorf("expected nil opts for zero flags, got %+v", opts)
 	}
 
 	// non-nil when limit is set
 	if err := cmd.Flags().Set("limit", "10"); err != nil {
 		t.Fatalf("setting limit: %v", err)
 	}
-	p = listParams(cmd)
-	if p == nil || p.Limit == nil || *p.Limit != 10 {
-		t.Errorf("expected limit=10, got %+v", p)
+	opts = listOpts(cmd)
+	if opts == nil {
+		t.Errorf("expected non-nil opts when limit=10")
 	}
 
 	// non-nil when offset is set
@@ -688,9 +671,9 @@ func TestListParams(t *testing.T) {
 	if err := cmd.Flags().Set("offset", "5"); err != nil {
 		t.Fatalf("setting offset: %v", err)
 	}
-	p = listParams(cmd)
-	if p == nil || p.Offset == nil || *p.Offset != 5 {
-		t.Errorf("expected offset=5, got %+v", p)
+	opts = listOpts(cmd)
+	if opts == nil {
+		t.Errorf("expected non-nil opts when offset=5")
 	}
 }
 

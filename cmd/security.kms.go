@@ -5,9 +5,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+func kmsRef(projectID, kmsID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
+}
+
+func kmsFromRaw(k *aruba.KMS) *types.KmsResponse { return k.Raw() }
+
+func kmsListPayload(l *aruba.List[*aruba.KMS]) any {
+	if r, ok := l.Raw().(*types.Response[types.KmsList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
 
 func init() {
 	// KMS commands
@@ -60,19 +74,17 @@ func completeKMSID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	}
 
 	ctx := context.Background()
-	response, err := client.FromSecurity().KMS().List(ctx, projectID, nil)
+	list, err := client.FromSecurity().KMS().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, kms := range response.Data.Values {
-			if kms.Metadata.ID != nil && kms.Metadata.Name != nil {
-				id := *kms.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *kms.Metadata.Name))
-				}
+	if list != nil {
+		for _, k := range list.Items() {
+			id := k.KMSID()
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, k.Name()))
 			}
 		}
 	}
@@ -112,66 +124,37 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		createRequest := types.KmsRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: types.KmsPropertiesRequest{
-				BillingPeriod: billingPeriod,
-			},
+		k := aruba.NewKMS().
+			IntoProject(projectRef(projectID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+		if len(tags) > 0 {
+			k.ReplaceTags(tags...)
 		}
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromSecurity().KMS().Create(ctx, projectID, createRequest, nil)
+		created, err := client.FromSecurity().KMS().Create(ctx, k)
 		if err != nil {
-			return fmt.Errorf("creating KMS: %w", err)
+			return fmt.Errorf("creating KMS: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		if created.Raw() != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
 				{Header: "REGION", Width: 20},
 				{Header: "STATUS", Width: 15},
 			}
+			raw := created.Raw()
 			row := []string{
-				func() string {
-					if response.Data.Metadata.ID != nil {
-						return *response.Data.Metadata.ID
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Metadata.Name != nil {
-						return *response.Data.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Metadata.LocationResponse != nil {
-						return response.Data.Metadata.LocationResponse.Value
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Status.State != nil {
-						return *response.Data.Status.State
-					}
-					return ""
-				}(),
+				created.KMSID(),
+				created.Name(),
+				string(created.Region()),
+				created.State(),
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(raw, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("KMS", name))
 		}
@@ -198,59 +181,48 @@ var kmsGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromSecurity().KMS().Get(ctx, projectID, kmsID, nil)
+		got, err := client.FromSecurity().KMS().Get(ctx, kmsRef(projectID, kmsID))
 		if err != nil {
-			return fmt.Errorf("getting KMS: %w", err)
+			return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(kmsFromRaw(got), nil, nil)
+			return nil
 		}
 
-		if resp != nil && resp.Data != nil {
-			kms := resp.Data
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(kms, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nKMS Details:")
-			fmt.Println("============")
-
-			if kms.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *kms.Metadata.ID)
-			}
-			if kms.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *kms.Metadata.URI)
-			}
-			if kms.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *kms.Metadata.Name)
-			}
-			if kms.Metadata.LocationResponse != nil {
-				if kms.Metadata.LocationResponse != nil {
-					fmt.Printf("Region:          %s\n", kms.Metadata.LocationResponse.Value)
-				}
-			}
-			if kms.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *kms.Status.State)
-			}
-			if kms.Metadata.CreationDate != nil && !kms.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", kms.Metadata.CreationDate.Format(DateLayout))
-			}
-			if kms.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *kms.Metadata.CreatedBy)
-			}
-			if len(kms.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", kms.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			fmt.Println()
-		} else {
+		raw := got.Raw()
+		if raw == nil {
 			fmt.Println("KMS not found")
+			return nil
 		}
+
+		fmt.Println("\nKMS Details:")
+		fmt.Println("============")
+		fmt.Printf("ID:              %s\n", got.KMSID())
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+		}
+		fmt.Printf("Name:            %s\n", got.Name())
+		if raw.Metadata.LocationResponse != nil {
+			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+		}
+		if state := got.State(); state != "" {
+			fmt.Printf("Status:          %s\n", state)
+		}
+		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		fmt.Println()
 		return nil
 	},
 }
@@ -272,16 +244,12 @@ var kmsListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromSecurity().KMS().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromSecurity().KMS().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing KMS: %w", err)
+			return fmt.Errorf("listing KMS: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 30},
@@ -290,36 +258,15 @@ var kmsListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, kms := range resp.Data.Values {
-				row := []string{
-					func() string {
-						if kms.Metadata.Name != nil {
-							return *kms.Metadata.Name
-						}
-						return ""
-					}(),
-					func() string {
-						if kms.Metadata.ID != nil {
-							return *kms.Metadata.ID
-						}
-						return ""
-					}(),
-					func() string {
-						if kms.Metadata.LocationResponse != nil {
-							return kms.Metadata.LocationResponse.Value
-						}
-						return ""
-					}(),
-					func() string {
-						if kms.Status.State != nil {
-							return *kms.Status.State
-						}
-						return ""
-					}(),
-				}
-				rows = append(rows, row)
+			for _, k := range list.Items() {
+				rows = append(rows, []string{
+					k.Name(),
+					k.KMSID(),
+					string(k.Region()),
+					k.State(),
+				})
 			}
-			PrintOutput(resp.Data, headers, rows)
+			PrintOutput(kmsListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No KMS resources found")
 		}
@@ -353,66 +300,28 @@ var kmsUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResp, err := client.FromSecurity().KMS().Get(ctx, projectID, kmsID, nil)
+		current, err := client.FromSecurity().KMS().Get(ctx, kmsRef(projectID, kmsID))
 		if err != nil {
-			return fmt.Errorf("getting KMS: %w", err)
-		}
-
-		if getResp == nil || getResp.Data == nil {
-			return fmt.Errorf("KMS not found")
-		}
-
-		current := getResp.Data
-
-		regionValue := ""
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
-		}
-		if regionValue == "" {
-			return fmt.Errorf("unable to determine region value for KMS")
-		}
-
-		updateRequest := types.KmsRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: *current.Metadata.Name,
-					Tags: current.Metadata.Tags,
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.KmsPropertiesRequest{
-				BillingPeriod: current.Properties.BillingPeriod,
-			},
+			return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 		}
 
 		if name != "" {
-			updateRequest.Metadata.ResourceMetadataRequest.Name = name
+			current.Named(name)
 		}
-
 		if cmd.Flags().Changed("tags") {
-			updateRequest.Metadata.ResourceMetadataRequest.Tags = tags
+			current.ReplaceTags(tags...)
 		}
 
-		response, err := client.FromSecurity().KMS().Update(ctx, projectID, kmsID, updateRequest, nil)
+		updated, err := client.FromSecurity().KMS().Update(ctx, current)
 		if err != nil {
-			return fmt.Errorf("updating KMS: %w", err)
+			return fmt.Errorf("updating KMS: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
-			fmt.Printf("\n%s\n", msgUpdated("KMS", kmsID))
-			fmt.Printf("ID:              %s\n", *response.Data.Metadata.ID)
-			fmt.Printf("Name:            %s\n", *response.Data.Metadata.Name)
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", response.Data.Metadata.Tags)
-			}
-		} else {
-			fmt.Println(msgUpdatedAsync("KMS", kmsID))
+		fmt.Printf("\n%s\n", msgUpdated("KMS", kmsID))
+		fmt.Printf("ID:              %s\n", updated.KMSID())
+		fmt.Printf("Name:            %s\n", updated.Name())
+		if raw := updated.Raw(); raw != nil && len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 		}
 		return nil
 	},
@@ -424,18 +333,6 @@ var kmsDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		kmsID := args[0]
-
-		confirm, _ := cmd.Flags().GetBool("yes")
-
-		if !confirm {
-			ok, err := confirmDelete("KMS", kmsID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -452,19 +349,27 @@ var kmsDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromSecurity().KMS().Get(ctx, projectID, kmsID, nil)
-			if err != nil {
-				return fmt.Errorf("dry-run: KMS not found or inaccessible: %w", err)
+			if _, err := client.FromSecurity().KMS().Get(ctx, kmsRef(projectID, kmsID)); err != nil {
+				return fmt.Errorf("dry-run: KMS not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("KMS", kmsID))
 			return nil
 		}
 
-		_, err = client.FromSecurity().KMS().Delete(ctx, projectID, kmsID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting KMS: %w", err)
+		skipConfirm, _ := cmd.Flags().GetBool("yes")
+		if !skipConfirm {
+			ok, err := confirmDelete("KMS", kmsID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
 		}
 
+		if err := client.FromSecurity().KMS().Delete(ctx, kmsRef(projectID, kmsID)); err != nil {
+			return fmt.Errorf("deleting KMS: %w", apiErrFromV2(err))
+		}
 		fmt.Println(msgDeleted("KMS", kmsID))
 		return nil
 	},
