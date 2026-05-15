@@ -536,3 +536,91 @@ The old v0.1.x code performed 2 cross-family Gets just to obtain URIs (and used 
 - DBaaSBackup: `b.DBaaSBackupID()` (use this, not `b.ID()`)
 - Database: `db.DatabaseID()` (returns the name, which is the path identifier)
 - User: `u.Username()` (returns the username, which is the path identifier)
+
+---
+
+## Container Family
+
+`client.FromContainer()` returns a `ContainerClient` with two sub-clients:
+
+| Sub-client | Method | Resource |
+|---|---|---|
+| `KaaS()` | `FromContainer().KaaS()` | Kubernetes-as-a-Service clusters (project-scoped) |
+| `ContainerRegistry()` | `FromContainer().ContainerRegistry()` | Container registries (project-scoped) |
+
+### Ref helpers (declared per file)
+
+```go
+func kaasRef(projectID, kaasID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Container/kaas/" + kaasID)
+}
+func containerRegistryRef(projectID, registryID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID)
+}
+```
+
+**Path note**: ContainerRegistry uses `registries` (not `containerregistries`) — matches `internal/clients/container/path.go`.
+
+### Identity accessors
+
+- KaaS: `k.KaaSID()` (use this, not `k.ID()`)
+- ContainerRegistry: `r.ContainerRegistryID()` (equivalent to `r.ID()`)
+
+### `DownloadKubeconfig` — method on `*KaaS`, not on `KaaSClient`
+
+`KaaSClient` interface exposes only `List / Get / Create / Update / Delete`. The kubeconfig download requires a **two-step** approach:
+
+```go
+got, err := client.FromContainer().KaaS().Get(ctx, kaasRef(projectID, kaasID))
+if err != nil { return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err)) }
+kubeconfigBytes, err := got.DownloadKubeconfig(ctx)
+```
+
+Wire path: `GET /projects/{p}/providers/Aruba.Container/kaas/{id}/download` → returns `types.KaaSKubeconfigResponse{Name, Content}`. `DownloadKubeconfig` returns `[]byte(resp.Data.Content)`. The content is base64-encoded YAML; decode before writing to disk.
+
+### `WithSecurityGroup` on KaaS requires `*aruba.SecurityGroup`
+
+`KaaS.WithSecurityGroup(sg Ref)` performs a type assertion `sg.(*SecurityGroup)` internally and fails at runtime if the assertion fails. Do **not** pass `aruba.URI(...)`. Always construct a minimal wrapper:
+
+```go
+sg := aruba.NewSecurityGroup().Named(securityGroupName)
+k.WithSecurityGroup(sg)
+```
+
+The KaaS API stores only the SG name, not a URI. This diverges from `ContainerRegistry.WithSecurityGroup(sg Ref)` which accepts any `Ref` (plain `aruba.URI(...)`).
+
+### NodePool sub-builder
+
+```go
+np := aruba.NewNodePool().
+    Named(poolName).
+    WithCount(n).
+    OfInstance(aruba.NodePoolInstance(instance)).
+    InZone(aruba.Zone(zone))
+if autoscaling { np.WithAutoscaling(minCount, maxCount) }
+k.AddNodePool(np)
+```
+
+`AddNodePool` **appends** to pools already set by `fromResponse()` on an existing wrapper. There is no `ClearNodePools` or `ReplaceNodePools`. When updating via Get→mutate→Update, adding a pool appends rather than replaces.
+
+### `ContainerRegistry.OfSize` — replaces `ConcurrentUsers` string
+
+The old v0.1.x `ConcurrentUsers *string` field is replaced by a typed enum:
+
+```go
+r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) // "Small", "Medium", "HighPerf"
+```
+
+Use `aruba.ContainerRegistrySizeFlavorSmall`, `ContainerRegistrySizeFlavorMedium`, `ContainerRegistrySizeFlavorHighPerf` constants.
+
+### `ContainerRegistry.WithElasticIP` — replaces `PublicIp.URI`
+
+```go
+r.WithElasticIP(aruba.URI(publicIPURI))
+```
+
+The response field is still `resource.Properties.PublicIp.URI` (unchanged wire format).
+
+### KubernetesVersion constants
+
+v0.2.0 removed `KubernetesVersion1313`. Available: `aruba.KubernetesVersion1323`, `KubernetesVersion1332`, `KubernetesVersion1341`. The CLI accepts any string via `aruba.KubernetesVersion(version)` — validation is left to the API.

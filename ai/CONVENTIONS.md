@@ -486,3 +486,58 @@ DBaaS and Backup List are project-scoped (standard pattern):
 list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID), listOpts(cmd)...)
 list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID), listOpts(cmd)...)
 ```
+
+---
+
+## Container-Specific Patterns
+
+### KaaS Create — SecurityGroup wrapper required
+
+`KaaS.WithSecurityGroup` does a type assertion to `*aruba.SecurityGroup`. Pass a named wrapper, not a URI Ref:
+
+```go
+sg := aruba.NewSecurityGroup().Named(securityGroupName) // *aruba.SecurityGroup, not aruba.URI(...)
+k := aruba.NewKaaS().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).
+    WithNodeCIDR(nodeCIDRAddress, nodeCIDRName).
+    WithSecurityGroup(sg).
+    WithVPC(aruba.URI(vpcURI)).
+    WithSubnet(aruba.URI(subnetURI)).
+    AddNodePool(nodePool)
+created, err := client.FromContainer().KaaS().Create(ctx, k)
+```
+
+### KaaS Connect — two-step kubeconfig download
+
+`DownloadKubeconfig` lives on `*KaaS` (not `KaaSClient`). Must `Get` first to obtain a hydrated wrapper:
+
+```go
+got, err := client.FromContainer().KaaS().Get(ctx, kaasRef(projectID, kaasID))
+if err != nil { return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err)) }
+kubeconfigBytes, err := got.DownloadKubeconfig(ctx)
+if err != nil { return fmt.Errorf("downloading kubeconfig: %w", apiErrFromV2(err)) }
+// kubeconfigBytes is []byte(resp.Data.Content) — base64-encoded YAML; decode before writing
+decodedContent, err := base64.StdEncoding.DecodeString(string(kubeconfigBytes))
+if err != nil { decodedContent = kubeconfigBytes } // already raw if decode fails
+```
+
+### ContainerRegistry Create — URI Refs for all network resources
+
+Unlike KaaS, `ContainerRegistry.WithSecurityGroup` accepts any `Ref` (no type assertion):
+
+```go
+r := aruba.NewContainerRegistry().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithElasticIP(aruba.URI(publicIPURI)).
+    WithVPC(aruba.URI(vpcURI)).
+    WithSubnet(aruba.URI(subnetURI)).
+    WithSecurityGroup(aruba.URI(securityGroupURI)).
+    WithBlockStorage(aruba.URI(blockStorageURI))
+if concurrentUsers != "" { r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) }
+created, err := client.FromContainer().ContainerRegistry().Create(ctx, r)
+```

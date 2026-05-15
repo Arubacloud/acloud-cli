@@ -201,7 +201,7 @@ and users with 'acloud database dbaas user create'.`,
 				}(),
 				func() string {
 					if resource.Metadata.LocationResponse != nil {
-						return resource.Metadata.LocationResponse.Value
+						return string(resource.Metadata.LocationResponse.Value)
 					}
 					return ""
 				}(),
@@ -369,7 +369,7 @@ var dbaasListCmd = &cobra.Command{
 					}(),
 					func() string {
 						if raw.Metadata.LocationResponse != nil {
-							return raw.Metadata.LocationResponse.Value
+							return string(raw.Metadata.LocationResponse.Value)
 						}
 						return ""
 					}(),
