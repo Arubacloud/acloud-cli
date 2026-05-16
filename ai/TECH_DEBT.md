@@ -22,7 +22,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-016 | Multi-mode output implemented: 5 canonical formats (`table`, `table-json`, `table-yaml`, `json`, `yaml`) via `resolveOutputFormat` + `PrintOutput`; `PrintTable` is now a shim; `-o json`/`-o yaml` emit full SDK response (breaking change from original PR #30 flat shape) |
 | TD-017 | `listParams(cmd)` helper added; `--limit`/`--offset` flags added to all 25 list commands; list RunE handlers now pass pagination params to SDK |
 | TD-018 | Global client cache vars encapsulated in `clientState` struct with `resetClientState()` helper; all test reset blocks updated to use it |
-| TD-010 | Table-driven `RunE` tests added for all 23 testable command files (24 including pre-existing `network.vpc_test.go`); mock infrastructure in `cmd/mock_test.go` covers all sub-clients; `security.kms.go` skipped (concrete SDK type, cannot mock); nil-pointer bugs in `LocationResponse.Value` and `CreationDate.IsZero()` fixed as a side effect of test authoring; redundant double nil-check blocks left by AWK generation cleaned up in 5 files |
+| TD-010 | Table-driven `RunE` tests added for all 23 testable command files (24 including pre-existing `network.vpc_test.go`); mock infrastructure in `cmd/mock_test.go` covers all sub-clients; `security.kms_test.go` added via `arubaTestServer` harness in #109 (was previously skipped — concrete SDK type blocked concrete mocking); nil-pointer bugs in `LocationResponse.Value` and `CreationDate.IsZero()` fixed as a side effect of test authoring; redundant double nil-check blocks left by AWK generation cleaned up in 5 files |
 | TD-020 | Six helper functions added to `cmd/root.go` (`msgCreated`, `msgCreatedAsync`, `msgUpdated`, `msgUpdatedAsync`, `msgDeleted`, `msgAction`); all ~91 success `fmt.Print*` calls replaced across 20 cmd files; one double-nil-check fixed in `container.containerregistry.go` as a side effect |
 | TD-021 | `Long` and `Example` fields added to all 23 create commands across 22 cmd files; subnet already had a minimal `Long` which was replaced with a richer version |
 | TD-019 | `--dry-run` flag added to all 24 delete commands; in dry-run mode a `Get` validates existence and access then prints `[dry-run] Would delete …` without calling `Delete`; `msgDryRun` helper added to `cmd/root.go` |
@@ -48,7 +48,8 @@ Issues are grouped by severity. Address Critical items before new features ship;
 - #106 (database family: dbaas, database, user, backup) — merged onto `feat/sdk-v0.2.0-upgrade`.
 - #107 (container family: kaas, containerregistry) — merged onto `feat/sdk-v0.2.0-upgrade`.
 - #108 (schedule family: schedule.job; KMS also migrated as part of this PR) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #109–#110 (remaining families) — still open.
+- #109 (security.kms unit tests against arubaTestServer harness) — merged onto `feat/sdk-v0.2.0-upgrade`.
+- #110 (remaining families) — still open.
 
 `go build ./cmd` is now green for all migrated families. `make e2e-network` requires live credentials (validated after integration branch complete).
 
@@ -58,7 +59,7 @@ Known upstream SDK issues filed against `Arubacloud/sdk-go` during #108:
 - `VPC.Get` does not backfill `projectID` from the Ref (unlike ElasticIP, SecurityGroup, Subnet which all do `out.projectID = projectID`); workaround in `vpcUpdateCmd`: `cur.IntoProject(projectRef(projectID))` after Get.
 - `projectsClientImpl.Delete` does not parse error body into `resp.Error`, so the error title is absent from `apiErrFromV2` output (test expectation lowered to `"API error (status 404)"` instead of `"API error (status 404): Not Found"`).
 
-**Fix:** Close out #99's exit criteria (#109–#110 + #111), then mark TD-022 resolved.
+**Fix:** Close out #99's exit criteria (#110 + #111), then mark TD-022 resolved.
 
 ---
 
