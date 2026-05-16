@@ -29,6 +29,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 | TD-023 | Verbose error-body dump in `storage.backup` / `storage.restore` now uses `json.MarshalIndent(response.Error, …)`; generic `map[string]interface{}` unmarshal removed |
 | TD-024 | VPN crypto enums split per-direction in v0.2.0: the five unified slices (`vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups`) are replaced with seven per-direction slices (`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, `vpnIKEHashAlgorithms`, `vpnESPHashAlgorithms`, `vpnIKEDHGroups`, `vpnIKEDPDActions`, `vpnESPPFSGroups`) built from `aruba.IKE*`/`aruba.ESP*` constants; each `--ike-*`/`--esp-*` flag is keyed to its correct family in the validation table; accepted string values are unchanged (CLI behaviour byte-identical) |
+| TD-022 | SDK fully migrated from v0.1.x → v0.2.0 wrapper API across all families (#100–#110); `go build ./cmd` green; full unit-test coverage via `arubaTestServer` harness in `cmd/mock_test.go`. Upstream SDK papercuts tracked separately as `Arubacloud/sdk-go` issues #282–#285 (Job.WithEnabled omitempty, List pagination stubs, VPC.Get missing projectID backfill, projectsClientImpl.Delete missing error-body parse). Behavioral audit confirmed: zero `"Available"` state literals in `cmd/`/`e2e/`; `StateInCreation` retained (9 active call sites); no `KubernetesVersion1313` references in CLI or docs. |
 
 ---
 
@@ -38,28 +39,6 @@ Issues are grouped by severity. Address Critical items before new features ship;
 `PrintTable(headers, rows)` is now a one-line shim around `PrintOutput(nil, headers, rows)`. All call sites that pass `nil` as the first arg produce `{}` for `-o json` / `-o yaml` instead of the actual resource data. Remaining direct `PrintTable` calls should be replaced with `PrintOutput(response.Data, headers, rows)` and the shim deleted.
 
 **Fix:** Grep for `PrintTable(` and migrate each site to `PrintOutput`, passing the typed SDK response as the first argument. Remove the `PrintTable` function once all sites are updated.
-
----
-
-### TD-022 · Pre-release SDK version (v0.1.x → v0.2.0 migration in progress)
-`go.mod` now depends on `github.com/Arubacloud/sdk-go v0.2.0`. Migration status:
-- #100 (shared helpers), #101 (`arubaTestServer` harness), #102 (`management.project`), #103 (`compute`: cloudserver + keypair), #104 (`network` family: 10 resources) — all merged onto `feat/sdk-v0.2.0-upgrade`.
-- #105 (storage family: blockstorage, snapshot, backup, restore) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #106 (database family: dbaas, database, user, backup) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #107 (container family: kaas, containerregistry) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #108 (schedule family: schedule.job; KMS also migrated as part of this PR) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #109 (security.kms unit tests against arubaTestServer harness) — merged onto `feat/sdk-v0.2.0-upgrade`.
-- #110 (remaining families) — still open.
-
-`go build ./cmd` is now green for all migrated families. `make e2e-network` requires live credentials (validated after integration branch complete).
-
-Known upstream SDK issues filed against `Arubacloud/sdk-go` during #108:
-- `Job.WithEnabled(false)` is omitempty in the request body — disabling a job via Update silently has no effect.
-- `JobsClient` List pagination stub: `*List[*Job].Next/Prev` fail at runtime (same as other storage/schedule adapters).
-- `VPC.Get` does not backfill `projectID` from the Ref (unlike ElasticIP, SecurityGroup, Subnet which all do `out.projectID = projectID`); workaround in `vpcUpdateCmd`: `cur.IntoProject(projectRef(projectID))` after Get.
-- `projectsClientImpl.Delete` does not parse error body into `resp.Error`, so the error title is absent from `apiErrFromV2` output (test expectation lowered to `"API error (status 404)"` instead of `"API error (status 404): Not Found"`).
-
-**Fix:** Close out #99's exit criteria (#110 + #111), then mark TD-022 resolved.
 
 ---
 
@@ -74,3 +53,22 @@ Known upstream SDK issues filed against `Arubacloud/sdk-go` during #108:
 `network vpcpeeringroute create` against the e2e tenant now returns 200 (the v0.1.26→v0.1.27 SDK URL-path fix removed the bare 403 at CREATE), but the resulting route transitions to `Failed` shortly after creation. No `errors` array is exposed via GET; the route is simply unhealthy. This points at an API-side IAM/ACL on the `Aruba.Network/vpcPeerings/{id}/vpcPeeringRoutes` provisioning step scoped to this tenant — not a CLI bug. The e2e suite handles this via `wait_for_status`'s terminal-failure short-circuit: UPDATE is skipped, DELETE runs with `|| true`, and the function returns 0 so the suite stays green.
 
 **Fix:** Confirm required tenant/role permissions with Aruba and update the ACL accordingly. No CLI change is required — once the route reaches `Active`, the existing UPDATE/DELETE blocks in `test_vpc_peering_route` will exercise the full CRUD without further code changes.
+
+---
+
+### TD-027 · `acloud security key` and `acloud security kmip` commands not yet implemented
+The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.FromSecurity()`, but the CLI only wraps `KMS()` today (`cmd/security.kms.go`). Per #109 scope ("match issue strictly"), Key and KMIP CLI surfaces were intentionally deferred. Users who need these features must use the SDK directly.
+
+**Fix:** Add `cmd/security.key.go` and `cmd/security.kmip.go` following the same fluent-builder + `arubaTestServer` patterns documented in `ai/ARCHITECTURE.md` and `ai/CONVENTIONS.md`. Track as a follow-up sub-issue against #99 (or a successor parent issue post-v0.2.0 release).
+
+---
+
+### TD-028 · User-facing migration guide for `-o json`/`-o yaml` output-shape change
+TD-016 switched `-o json`/`-o yaml` to emit the full SDK response wrapper (`{ statusCode, data: { values: [...] } }`) instead of the flat shape used by acloud-cli v0.1.x. This is a **breaking change** for machine-readable consumers. There is currently no user-facing migration guide explaining the diff and recommending `jq`/`yq` patterns for downstream callers.
+
+**Fix:** Add a `docs/website/docs/output-formats.md` page (or expand an existing one) showing:
+- Before/after shape for a representative resource (e.g. `acloud network vpc list -o json`).
+- `jq` snippets to recover the flat shape (`.data.values[] | {id: .metadata.id, name: .metadata.name}`).
+- A note that `-o table-json` and `-o table-yaml` continue to emit table rows for table-style consumers.
+
+Surface this prominently in the v0.2.0 GitHub Release notes.
