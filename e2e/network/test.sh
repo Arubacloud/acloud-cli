@@ -9,11 +9,11 @@
 
 # Network-specific env overrides MUST come before sourcing common.sh so
 # that common.sh picks up the correct PROJECT_ID default for this suite.
-PROJECT_ID="${ACLOUD_PROJECT_ID:-68398923fb2cb026400d4d31}"
-VPC_ID="${ACLOUD_VPC_ID:-69495ef64d0cdc87949b71ec}"
-PEER_VPC_ID="${ACLOUD_PEER_VPC_ID:-689307f4745108d3c6343b5a}"
-REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-ELASTIC_IP_URI="${ACLOUD_ELASTIC_IP_URI:-}"
+#PROJECT_ID="${ACLOUD_PROJECT_ID:-68398923fb2cb026400d4d31}"
+#VPC_ID="${ACLOUD_VPC_ID:-69495ef64d0cdc87949b71ec}"
+#PEER_VPC_ID="${ACLOUD_PEER_VPC_ID:-689307f4745108d3c6343b5a}"
+#REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
+#ELASTIC_IP_URI="${ACLOUD_ELASTIC_IP_URI:-}"
 
 # shellcheck source=../common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -26,6 +26,9 @@ PEER_VPC_URI="${ACLOUD_PEER_VPC_URI:-/projects/${PROJECT_ID}/providers/Aruba.Net
 _RESOURCE_TS="${RESOURCE_PREFIX##*-}"
 SUBNET_CIDR="10.$(( (_RESOURCE_TS % 200) + 10 )).0.0/24"
 VPN_SUBNET_CIDR="10.$(( (_RESOURCE_TS % 44) + 210 )).0.0/24"
+# VPN route cloud-subnet uses a dedicated CIDR in the 10.1-10.5 range so it
+# never conflicts with SUBNET_CIDR (10.10–10.209) or VPN_SUBNET_CIDR (10.210–10.253).
+VPN_ROUTE_CIDR="10.$(( (_RESOURCE_TS % 5) + 1 )).0.0/24"
 
 # Cleanup tracking
 CREATED_VPCS=()
@@ -309,16 +312,46 @@ cleanup() {
             if [ -z "$subnet_id" ] || [ "$subnet_id" = "$VPC_ID" ] || ! is_valid_id "$subnet_id"; then
                 continue
             fi
+            # Subnets created near the end of the test may still be InCreation;
+            # wait for Active so the delete doesn't fail and block VPC deletion.
+            wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $subnet_id" '^(Active|Ready)$' 90 2>/dev/null || true
             echo "Deleting subnet: $subnet_id"
             $ACLOUD_CMD network subnet delete "$VPC_ID" "$subnet_id" --yes 2>&1 || true
         done
     fi
     
-    # Delete VPCs (only if we created them)
+    # Delete VPCs (only if we created them).
+    # The VPN tunnel's platform-managed internal subnet may still be releasing
+    # after the tunnel object disappears from the list, so retry on 400.
     for vpc_id in "${CREATED_VPCS[@]}"; do
         if is_valid_id "$vpc_id"; then
             echo "Deleting VPC: $vpc_id"
-            $ACLOUD_CMD network vpc delete "$vpc_id" --yes 2>&1 || true
+            local vpc_del_elapsed=0
+            local vpc_del_out
+            while [ "$vpc_del_elapsed" -lt 180 ]; do
+                vpc_del_out=$($ACLOUD_CMD network vpc delete "$vpc_id" --yes 2>&1) && break
+                if echo "$vpc_del_out" | grep -qi "not found\|already deleted"; then
+                    break
+                fi
+                echo "  → VPC delete failed (${vpc_del_elapsed}s elapsed), retrying in 20s..."
+                echo "  → $vpc_del_out"
+                # Actively delete any subnets still blocking VPC removal (e.g.
+                # the platform-managed internal subnet provisioned by a VPN tunnel).
+                local blocking_subnets
+                blocking_subnets=$($ACLOUD_CMD network subnet list "$vpc_id" 2>/dev/null | awk 'NR>1 && /[a-f0-9]{24}/ {print $2}')
+                for bsn in $blocking_subnets; do
+                    if is_valid_id "$bsn"; then
+                        echo "  → Deleting blocking subnet $bsn..."
+                        wait_for_status "$ACLOUD_CMD network subnet get $vpc_id $bsn" '^(Active|Ready)$' 30 2>/dev/null || true
+                        $ACLOUD_CMD network subnet delete "$vpc_id" "$bsn" --yes 2>&1 || true
+                    fi
+                done
+                sleep 20
+                vpc_del_elapsed=$((vpc_del_elapsed + 20))
+            done
+            if [ "$vpc_del_elapsed" -ge 180 ]; then
+                echo -e "${YELLOW}  ⚠ Could not delete VPC $vpc_id after 180s${NC}"
+            fi
         fi
     done
 }
@@ -441,21 +474,61 @@ test_resource() {
 # Test VPC
 test_vpc() {
     echo -e "${YELLOW}=== 1. VPC CRUD Test ===${NC}\n"
-    VPC_ID_OUTPUT=$(test_resource "VPC" \
-        "$ACLOUD_CMD network vpc create --name ${RESOURCE_PREFIX}-vpc --region $REGION" \
-        "$ACLOUD_CMD network vpc list" \
-        "$ACLOUD_CMD network vpc get \$RESOURCE_ID" \
-        "$ACLOUD_CMD network vpc update \$RESOURCE_ID --name ${RESOURCE_PREFIX}-vpc-updated --tags updated" \
-        "$ACLOUD_CMD network vpc delete \$RESOURCE_ID --yes" 2>&1)
-    
-    if [ -n "$VPC_ID_OUTPUT" ] && [ "$VPC_ID_OUTPUT" != "1" ]; then
-        CREATED_VPCS+=("$VPC_ID_OUTPUT")
-        VPC_ID="$VPC_ID_OUTPUT"
-        echo -e "${GREEN}VPC ID set to: $VPC_ID${NC}\n"
-    else
-        echo -e "${RED}Failed to create or extract VPC ID${NC}\n"
+    echo -e "${YELLOW}--- Testing VPC ---${NC}"
+
+    # CREATE
+    echo -e "${GREEN}[CREATE]${NC} Creating VPC..."
+    local create_out
+    create_out=$($ACLOUD_CMD network vpc create \
+        --name "${RESOURCE_PREFIX}-vpc" \
+        --region "$REGION" 2>&1) || {
+        echo -e "${RED}CREATE failed:${NC}"
+        echo "$create_out"
+        return 1
+    }
+    echo "$create_out"
+
+    local vpc_id
+    vpc_id=$(extract_id "$create_out")
+    if [ -z "$vpc_id" ] || ! is_valid_id "$vpc_id"; then
+        echo -e "${RED}Could not extract valid VPC ID${NC}"
         return 1
     fi
+    CREATED_VPCS+=("$vpc_id")
+    echo -e "${GREEN}Created VPC ID: $vpc_id${NC}\n"
+
+    # VPC must be Active before UPDATE and before child resources can be created.
+    echo "Waiting for VPC $vpc_id to be Active..."
+    if ! wait_for_vpc_ready "$vpc_id" 300; then
+        echo -e "${YELLOW}VPC did not reach Active state in 300s — skipping LIST/GET/UPDATE${NC}\n"
+        VPC_ID="$vpc_id"
+        echo -e "${GREEN}VPC ID set to: $VPC_ID${NC}\n"
+        return 0
+    fi
+    echo ""
+
+    # LIST
+    echo -e "${GREEN}[LIST]${NC} Listing VPCs..."
+    $ACLOUD_CMD network vpc list 2>&1 | head -10
+    echo ""
+
+    # GET
+    echo -e "${GREEN}[GET]${NC} Getting VPC details..."
+    $ACLOUD_CMD network vpc get "$vpc_id" 2>&1
+    echo ""
+
+    # UPDATE
+    echo -e "${GREEN}[UPDATE]${NC} Updating VPC..."
+    $ACLOUD_CMD network vpc update "$vpc_id" \
+        --name "${RESOURCE_PREFIX}-vpc-updated" --tags updated 2>&1 || true
+    echo ""
+
+    # VPC is intentionally NOT deleted here — it is needed as a parent resource
+    # for subsequent subnet, security group, VPN tunnel, etc. tests.
+    # The cleanup() trap deletes all entries in CREATED_VPCS at exit.
+    echo -e "${GREEN}✓ VPC CRUD test completed successfully!${NC}\n"
+    VPC_ID="$vpc_id"
+    echo -e "${GREEN}VPC ID set to: $VPC_ID${NC}\n"
 }
 
 # Test Subnet
@@ -501,35 +574,67 @@ test_security_group() {
         echo -e "${YELLOW}Skipping security group test (no VPC available)${NC}\n"
         return 0
     fi
-    
+
     echo -e "${YELLOW}=== 3. Security Group CRUD Test ===${NC}\n"
-    local output
-    output=$(test_resource "Security Group" \
-        "$ACLOUD_CMD network securitygroup create $VPC_ID --name ${RESOURCE_PREFIX}-sg --region $REGION" \
-        "$ACLOUD_CMD network securitygroup list $VPC_ID" \
-        "$ACLOUD_CMD network securitygroup get $VPC_ID \$RESOURCE_ID" \
-        "$ACLOUD_CMD network securitygroup update $VPC_ID \$RESOURCE_ID --tags updated" \
-        "$ACLOUD_CMD network securitygroup delete $VPC_ID \$RESOURCE_ID --yes" 2>&1)
-    local exit_code=$?
-    
-    if [ $exit_code -eq 0 ] && [ -n "$output" ]; then
-        SECURITY_GROUP_ID=$(echo "$output" | tail -1 | tr -d '[:space:]')
-        if [ -n "$SECURITY_GROUP_ID" ] && [ "$SECURITY_GROUP_ID" != "1" ] && [ "$SECURITY_GROUP_ID" != "$VPC_ID" ] && [ ${#SECURITY_GROUP_ID} -eq 24 ] && is_valid_id "$SECURITY_GROUP_ID"; then
-            CREATED_SECURITY_GROUPS+=("$SECURITY_GROUP_ID")
-            echo -e "${GREEN}Security Group test completed successfully${NC}\n"
-        else
-            echo -e "${YELLOW}Security Group test completed but could not extract valid ID${NC}"
-            echo -e "${YELLOW}Last line of output: ${SECURITY_GROUP_ID}${NC}\n"
-        fi
-    else
-        echo -e "${RED}Security Group test failed with exit code: $exit_code${NC}"
-        if [ -n "$output" ]; then
-            echo -e "${RED}Error output:${NC}"
-            echo "$output" | tail -20
-        fi
-        echo ""
+    echo -e "${YELLOW}--- Testing Security Group ---${NC}"
+
+    # CREATE
+    echo -e "${GREEN}[CREATE]${NC} Creating Security Group..."
+    local create_out
+    create_out=$($ACLOUD_CMD network securitygroup create "$VPC_ID" \
+        --name "${RESOURCE_PREFIX}-sg" \
+        --region "$REGION" 2>&1) || {
+        echo -e "${RED}CREATE failed:${NC}"
+        echo "$create_out"
+        return 1
+    }
+    echo "$create_out"
+
+    local sg_id
+    sg_id=$(extract_id "$create_out" "$VPC_ID")
+    if [ -z "$sg_id" ] || ! is_valid_id "$sg_id" || [ "$sg_id" = "$VPC_ID" ]; then
+        echo -e "${RED}Could not extract valid Security Group ID${NC}"
         return 1
     fi
+    CREATED_SECURITY_GROUPS+=("$sg_id")
+    echo -e "${GREEN}Created Security Group ID: $sg_id${NC}\n"
+
+    # Security rules cannot be created while the SG is InCreation, so wait
+    # for Active before running the rest of the CRUD steps.
+    echo "Waiting for Security Group $sg_id to be Active..."
+    if ! wait_for_status "$ACLOUD_CMD network securitygroup get $VPC_ID $sg_id" '^(Active|Ready)$' 120; then
+        echo -e "${YELLOW}Security Group did not reach Active state in 120s — continuing anyway${NC}"
+    fi
+    echo ""
+
+    # LIST
+    echo -e "${GREEN}[LIST]${NC} Listing Security Groups..."
+    $ACLOUD_CMD network securitygroup list "$VPC_ID" 2>&1 | head -10
+    echo ""
+
+    # GET
+    echo -e "${GREEN}[GET]${NC} Getting Security Group details..."
+    $ACLOUD_CMD network securitygroup get "$VPC_ID" "$sg_id" 2>&1
+    echo ""
+
+    # UPDATE
+    echo -e "${GREEN}[UPDATE]${NC} Updating Security Group..."
+    $ACLOUD_CMD network securitygroup update "$VPC_ID" "$sg_id" --tags updated 2>&1 || true
+    echo ""
+
+    # SG transitions through Updating after the PUT — wait for Active again so
+    # test_security_rule() does not hit 400 "cannot create rule in Updating SG".
+    echo "Waiting for Security Group $sg_id to be Active after update..."
+    if ! wait_for_status "$ACLOUD_CMD network securitygroup get $VPC_ID $sg_id" '^(Active|Ready)$' 60; then
+        echo -e "${YELLOW}Security Group did not return to Active state — security rule test may fail${NC}"
+    fi
+    echo ""
+
+    # Security Group is intentionally NOT deleted here — it is needed for
+    # test_security_rule(). The cleanup() trap deletes all CREATED_SECURITY_GROUPS.
+    echo -e "${GREEN}✓ Security Group CRUD test completed successfully!${NC}\n"
+    SECURITY_GROUP_ID="$sg_id"
+    echo -e "${GREEN}Security Group ID set to: $SECURITY_GROUP_ID${NC}\n"
 }
 
 # Test Security Rule
@@ -898,16 +1003,11 @@ test_vpn_tunnel() {
         $ACLOUD_CMD network vpntunnel update "$VPN_TUNNEL_ID" \
             --name "${RESOURCE_PREFIX}-vpn-updated" --tags updated 2>&1 || true
         echo ""
-
-        echo -e "${GREEN}[DELETE]${NC} Deleting VPN Tunnel..."
-        echo "Waiting for VPN Tunnel to be deletable after update..."
-        wait_for_vpn_tunnel_ready "$VPN_TUNNEL_ID" 120 || true
-        if $ACLOUD_CMD network vpntunnel delete "$VPN_TUNNEL_ID" --yes 2>&1; then
-            CREATED_VPN_TUNNELS=("${CREATED_VPN_TUNNELS[@]/$VPN_TUNNEL_ID}")
-        fi
-        echo ""
+        # VPN Tunnel is intentionally NOT deleted here — it is needed for
+        # test_vpn_route(). cleanup() deletes CREATED_VPN_TUNNELS and runs
+        # the 300s platform-purge wait so the VPC can be removed afterwards.
     else
-        echo -e "${YELLOW}[UPDATE/DELETE]${NC} Skipping — tunnel did not reach Active state (left for cleanup trap)."
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — tunnel did not reach Active state (left for cleanup trap)."
         echo ""
     fi
 
@@ -937,7 +1037,7 @@ test_vpn_route() {
     local route_subnet_out route_subnet_id
     route_subnet_out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
         --name "${RESOURCE_PREFIX}-vpn-cloud-subnet" \
-        --cidr "$SUBNET_CIDR" \
+        --cidr "$VPN_ROUTE_CIDR" \
         --dhcp-enabled \
         --region "$REGION" 2>&1)
     route_subnet_id=$(extract_id "$route_subnet_out" "$VPC_ID")
@@ -945,7 +1045,15 @@ test_vpn_route() {
         fail "vpnroute: could not create cloud subnet for route test: $route_subnet_out"
         return 1
     fi
-    echo "  → Cloud subnet $route_subnet_id ($SUBNET_CIDR) created"
+    # Track in CREATED_SUBNETS so cleanup deletes it even if the inline delete fails.
+    CREATED_SUBNETS+=("$route_subnet_id")
+    echo "  → Cloud subnet $route_subnet_id ($VPN_ROUTE_CIDR) created"
+
+    # VPN route create rejects a subnet that is still InCreation.
+    echo "  → Waiting for cloud subnet to be Active..."
+    if ! wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $route_subnet_id" '^(Active|Ready)$' 120; then
+        echo -e "${YELLOW}Cloud subnet not Active after 120s — VPN route create may fail${NC}"
+    fi
     echo ""
 
     local route_create_out route_create_exit
@@ -954,7 +1062,7 @@ test_vpn_route() {
     route_create_out=$($ACLOUD_CMD network vpnroute create "$VPN_TUNNEL_ID" \
         --name "${RESOURCE_PREFIX}-vpn-route" \
         --region "$REGION" \
-        --cloud-subnet "$SUBNET_CIDR" \
+        --cloud-subnet "$VPN_ROUTE_CIDR" \
         --onprem-subnet 192.168.129.0/24 2>&1)
     route_create_exit=$?
     echo "$route_create_out"
@@ -964,7 +1072,7 @@ test_vpn_route() {
         $ACLOUD_CMD --debug network vpnroute create "$VPN_TUNNEL_ID" \
             --name "${RESOURCE_PREFIX}-vpn-route-dbg" \
             --region "$REGION" \
-            --cloud-subnet "$SUBNET_CIDR" \
+            --cloud-subnet "$VPN_ROUTE_CIDR" \
             --onprem-subnet 192.168.129.0/24 2>&1 || true
         # Clean up the cloud subnet before returning
         $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true

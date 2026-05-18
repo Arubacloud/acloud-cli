@@ -279,7 +279,7 @@ var vpnrouteListCmd = &cobra.Command{
 				onPremSubnet := ""
 				status := ""
 				if r != nil {
-					cloudSubnet = r.Properties.CloudSubnet
+					cloudSubnet = r.Properties.CloudSubnet.CIDR
 					onPremSubnet = r.Properties.OnPremSubnet
 					if r.Status.State != nil {
 						status = *r.Status.State
@@ -373,7 +373,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 			if ur.Status.State != nil {
 				updStatus = *ur.Status.State
 			}
-			PrintOutput(ur, headers, [][]string{{updName, updID, ur.Properties.CloudSubnet, ur.Properties.OnPremSubnet, updStatus}})
+			PrintOutput(ur, headers, [][]string{{updName, updID, ur.Properties.CloudSubnet.CIDR, ur.Properties.OnPremSubnet, updStatus}})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPN route", routeID))
 		}

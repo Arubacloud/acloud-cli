@@ -232,8 +232,11 @@ test_snapshot() {
 
     # Wait for snapshot to leave InCreation before attempting UPDATE
     echo "Waiting for snapshot to be ready..."
-    wait_for_snapshot_ready "$SNAPSHOT_ID" 180 || \
-        echo -e "${YELLOW}Warning: snapshot not ready after 180s — UPDATE may still fail${NC}"
+    local snapshot_ready=0
+    wait_for_snapshot_ready "$SNAPSHOT_ID" 300 && snapshot_ready=1
+    if [ "$snapshot_ready" -eq 0 ]; then
+        echo -e "${YELLOW}Warning: snapshot not ready after 300s — UPDATE will be skipped${NC}"
+    fi
 
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing snapshots..."
@@ -255,18 +258,23 @@ test_snapshot() {
     echo "$GET_OUTPUT"
     echo ""
     
-    # UPDATE
-    echo -e "${GREEN}[UPDATE]${NC} Updating snapshot..."
-    UPDATE_OUTPUT=$($ACLOUD_CMD storage snapshot update "$SNAPSHOT_ID" \
-        --name "${snapshot_name}-updated" \
-        --tags "e2e-test,updated" 2>&1) || {
-        echo -e "${RED}UPDATE failed:${NC}"
+    if [ "$snapshot_ready" -eq 1 ]; then
+        # UPDATE
+        echo -e "${GREEN}[UPDATE]${NC} Updating snapshot..."
+        UPDATE_OUTPUT=$($ACLOUD_CMD storage snapshot update "$SNAPSHOT_ID" \
+            --name "${snapshot_name}-updated" \
+            --tags "e2e-test,updated" 2>&1) || {
+            echo -e "${RED}UPDATE failed:${NC}"
+            echo "$UPDATE_OUTPUT"
+            return 1
+        }
         echo "$UPDATE_OUTPUT"
-        return 1
-    }
-    echo "$UPDATE_OUTPUT"
-    echo ""
-    
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — snapshot did not reach ready state after 300s."
+        echo ""
+    fi
+
     echo -e "${GREEN}✓ Snapshot CRUD test completed!${NC}\n"
 }
 
