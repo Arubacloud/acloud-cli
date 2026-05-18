@@ -442,7 +442,7 @@ var kaasUpdateCmd = &cobra.Command{
 			if nodePoolAutoscaling {
 				np.WithAutoscaling(nodePoolMinCount, nodePoolMaxCount)
 			}
-			current.AddNodePool(np)
+			current.ReplaceNodePools(np)
 		}
 
 		updated, err := client.FromContainer().KaaS().Update(ctx, current)

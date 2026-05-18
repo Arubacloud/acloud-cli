@@ -8,10 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// vpcPeeringRef is shared with vpcpeeringroute.go.
-func vpcPeeringRef(projectID, vpcID, peeringID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/vpcPeerings/" + peeringID)
-}
 
 func vpcPeeringListPayload(l *aruba.List[*aruba.VPCPeering]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPCPeeringList]); ok && r != nil {
@@ -91,7 +87,7 @@ peering is established.`,
 		defer cancel()
 
 		peering := aruba.NewVPCPeering().
-			IntoVPC(vpcRef(projectID, vpcID)).
+			IntoVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithRemoteVPC(aruba.URI(peerVPCID))
@@ -150,7 +146,7 @@ var vpcpeeringGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPCPeerings().Get(ctx, vpcPeeringRef(projectID, vpcID, peeringID))
+		got, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil {
 			return fmt.Errorf("getting VPC peering: %w", apiErrFromV2(err))
 		}
@@ -208,7 +204,7 @@ var vpcpeeringListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().VPCPeerings().List(ctx, vpcRef(projectID, vpcID), listOpts(cmd)...)
+		list, err := client.FromNetwork().VPCPeerings().List(ctx, aruba.VPCRef(projectID, vpcID), listOpts(cmd)...)
 		if err != nil {
 			return fmt.Errorf("listing VPC peerings: %w", apiErrFromV2(err))
 		}
@@ -273,7 +269,7 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().VPCPeerings().Get(ctx, vpcPeeringRef(projectID, vpcID, peeringID))
+		cur, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil {
 			return fmt.Errorf("fetching current VPC peering: %w", apiErrFromV2(err))
 		}
@@ -366,7 +362,7 @@ var vpcpeeringDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().VPCPeerings().Get(ctx, vpcPeeringRef(projectID, vpcID, peeringID))
+			_, err = client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 			if err != nil {
 				return fmt.Errorf("dry-run: VPC peering not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -374,7 +370,7 @@ var vpcpeeringDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPCPeerings().Delete(ctx, vpcPeeringRef(projectID, vpcID, peeringID)); err != nil {
+		if err := client.FromNetwork().VPCPeerings().Delete(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID)); err != nil {
 			return fmt.Errorf("deleting VPC peering: %w", apiErrFromV2(err))
 		}
 

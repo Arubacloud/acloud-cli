@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// securityGroupRef is shared with securityrule.go and subnet.go (via vpcRef).
+// securityGroupRef is shared with securityrule.go; uses hyphenated path segment (/security-groups/) to match SDK ID parser.
 func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/security-groups/" + sgID)
 }
@@ -82,7 +82,7 @@ after the group is created.`,
 		defer cancel()
 
 		sg := aruba.NewSecurityGroup().
-			IntoVPC(vpcRef(projectID, vpcID)).
+			IntoVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name)
 		if len(tags) > 0 {
 			sg.ReplaceTags(tags...)
@@ -192,7 +192,7 @@ var securitygroupListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().SecurityGroups().List(ctx, vpcRef(projectID, vpcID), listOpts(cmd)...)
+		list, err := client.FromNetwork().SecurityGroups().List(ctx, aruba.VPCRef(projectID, vpcID), listOpts(cmd)...)
 		if err != nil {
 			return fmt.Errorf("listing security groups: %w", apiErrFromV2(err))
 		}

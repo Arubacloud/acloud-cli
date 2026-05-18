@@ -12,9 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func securityRuleRef(projectID, vpcID, sgID, ruleID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/securitygroups/" + sgID + "/securityrules/" + ruleID)
-}
 
 func securityRuleListPayload(l *aruba.List[*aruba.SecurityRule]) any {
 	if r, ok := l.Raw().(*types.Response[types.SecurityRuleList]); ok && r != nil {
@@ -250,7 +247,7 @@ var securityruleGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().SecurityGroupRules().Get(ctx, securityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+		got, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 		if err != nil {
 			return fmt.Errorf("getting security rule: %w", apiErrFromV2(err))
 		}
@@ -394,7 +391,7 @@ var securityruleUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().SecurityGroupRules().Get(ctx, securityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+		cur, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 		if err != nil {
 			return fmt.Errorf("fetching current security rule: %w", apiErrFromV2(err))
 		}
@@ -407,7 +404,7 @@ var securityruleUpdateCmd = &cobra.Command{
 		}
 
 		if cur.Region() == "" {
-			vpc, verr := client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
+			vpc, verr := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 			if verr == nil && vpc != nil && vpc.Raw() != nil && vpc.Raw().Metadata.LocationResponse != nil {
 				cur.InRegion(vpc.Raw().Metadata.LocationResponse.Value)
 			}
@@ -506,7 +503,7 @@ var securityruleDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, securityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+			_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 			if err != nil {
 				return fmt.Errorf("dry-run: security rule not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -514,7 +511,7 @@ var securityruleDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().SecurityGroupRules().Delete(ctx, securityRuleRef(projectID, vpcID, securityGroupID, securityRuleID)); err != nil {
+		if err := client.FromNetwork().SecurityGroupRules().Delete(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID)); err != nil {
 			return fmt.Errorf("deleting security rule: %w", apiErrFromV2(err))
 		}
 

@@ -44,11 +44,6 @@ func init() {
 	vpcDeleteCmd.ValidArgsFunction = completeVPCID
 }
 
-// vpcRef builds the combined project+VPC Ref used by Get/Delete/Update; also
-// used as the parent Ref for VPC-scoped resources (subnet, securitygroup, vpcpeering).
-func vpcRef(projectID, vpcID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID)
-}
 
 func vpcListPayload(l *aruba.List[*aruba.VPC]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPCList]); ok && r != nil {
@@ -181,7 +176,7 @@ var vpcGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
+		got, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
@@ -255,12 +250,10 @@ var vpcUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		cur, err := client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
+		cur, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
-		// SDK VPC.Get does not backfill projectID from the Ref (unlike other resources).
-		cur.IntoProject(projectRef(projectID))
 
 		r := cur.Raw()
 		if r == nil {
@@ -340,7 +333,7 @@ var vpcDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().VPCs().Get(ctx, vpcRef(projectID, vpcID))
+			_, err = client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 			if err != nil {
 				return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -348,7 +341,7 @@ var vpcDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPCs().Delete(ctx, vpcRef(projectID, vpcID)); err != nil {
+		if err := client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(projectID, vpcID)); err != nil {
 			return fmt.Errorf("deleting VPC: %w", apiErrFromV2(err))
 		}
 
