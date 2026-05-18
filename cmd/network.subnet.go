@@ -14,9 +14,6 @@ func splitRouteString(routeStr string) []string {
 	return strings.SplitN(routeStr, ":", 2)
 }
 
-func subnetRefURI(projectID, vpcID, subnetID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/subnets/" + subnetID)
-}
 
 func subnetListPayload(l *aruba.List[*aruba.Subnet]) any {
 	if r, ok := l.Raw().(*types.Response[types.SubnetList]); ok && r != nil {
@@ -106,7 +103,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 		defer cancel()
 
 		s := aruba.NewSubnet().
-			IntoVPC(vpcRef(projectID, vpcID)).
+			IntoVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name).
 			InRegion(aruba.Region(region))
 		if len(tags) > 0 {
@@ -190,7 +187,7 @@ var subnetGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().Subnets().Get(ctx, subnetRefURI(projectID, vpcID, subnetID))
+		got, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 		if err != nil {
 			return fmt.Errorf("getting subnet: %w", apiErrFromV2(err))
 		}
@@ -266,7 +263,7 @@ var subnetListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().Subnets().List(ctx, vpcRef(projectID, vpcID), listOpts(cmd)...)
+		list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(projectID, vpcID), listOpts(cmd)...)
 		if err != nil {
 			return fmt.Errorf("listing subnets: %w", apiErrFromV2(err))
 		}
@@ -335,7 +332,7 @@ var subnetUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().Subnets().Get(ctx, subnetRefURI(projectID, vpcID, subnetID))
+		cur, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 		if err != nil {
 			return fmt.Errorf("fetching current subnet: %w", apiErrFromV2(err))
 		}
@@ -476,7 +473,7 @@ var subnetDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().Subnets().Get(ctx, subnetRefURI(projectID, vpcID, subnetID))
+			_, err = client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 			if err != nil {
 				return fmt.Errorf("dry-run: subnet not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -484,7 +481,7 @@ var subnetDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().Subnets().Delete(ctx, subnetRefURI(projectID, vpcID, subnetID)); err != nil {
+		if err := client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(projectID, vpcID, subnetID)); err != nil {
 			return fmt.Errorf("deleting subnet: %w", apiErrFromV2(err))
 		}
 

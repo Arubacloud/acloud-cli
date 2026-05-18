@@ -45,9 +45,6 @@ func init() {
 	elasticipDeleteCmd.ValidArgsFunction = completeElasticIPID
 }
 
-func elasticIPRef(projectID, eipID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/elasticIps/" + eipID)
-}
 
 func elasticIPListPayload(l *aruba.List[*aruba.ElasticIP]) any {
 	if r, ok := l.Raw().(*types.Response[types.ElasticList]); ok && r != nil {
@@ -246,7 +243,7 @@ var elasticipGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().ElasticIPs().Get(ctx, elasticIPRef(projectID, eipID))
+		got, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
 			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
@@ -324,7 +321,7 @@ var elasticipUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		cur, err := client.FromNetwork().ElasticIPs().Get(ctx, elasticIPRef(projectID, eipID))
+		cur, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
 			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
@@ -403,7 +400,7 @@ var elasticipDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().ElasticIPs().Get(ctx, elasticIPRef(projectID, eipID))
+			_, err = client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 			if err != nil {
 				return fmt.Errorf("dry-run: elastic IP not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -411,7 +408,7 @@ var elasticipDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().ElasticIPs().Delete(ctx, elasticIPRef(projectID, eipID)); err != nil {
+		if err := client.FromNetwork().ElasticIPs().Delete(ctx, aruba.ElasticIPRef(projectID, eipID)); err != nil {
 			return fmt.Errorf("deleting Elastic IP: %w", apiErrFromV2(err))
 		}
 

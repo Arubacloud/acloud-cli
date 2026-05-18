@@ -9,9 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func vpnRouteRef(projectID, tunnelID, routeID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpnTunnels/" + tunnelID + "/vpnRoutes/" + routeID)
-}
 
 func vpnRouteListPayload(l *aruba.List[*aruba.VPNRoute]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPNRouteList]); ok && r != nil {
@@ -78,7 +75,7 @@ func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([
 	vpnTunnelID := args[0]
 	ctx, cancel := newCtx()
 	defer cancel()
-	list, err := client.FromNetwork().VPNRoutes().List(ctx, vpnTunnelRef(projectID, vpnTunnelID))
+	list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -148,7 +145,7 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 		defer cancel()
 
 		route := aruba.NewVPNRoute().
-			IntoVPNTunnel(vpnTunnelRef(projectID, vpnTunnelID)).
+			IntoVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithCloudSubnet(cloudSubnet).
@@ -200,7 +197,7 @@ var vpnrouteGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPNRoutes().Get(ctx, vpnRouteRef(projectID, vpnTunnelID, routeID))
+		got, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 		if err != nil {
 			return fmt.Errorf("getting VPN route: %w", apiErrFromV2(err))
 		}
@@ -260,7 +257,7 @@ var vpnrouteListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().VPNRoutes().List(ctx, vpnTunnelRef(projectID, vpnTunnelID), listOpts(cmd)...)
+		list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID), listOpts(cmd)...)
 		if err != nil {
 			return fmt.Errorf("listing VPN routes: %w", apiErrFromV2(err))
 		}
@@ -325,7 +322,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().VPNRoutes().Get(ctx, vpnRouteRef(projectID, vpnTunnelID, routeID))
+		cur, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 		if err != nil {
 			return fmt.Errorf("fetching current VPN route: %w", apiErrFromV2(err))
 		}
@@ -416,7 +413,7 @@ var vpnrouteDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().VPNRoutes().Get(ctx, vpnRouteRef(projectID, vpnTunnelID, routeID))
+			_, err = client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 			if err != nil {
 				return fmt.Errorf("dry-run: VPN route not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -424,7 +421,7 @@ var vpnrouteDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPNRoutes().Delete(ctx, vpnRouteRef(projectID, vpnTunnelID, routeID)); err != nil {
+		if err := client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID)); err != nil {
 			return fmt.Errorf("deleting VPN route: %w", apiErrFromV2(err))
 		}
 

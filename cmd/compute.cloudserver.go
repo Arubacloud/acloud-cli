@@ -175,6 +175,7 @@ Billing period: Hour (default), Month, or Year.`,
 		bootDiskURI, _ := cmd.Flags().GetString("boot-disk-uri")
 		keypairURI, _ := cmd.Flags().GetString("keypair-uri")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		userDataFile, _ := cmd.Flags().GetString("user-data-file")
 
 		client, err := GetArubaClient()
@@ -204,6 +205,9 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 		if elasticIPURI != "" {
 			cs.WithElasticIP(aruba.URI(elasticIPURI))
+		}
+		if billingPeriod != "" {
+			cs.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
 		}
 		if userDataFile != "" {
 			fileContent, err := os.ReadFile(userDataFile)

@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// vpnTunnelRef is shared with vpnroute.go.
-func vpnTunnelRef(projectID, tunnelID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpnTunnels/" + tunnelID)
-}
 
 func vpnTunnelListPayload(l *aruba.List[*aruba.VPNTunnel]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPNTunnelList]); ok && r != nil {
@@ -395,7 +391,7 @@ var vpntunnelGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPNTunnels().Get(ctx, vpnTunnelRef(projectID, vpnID))
+		got, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnID))
 		if err != nil {
 			return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
 		}
@@ -677,7 +673,7 @@ var vpntunnelUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		cur, err := client.FromNetwork().VPNTunnels().Get(ctx, vpnTunnelRef(projectID, vpnTunnelID))
+		cur, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 		if err != nil {
 			return fmt.Errorf("getting VPN tunnel: %w", apiErrFromV2(err))
 		}
@@ -758,7 +754,7 @@ var vpntunnelDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().VPNTunnels().Get(ctx, vpnTunnelRef(projectID, vpnTunnelID))
+			_, err = client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 			if err != nil {
 				return fmt.Errorf("dry-run: VPN tunnel not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -766,7 +762,7 @@ var vpntunnelDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPNTunnels().Delete(ctx, vpnTunnelRef(projectID, vpnTunnelID)); err != nil {
+		if err := client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID)); err != nil {
 			return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
 		}
 
