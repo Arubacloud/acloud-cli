@@ -343,7 +343,11 @@ cleanup() {
                     if is_valid_id "$bsn"; then
                         echo "  → Deleting blocking subnet $bsn..."
                         wait_for_status "$ACLOUD_CMD network subnet get $vpc_id $bsn" '^(Active|Ready)$' 30 2>/dev/null || true
-                        $ACLOUD_CMD network subnet delete "$vpc_id" "$bsn" --yes 2>&1 || true
+                        local bsn_del_out
+                        bsn_del_out=$($ACLOUD_CMD network subnet delete "$vpc_id" "$bsn" --yes 2>&1) || {
+                            # 404 means already deleted — skip silently
+                            echo "$bsn_del_out" | grep -qi "not found\|404" || echo "  → $bsn_del_out"
+                        }
                     fi
                 done
                 sleep 20
@@ -1096,14 +1100,29 @@ test_vpn_route() {
     $ACLOUD_CMD network vpnroute get "$VPN_TUNNEL_ID" "$vpn_route_id" 2>&1
     echo ""
 
-    echo -e "${GREEN}[UPDATE]${NC} Updating VPN Route..."
-    $ACLOUD_CMD network vpnroute update "$VPN_TUNNEL_ID" "$vpn_route_id" \
-        --name "${RESOURCE_PREFIX}-vpn-route-updated" --tags updated 2>&1 || true
+    # VPN routes transition through InCreation before being updatable/deletable.
+    echo "Waiting for VPN Route $vpn_route_id to be Active..."
+    local route_ready=0
+    wait_for_status "$ACLOUD_CMD network vpnroute get $VPN_TUNNEL_ID $vpn_route_id" '^(Active|Ready)$' 180 \
+        && route_ready=1
     echo ""
+
+    if [ "$route_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating VPN Route..."
+        $ACLOUD_CMD network vpnroute update "$VPN_TUNNEL_ID" "$vpn_route_id" \
+            --name "${RESOURCE_PREFIX}-vpn-route-updated" --tags updated 2>&1 || true
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — route did not reach Active state after 180s."
+        echo ""
+    fi
 
     echo -e "${GREEN}[DELETE]${NC} Deleting VPN Route..."
     if $ACLOUD_CMD network vpnroute delete "$VPN_TUNNEL_ID" "$vpn_route_id" --yes 2>&1; then
         CREATED_VPN_ROUTES=("${CREATED_VPN_ROUTES[@]/$vpn_route_id}")
+        # Give the platform a moment to release the cloud-subnet reference
+        # before we attempt to delete it inline.
+        sleep 5
     fi
     echo ""
 

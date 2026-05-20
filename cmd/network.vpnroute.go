@@ -218,7 +218,7 @@ var vpnrouteGetCmd = &cobra.Command{
 			if route.Metadata.LocationResponse != nil {
 				fmt.Printf("Region:          %s\n", route.Metadata.LocationResponse.Value)
 			}
-			fmt.Printf("Cloud Subnet:    %s\n", route.Properties.CloudSubnet)
+			fmt.Printf("Cloud Subnet:    %s\n", route.Properties.CloudSubnet.CIDR)
 			fmt.Printf("OnPrem Subnet:   %s\n", route.Properties.OnPremSubnet)
 			if route.Metadata.CreationDate != nil {
 				fmt.Printf("Creation Date:   %s\n", route.Metadata.CreationDate.Format(DateLayout))
