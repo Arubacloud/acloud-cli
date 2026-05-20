@@ -23,6 +23,9 @@ YELLOW=\033[1;33m
 RED=\033[0;31m
 NC=\033[0m # No Color
 
+# Discover all E2E suite directories (subdirectories of ./e2e/ that contain a test.sh)
+E2E_SUITES := $(shell find ./e2e -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | sort)
+
 .PHONY: help build clean test test-coverage fmt vet lint install run e2e-test build-all release-snapshot
 
 # Default target
@@ -196,35 +199,23 @@ deps-tidy: ## Tidy go.mod and go.sum
 
 ##@ E2E Testing
 
-e2e-test: ## Run all E2E tests (requires credentials)
+%-e2e-test: ## Run a specific E2E suite, e.g. `make management-e2e-test`
+	@echo "$(GREEN)Running $* E2E tests...$(NC)"
+	@chmod +x e2e/common.sh e2e/$*/test.sh
+	@./e2e/$*/test.sh
+
+e2e-test: ## Run all E2E tests (requires credentials); suites are auto-discovered from ./e2e/
 	@echo "$(GREEN)Running E2E tests...$(NC)"
 	@echo "$(YELLOW)Note: This requires ACLOUD_PROJECT_ID and other env vars to be set$(NC)"
-	@chmod +x e2e/common.sh e2e/management/test.sh e2e/storage/test.sh e2e/network/test.sh
+	@chmod +x e2e/common.sh $(foreach s,$(E2E_SUITES),e2e/$(s)/test.sh)
 	@EC=0; \
-	./e2e/management/test.sh || EC=1; \
-	./e2e/storage/test.sh    || EC=1; \
-	./e2e/network/test.sh    || EC=1; \
+	$(foreach s,$(E2E_SUITES),./e2e/$(s)/test.sh || EC=1; ) \
 	if [ $$EC -eq 0 ]; then \
 	    echo "$(GREEN)✓ E2E: all suites passed$(NC)"; \
 	else \
 	    echo "$(RED)✗ E2E: one or more suites failed (see above)$(NC)"; \
 	fi; \
 	exit $$EC
-
-e2e-management: ## Run management E2E tests
-	@echo "$(GREEN)Running management E2E tests...$(NC)"
-	@chmod +x e2e/management/test.sh
-	@./e2e/management/test.sh
-
-e2e-storage: ## Run storage E2E tests
-	@echo "$(GREEN)Running storage E2E tests...$(NC)"
-	@chmod +x e2e/storage/test.sh
-	@./e2e/storage/test.sh
-
-e2e-network: ## Run network E2E tests
-	@echo "$(GREEN)Running network E2E tests...$(NC)"
-	@chmod +x e2e/network/test.sh
-	@./e2e/network/test.sh
 
 ##@ Documentation
 
