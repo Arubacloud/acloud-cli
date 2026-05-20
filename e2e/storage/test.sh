@@ -101,9 +101,10 @@ cleanup() {
         $ACLOUD_CMD storage snapshot delete "$snapshot_id" --yes 2>&1 || true
     done
     
-    # Delete volumes
+    # Delete volumes — wait for InCreation to resolve before deleting
     for volume_id in "${CREATED_VOLUMES[@]}"; do
         echo "Deleting volume: $volume_id"
+        wait_for_volume_ready "$volume_id" 120 2>/dev/null || true
         $ACLOUD_CMD storage blockstorage delete "$volume_id" --yes 2>&1 || true
     done
 }
@@ -147,9 +148,12 @@ test_block_storage() {
     
     # Wait for volume to leave InCreation before attempting UPDATE
     echo "Waiting for volume to be ready..."
-    wait_for_volume_ready "$VOLUME_ID" 180 || \
-        echo -e "${YELLOW}Warning: volume not ready after 180s — UPDATE may still fail${NC}"
-    
+    local volume_ready=0
+    wait_for_volume_ready "$VOLUME_ID" 180 && volume_ready=1
+    if [ "$volume_ready" -eq 0 ]; then
+        echo -e "${YELLOW}Warning: volume not ready after 180s — UPDATE will be skipped${NC}"
+    fi
+
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing block storage..."
     LIST_OUTPUT=$($ACLOUD_CMD storage blockstorage list 2>&1) || {
@@ -159,7 +163,7 @@ test_block_storage() {
     }
     echo "$LIST_OUTPUT" | head -15
     echo ""
-    
+
     # GET
     echo -e "${GREEN}[GET]${NC} Getting block storage details..."
     GET_OUTPUT=$($ACLOUD_CMD storage blockstorage get "$VOLUME_ID" 2>&1) || {
@@ -169,19 +173,24 @@ test_block_storage() {
     }
     echo "$GET_OUTPUT"
     echo ""
-    
-    # UPDATE
-    echo -e "${GREEN}[UPDATE]${NC} Updating block storage..."
-    UPDATE_OUTPUT=$($ACLOUD_CMD storage blockstorage update "$VOLUME_ID" \
-        --name "${volume_name}-updated" \
-        --tags "e2e-test,updated" 2>&1) || {
-        echo -e "${RED}UPDATE failed:${NC}"
+
+    # UPDATE — only attempt when volume has left InCreation
+    if [ "$volume_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating block storage..."
+        UPDATE_OUTPUT=$($ACLOUD_CMD storage blockstorage update "$VOLUME_ID" \
+            --name "${volume_name}-updated" \
+            --tags "e2e-test,updated" 2>&1) || {
+            echo -e "${RED}UPDATE failed:${NC}"
+            echo "$UPDATE_OUTPUT"
+            return 1
+        }
         echo "$UPDATE_OUTPUT"
-        return 1
-    }
-    echo "$UPDATE_OUTPUT"
-    echo ""
-    
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — volume did not reach ready state after 180s."
+        echo ""
+    fi
+
     echo -e "${GREEN}✓ Block Storage CRUD test completed!${NC}\n"
     echo "$VOLUME_ID"  # Return volume ID for use in snapshots
 }

@@ -1127,6 +1127,21 @@ if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "your-vpc-id" ]; then
         echo -e "${RED}Failed to create VPC. Cannot continue with dependent tests.${NC}"
         exit 1
     fi
+    # When ACLOUD_PROJECT_ID is not set, $PROJECT_ID defaults to "your-project-id"
+    # but the Go CLI uses whatever context project is active. Resolve the real
+    # project ID from the VPC URI so downstream bash commands (VPN tunnel URI,
+    # --project-id flags) use the correct value.
+    if [ "$PROJECT_ID" = "your-project-id" ]; then
+        _eff_pid=$($ACLOUD_CMD network vpc get "$VPC_ID" 2>/dev/null \
+            | grep -i "^URI:" | awk '{print $2}' \
+            | sed 's|/projects/\([^/]*\)/.*|\1|')
+        if is_valid_id "$_eff_pid"; then
+            PROJECT_ID="$_eff_pid"
+            echo -e "${GREEN}Resolved effective PROJECT_ID: $PROJECT_ID${NC}\n"
+            setup_context
+        fi
+        unset _eff_pid
+    fi
 else
     echo -e "${BLUE}Using existing VPC ID: $VPC_ID${NC}"
     # Check VPC status
