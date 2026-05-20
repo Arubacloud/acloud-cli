@@ -122,7 +122,7 @@ func GetArubaClient() (aruba.Client, error) {
 	}
 
 	if config.ClientID == "" || config.ClientSecret == "" {
-		return nil, fmt.Errorf("client ID or client secret not configured. Please run 'acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET'")
+		return nil, fmt.Errorf("client ID or client secret not configured. Set ACLOUD_CLIENT_ID / ACLOUD_CLIENT_SECRET env vars or run 'acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET'")
 	}
 
 	// Get base URL and token issuer URL from config, or use defaults
@@ -232,6 +232,8 @@ func fmtAPIError(statusCode int, title, detail *string) error {
 
 // apiErrFromV2 extracts an *aruba.HTTPError from err and formats it via fmtAPIError.
 // Returns the original error if it isn't an HTTPError. Nil-safe on ErrResp/Title/Detail.
+// Field-level validation errors (ErrResp.Errors) are appended when present.
+// In --debug mode the raw response body is also printed to stderr.
 // (TD-022)
 func apiErrFromV2(err error) error {
 	if err == nil {
@@ -246,7 +248,31 @@ func apiErrFromV2(err error) error {
 		title = httpErr.ErrResp.Title
 		detail = httpErr.ErrResp.Detail
 	}
-	return fmtAPIError(httpErr.StatusCode, title, detail)
+	base := fmtAPIError(httpErr.StatusCode, title, detail)
+
+	// Append per-field validation errors so callers see exactly what is wrong.
+	if httpErr.ErrResp != nil && len(httpErr.ErrResp.Errors) > 0 {
+		parts := make([]string, 0, len(httpErr.ErrResp.Errors))
+		for _, ve := range httpErr.ErrResp.Errors {
+			if ve.Field != "" && ve.Message != "" {
+				parts = append(parts, ve.Field+": "+ve.Message)
+			} else if ve.Message != "" {
+				parts = append(parts, ve.Message)
+			} else if ve.Field != "" {
+				parts = append(parts, ve.Field)
+			}
+		}
+		if len(parts) > 0 {
+			base = fmt.Errorf("%w — validation: %s", base, strings.Join(parts, "; "))
+		}
+	}
+
+	// In debug mode, dump the raw response body to stderr for full context.
+	if debugEnabled, _ := rootCmd.PersistentFlags().GetBool("debug"); debugEnabled && len(httpErr.Body) > 0 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] response body: %s\n", httpErr.Body)
+	}
+
+	return base
 }
 
 // confirmDelete prompts the user for confirmation before a destructive operation.

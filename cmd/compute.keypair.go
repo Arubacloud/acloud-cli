@@ -25,6 +25,7 @@ func init() {
 	keypairCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	keypairCreateCmd.Flags().String("name", "", "Name for the keypair (required)")
 	keypairCreateCmd.Flags().String("public-key", "", "Public key value (required)")
+	keypairCreateCmd.Flags().String("region", "ITBG-Bergamo", "Region code (required)")
 	keypairCreateCmd.MarkFlagRequired("name")
 	keypairCreateCmd.MarkFlagRequired("public-key")
 
@@ -120,6 +121,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 
 		name, _ := cmd.Flags().GetString("name")
 		publicKey, _ := cmd.Flags().GetString("public-key")
+		region, _ := cmd.Flags().GetString("region")
 
 		client, err := GetArubaClient()
 		if err != nil {
@@ -129,6 +131,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 		kp := aruba.NewKeyPair().
 			IntoProject(projectRef(projectID)).
 			Named(name).
+			InRegion(aruba.Region(region)).
 			WithPublicKey(publicKey)
 
 		ctx, cancel := newCtx()
@@ -142,21 +145,27 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 		if r != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 40},
+				{Header: "ID", Width: 26},
 				{Header: "PUBLIC_KEY", Width: 60},
+				{Header: "STATUS", Width: 10},
 			}
 			publicKeyValue := r.Properties.Value
 			if len(publicKeyValue) > 50 {
 				publicKeyValue = publicKeyValue[:50] + "..."
 			}
-			row := []string{
-				func() string {
-					if r.Metadata.Name != nil {
-						return *r.Metadata.Name
-					}
-					return ""
-				}(),
-				publicKeyValue,
+			nameVal := ""
+			if r.Metadata.Name != nil {
+				nameVal = *r.Metadata.Name
 			}
+			idVal := ""
+			if r.Metadata.ID != nil {
+				idVal = *r.Metadata.ID
+			}
+			stateVal := ""
+			if r.Status.State != nil {
+				stateVal = *r.Status.State
+			}
+			row := []string{nameVal, idVal, publicKeyValue, stateVal}
 			PrintOutput(r, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Keypair", name))
@@ -166,7 +175,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 }
 
 var keypairGetCmd = &cobra.Command{
-	Use:   "get [keypair-name]",
+	Use:   "get [keypair-id]",
 	Short: "Get keypair details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -250,7 +259,7 @@ var keypairUpdateCmd = &cobra.Command{
 }
 
 var keypairDeleteCmd = &cobra.Command{
-	Use:   "delete [keypair-name]",
+	Use:   "delete [keypair-id]",
 	Short: "Delete a keypair",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

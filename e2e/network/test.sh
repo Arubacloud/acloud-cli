@@ -43,34 +43,6 @@ CREATED_VPN_ROUTES=()
 
 print_banner "Network"
 
-# Poll a resource via a get command until Status: matches ready_regex or timeout elapses.
-# Usage: wait_for_status "<get-cmd>" "<ready-regex>" [timeout-seconds]
-wait_for_status() {
-    local get_cmd="$1"
-    local ready_regex="$2"
-    local timeout="${3:-180}"
-    local elapsed=0
-    local status=""
-    while [ "$elapsed" -lt "$timeout" ]; do
-        local out
-        out=$(eval "$get_cmd" 2>&1) || return 1
-        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
-        if [[ "$status" =~ $ready_regex ]]; then
-            echo "  → ready (status=$status)"
-            return 0
-        fi
-        # Bail early on terminal failure states
-        if [[ "$status" =~ ^(Failed|Error|Deleted)$ ]]; then
-            echo -e "${YELLOW}wait_for_status: terminal state reached ($status), aborting wait${NC}"
-            return 1
-        fi
-        sleep 5
-        elapsed=$((elapsed + 5))
-    done
-    echo -e "${YELLOW}wait_for_status: timeout after ${timeout}s (last status=$status)${NC}"
-    return 1
-}
-
 wait_for_vpc_ready() {
     wait_for_status "$ACLOUD_CMD network vpc get $1" '^(Active|Ready)$' "${2:-180}"
 }

@@ -11,6 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
 # Cleanup tracking
 CREATED_KMS=()
+BOOTSTRAP_PROJECT_ID=""
 
 print_banner "Security"
 
@@ -33,20 +34,29 @@ test_output_formats() {
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up test resources...${NC}"
     
-    # Delete KMS keys
+    # Delete KMS keys — wait for Active first so delete is not rejected
     for kms_id in "${CREATED_KMS[@]}"; do
         if is_valid_id "$kms_id"; then
+            echo "Waiting for KMS $kms_id to be Active before delete..."
+            wait_for_status "$ACLOUD_CMD security kms get $kms_id" '^(Active|Ready)$' 120 2>/dev/null || true
             echo "Deleting KMS key: $kms_id"
             $ACLOUD_CMD security kms delete "$kms_id" --yes 2>&1 || true
         fi
     done
-    
+
+    # Delete bootstrapped project last
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
+        echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
+        $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 || true
+    fi
+
     echo -e "${GREEN}Cleanup completed!${NC}"
 }
 
 # Trap to ensure cleanup runs on exit
 trap cleanup EXIT
 
+ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
 setup_context
 
 # Test function for KMS
@@ -85,24 +95,32 @@ test_kms() {
     
     CREATED_KMS+=("$KMS_ID")
     echo -e "${GREEN}KMS key created: $KMS_ID${NC}"
-    
+
     echo -e "${GREEN}[LIST]${NC} Listing KMS keys"
     $ACLOUD_CMD security kms list 2>&1 | head -20
-    
+
     echo -e "${GREEN}[GET]${NC} Getting KMS details: $KMS_ID"
     $ACLOUD_CMD security kms get "$KMS_ID" 2>&1
-    
-    echo -e "${GREEN}[UPDATE]${NC} Updating KMS: $KMS_ID"
-    UPDATE_OUTPUT=$($ACLOUD_CMD security kms update "$KMS_ID" \
-        --name "${kms_name}-updated" \
-        --tags "e2e-test,updated" 2>&1)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}KMS updated successfully${NC}"
+
+    echo "Waiting for KMS $KMS_ID to be Active..."
+    local kms_ready=0
+    wait_for_status "$ACLOUD_CMD security kms get $KMS_ID" '^(Active|Ready)$' 180 && kms_ready=1
+
+    if [ "$kms_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating KMS: $KMS_ID"
+        UPDATE_OUTPUT=$($ACLOUD_CMD security kms update "$KMS_ID" \
+            --name "${kms_name}-updated" \
+            --tags "e2e-test,updated" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}KMS updated successfully${NC}"
+        else
+            echo -e "${YELLOW}Update failed${NC}"
+            echo "$UPDATE_OUTPUT" | head -5
+        fi
     else
-        echo -e "${YELLOW}Update may have failed or resource is in InCreation state${NC}"
-        echo "$UPDATE_OUTPUT" | head -5
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — KMS did not reach Active after 180s."
     fi
-    
+
     echo -e "${GREEN}KMS test completed successfully${NC}\n"
     return 0
 }
@@ -110,14 +128,24 @@ test_kms() {
 # Run tests
 echo -e "${BLUE}Starting Security Resources E2E Tests...${NC}\n"
 
-test_kms
+test_kms || FAILURES=$((FAILURES + 1))
 test_output_formats
 
 # Test summary
 echo -e "${BLUE}=== Test Summary ===${NC}"
 echo "Project ID: $PROJECT_ID"
-echo "○ KMS Keys: ${#CREATED_KMS[@]} created"
+if [ ${#CREATED_KMS[@]} -gt 0 ]; then
+    echo -e "${GREEN}✓ KMS Keys: ${#CREATED_KMS[@]} created${NC}"
+else
+    echo -e "${YELLOW}○ KMS Keys: 0 created${NC}"
+fi
 echo ""
 
-echo -e "${GREEN}=== All Security Tests Completed! ===${NC}"
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Security E2E: all checks passed ===${NC}"
+    exit 0
+else
+    echo -e "${RED}=== Security E2E: $FAILURES check(s) failed ===${NC}"
+    exit 1
+fi
 

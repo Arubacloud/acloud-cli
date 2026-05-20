@@ -43,6 +43,10 @@ func init() {
 	jobCreateCmd.Flags().String("execute-until", "", "End date until which the job can run (required for Recurring)")
 	jobCreateCmd.Flags().Bool("enabled", true, "Enable the job (default: true)")
 	jobCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	jobCreateCmd.Flags().String("step-resource-uri", "", "Resource URI targeted by the step (required by the API)")
+	jobCreateCmd.Flags().String("step-action-uri", "", "Action URI to invoke on the resource (e.g. poweroff, start)")
+	jobCreateCmd.Flags().String("step-http-verb", "POST", "HTTP verb for the step action")
+	jobCreateCmd.Flags().String("step-name", "", "Optional display name for the step")
 	jobCreateCmd.MarkFlagRequired("name")
 	jobCreateCmd.MarkFlagRequired("region")
 	jobCreateCmd.MarkFlagRequired("job-type")
@@ -117,13 +121,17 @@ Job types:
 
 For Recurring jobs, use --execute-until (RFC3339) to set an end date.
 The job is enabled by default; pass --enabled=false to create it disabled.`,
-	Example: `  # One-time job
-  acloud schedule job create --name my-job --region IT-BG \
-    --job-type OneShot --schedule-at 2026-06-01T10:00:00Z
+	Example: `  # One-time job (power off a cloud server)
+  acloud schedule job create --name my-job --region ITBG-Bergamo \
+    --job-type OneShot --schedule-at 2026-06-01T10:00:00Z \
+    --step-resource-uri /projects/<pid>/providers/Aruba.Compute/cloudServers/<id> \
+    --step-action-uri poweroff
 
   # Recurring job (every day at midnight)
-  acloud schedule job create --name daily-job --region IT-BG \
-    --job-type Recurring --cron "0 0 * * *"`,
+  acloud schedule job create --name daily-job --region ITBG-Bergamo \
+    --job-type Recurring --cron "0 0 * * *" --execute-until 2027-01-01T00:00:00Z \
+    --step-resource-uri /projects/<pid>/providers/Aruba.Compute/cloudServers/<id> \
+    --step-action-uri poweroff`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -139,6 +147,10 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 		executeUntil, _ := cmd.Flags().GetString("execute-until")
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		stepResourceURI, _ := cmd.Flags().GetString("step-resource-uri")
+		stepActionURI, _ := cmd.Flags().GetString("step-action-uri")
+		stepHTTPVerb, _ := cmd.Flags().GetString("step-http-verb")
+		stepName, _ := cmd.Flags().GetString("step-name")
 
 		if jobType != "OneShot" && jobType != "Recurring" {
 			return fmt.Errorf("--job-type must be either 'OneShot' or 'Recurring'")
@@ -182,6 +194,17 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 				return fmt.Errorf("parsing --execute-until: %w", err)
 			}
 			j.RecurringUntil(t)
+		}
+
+		if stepResourceURI != "" {
+			step := aruba.NewJobStep().
+				OfResource(aruba.URI(stepResourceURI)).
+				WithAction(stepActionURI).
+				WithVerb(aruba.HTTPVerb(stepHTTPVerb))
+			if stepName != "" {
+				step.Named(stepName)
+			}
+			j.AddStep(step)
 		}
 
 		if err := j.Err(); err != nil {

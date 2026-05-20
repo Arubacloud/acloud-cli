@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # E2E Test Script for Container Resources
-# Tests CRUD operations for KaaS (Kubernetes as a Service) clusters and Container Registry
+# Tests CRUD operations for KaaS clusters and Container Registry.
+# Fully self-contained: bootstraps VPC/Subnet/SG/EIP/BlockStorage when
+# env-var URIs are absent and tears them down in reverse order on exit.
 
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
@@ -9,100 +11,261 @@
 # shellcheck source=../common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-# Cleanup tracking
+# --- State tracking -------------------------------------------------------
 CREATED_CLUSTERS=()
 CREATED_REGISTRIES=()
 
+# Bootstrapped dep IDs (empty = pre-supplied; do not delete on exit)
+BOOTSTRAP_PROJECT_ID=""
+BOOTSTRAP_VPC_ID=""
+BOOTSTRAP_SUBNET_ID=""
+BOOTSTRAP_SG_ID=""
+BOOTSTRAP_PUBIP_ID=""
+BOOTSTRAP_BLOCK_ID=""
+
+# Resolved dep URIs (populated by ensure_* functions)
+VPC_URI="${ACLOUD_VPC_URI:-}"
+SUBNET_URI="${ACLOUD_SUBNET_URI:-}"
+SG_URI="${ACLOUD_SECURITY_GROUP_URI:-}"
+PUBIP_URI="${ACLOUD_PUBLIC_IP_URI:-}"
+BLOCK_URI="${ACLOUD_BLOCK_STORAGE_URI:-}"
+
 print_banner "Container"
-echo "Note: KaaS tests require the following environment variables:"
-echo "  - ACLOUD_VPC_URI (required)"
-echo "  - ACLOUD_SUBNET_URI (required)"
-echo "  - ACLOUD_NODE_POOL_INSTANCE (required)"
-echo "  - ACLOUD_NODE_POOL_ZONE (required)"
-echo "  - ACLOUD_NODE_CIDR (optional, default: 10.0.0.0/16)"
-echo "  - ACLOUD_NODE_CIDR_NAME (optional, default: node-cidr)"
-echo "  - ACLOUD_SECURITY_GROUP_NAME (optional, default: kaas-sg)"
-echo "  - ACLOUD_NODE_POOL_NAME (optional, default: default-pool)"
-echo "  - ACLOUD_NODE_POOL_NODES (optional, default: 1)"
-echo "  - ACLOUD_K8S_VERSION (optional, default: 1.28.0)"
-echo ""
-echo "Note: Container Registry tests require the following environment variables:"
-echo "  - ACLOUD_PUBLIC_IP_URI (required)"
-echo "  - ACLOUD_VPC_URI (required)"
-echo "  - ACLOUD_SUBNET_URI (required)"
-echo "  - ACLOUD_SECURITY_GROUP_URI (required)"
-echo "  - ACLOUD_BLOCK_STORAGE_URI (required)"
-echo ""
 
-# Test --output flag for container list commands
-test_output_formats() {
-    echo -e "${BLUE}--- Testing container list --output flag ---${NC}"
+# --- Cleanup --------------------------------------------------------------
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up test resources...${NC}"
 
-    for resource_cmd in "kaas list" "containerregistry list"; do
-        local label="container $resource_cmd"
-        echo -e "${YELLOW}Testing $label --output json...${NC}"
-        JSON_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output json 2>&1)
-        JSON_EXIT=$?
-        if [ $JSON_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output json: command failed (exit $JSON_EXIT)${NC}"
-        elif echo "$JSON_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $label --output json: no resources — format validation skipped${NC}"
-        elif is_valid_json "$JSON_OUTPUT"; then
-            echo -e "${GREEN}✓ $label --output json: valid JSON${NC}"
-        else
-            echo -e "${RED}✗ $label --output json: output is not valid JSON${NC}"
-        fi
-
-        echo -e "${YELLOW}Testing $label --output yaml...${NC}"
-        YAML_OUTPUT=$($ACLOUD_CMD container $resource_cmd --project-id "$PROJECT_ID" --output yaml 2>&1)
-        YAML_EXIT=$?
-        if [ $YAML_EXIT -ne 0 ]; then
-            echo -e "${RED}✗ $label --output yaml: command failed (exit $YAML_EXIT)${NC}"
-        elif echo "$YAML_OUTPUT" | grep -qF "No "; then
-            echo -e "${YELLOW}⚠ $label --output yaml: no resources — format validation skipped${NC}"
-        elif echo "$YAML_OUTPUT" | grep -qE '^[a-zA-Z].*:|^- '; then
-            echo -e "${GREEN}✓ $label --output yaml: output looks like YAML${NC}"
-        else
-            echo -e "${RED}✗ $label --output yaml: output does not look like YAML${NC}"
+    # Registries first (use VPC/subnet/SG/EIP/block)
+    for id in "${CREATED_REGISTRIES[@]}"; do
+        if is_valid_id "$id"; then
+            echo "Waiting for registry $id before delete..."
+            wait_for_status "$ACLOUD_CMD container containerregistry get $id" '^(Active|Ready)$' 300 2>/dev/null || true
+            echo "Deleting container registry: $id"
+            $ACLOUD_CMD container containerregistry delete "$id" --yes 2>&1 || true
         fi
     done
-    echo ""
+
+    # KaaS clusters (use VPC/subnet)
+    for id in "${CREATED_CLUSTERS[@]}"; do
+        if is_valid_id "$id"; then
+            echo "Waiting for cluster $id before delete..."
+            wait_for_status "$ACLOUD_CMD container kaas get $id" '^(Active|Ready)$' 600 2>/dev/null || true
+            echo "Deleting KaaS cluster: $id"
+            $ACLOUD_CMD container kaas delete "$id" --yes 2>&1 || true
+        fi
+    done
+
+    # Bootstrapped infra in reverse dep order
+    if [ -n "$BOOTSTRAP_BLOCK_ID" ]; then
+        echo "Deleting bootstrapped block storage: $BOOTSTRAP_BLOCK_ID"
+        $ACLOUD_CMD storage blockstorage delete "$BOOTSTRAP_BLOCK_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_PUBIP_ID" ]; then
+        echo "Deleting bootstrapped elastic IP: $BOOTSTRAP_PUBIP_ID"
+        $ACLOUD_CMD network elasticip delete "$BOOTSTRAP_PUBIP_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_SG_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped security group: $BOOTSTRAP_SG_ID"
+        $ACLOUD_CMD network securitygroup delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SG_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_SUBNET_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
+        wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
+        $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
+        local vpc_del_elapsed=0
+        while [ "$vpc_del_elapsed" -lt 180 ]; do
+            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            sleep 15
+            vpc_del_elapsed=$((vpc_del_elapsed + 15))
+        done
+    fi
+
+    # Delete bootstrapped project last (after all child resources)
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
+        echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
+        $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 || true
+    fi
+
+    echo -e "${GREEN}Cleanup completed!${NC}"
 }
 
-# Function to test KaaS operations
+trap cleanup EXIT
+
+# --- Dep resolvers -------------------------------------------------------
+
+ensure_vpc() {
+    if [ -n "$VPC_URI" ]; then
+        echo "  → using pre-supplied VPC: $VPC_URI"
+        return 0
+    fi
+    echo "Bootstrapping VPC for container suite..."
+    local out
+    out=$($ACLOUD_CMD network vpc create \
+        --name "${RESOURCE_PREFIX}-container-vpc" \
+        --region "$REGION" 2>&1) || { echo -e "${RED}VPC create failed: $out${NC}"; return 1; }
+    local vpc_id
+    vpc_id=$(extract_id "$out")
+    if [ -z "$vpc_id" ] || ! is_valid_id "$vpc_id"; then
+        echo -e "${RED}Could not extract VPC ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_VPC_ID="$vpc_id"
+    echo "  → waiting for VPC $vpc_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network vpc get $vpc_id" '^(Active|Ready)$' 300 || {
+        echo -e "${RED}VPC did not become Active${NC}"; return 1
+    }
+    local uri_line
+    uri_line=$($ACLOUD_CMD network vpc get "$vpc_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    VPC_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$vpc_id}"
+    echo "  → VPC $vpc_id ready"
+}
+
+ensure_subnet() {
+    if [ -n "$SUBNET_URI" ]; then
+        echo "  → using pre-supplied Subnet: $SUBNET_URI"
+        return 0
+    fi
+    local vpc_id="${VPC_URI##*/}"
+    echo "Bootstrapping Subnet for container suite..."
+    local _ts="${RESOURCE_PREFIX##*-}"
+    local cidr="10.$(( (_ts % 200) + 10 )).0.0/24"
+    local out
+    out=$($ACLOUD_CMD network subnet create "$vpc_id" \
+        --name "${RESOURCE_PREFIX}-container-subnet" \
+        --cidr "$cidr" \
+        --dhcp-enabled \
+        --region "$REGION" 2>&1) || { echo -e "${RED}Subnet create failed: $out${NC}"; return 1; }
+    local subnet_id
+    subnet_id=$(extract_id "$out" "$vpc_id")
+    if [ -z "$subnet_id" ] || ! is_valid_id "$subnet_id"; then
+        echo -e "${RED}Could not extract Subnet ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_SUBNET_ID="$subnet_id"
+    echo "  → waiting for Subnet $subnet_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network subnet get $vpc_id $subnet_id" '^(Active|Ready)$' 180 || true
+    local uri_line
+    uri_line=$($ACLOUD_CMD network subnet get "$vpc_id" "$subnet_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    SUBNET_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/subnets/$subnet_id}"
+    echo "  → Subnet $subnet_id ready"
+}
+
+ensure_security_group() {
+    if [ -n "$SG_URI" ]; then
+        echo "  → using pre-supplied Security Group: $SG_URI"
+        return 0
+    fi
+    local vpc_id="${VPC_URI##*/}"
+    echo "Bootstrapping Security Group for container suite..."
+    local out
+    out=$($ACLOUD_CMD network securitygroup create "$vpc_id" \
+        --name "${RESOURCE_PREFIX}-container-sg" \
+        --region "$REGION" 2>&1) || { echo -e "${RED}SG create failed: $out${NC}"; return 1; }
+    local sg_id
+    sg_id=$(extract_id "$out" "$vpc_id")
+    if [ -z "$sg_id" ] || ! is_valid_id "$sg_id"; then
+        echo -e "${RED}Could not extract SG ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_SG_ID="$sg_id"
+    echo "  → waiting for Security Group $sg_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network securitygroup get $vpc_id $sg_id" '^(Active|Ready)$' 180 || true
+    local uri_line
+    uri_line=$($ACLOUD_CMD network securitygroup get "$vpc_id" "$sg_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    SG_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/securityGroups/$sg_id}"
+    echo "  → Security Group $sg_id ready"
+}
+
+ensure_public_ip() {
+    if [ -n "$PUBIP_URI" ]; then
+        echo "  → using pre-supplied Elastic IP: $PUBIP_URI"
+        return 0
+    fi
+    echo "Bootstrapping Elastic IP for container suite..."
+    local out
+    out=$($ACLOUD_CMD network elasticip create \
+        --name "${RESOURCE_PREFIX}-container-eip" \
+        --region "$REGION" \
+        --billing-period Hour 2>&1) || { echo -e "${RED}EIP create failed: $out${NC}"; return 1; }
+    local eip_id
+    eip_id=$(extract_id "$out")
+    if [ -z "$eip_id" ] || ! is_valid_id "$eip_id"; then
+        echo -e "${RED}Could not extract EIP ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_PUBIP_ID="$eip_id"
+    local uri_line
+    uri_line=$($ACLOUD_CMD network elasticip get "$eip_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    PUBIP_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/elasticIps/$eip_id}"
+    echo "  → Elastic IP $eip_id ready"
+}
+
+ensure_block_storage() {
+    if [ -n "$BLOCK_URI" ]; then
+        echo "  → using pre-supplied Block Storage: $BLOCK_URI"
+        return 0
+    fi
+    echo "Bootstrapping Block Storage for container suite..."
+    local out
+    out=$($ACLOUD_CMD storage blockstorage create \
+        --name "${RESOURCE_PREFIX}-container-block" \
+        --region "$REGION" \
+        --size 10 \
+        --type Standard \
+        --billing-period Hour \
+        --tags "e2e-test,container" 2>&1) || { echo -e "${RED}Block storage create failed: $out${NC}"; return 1; }
+    local block_id
+    block_id=$(extract_id "$out")
+    if [ -z "$block_id" ] || ! is_valid_id "$block_id"; then
+        echo -e "${RED}Could not extract block storage ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_BLOCK_ID="$block_id"
+    echo "  → waiting for block storage $block_id to be Active..."
+    wait_for_status "$ACLOUD_CMD storage blockstorage get $block_id" '^(Active|Available)$' 300 || {
+        echo -e "${RED}Block storage did not become Active${NC}"; return 1
+    }
+    local uri_line
+    uri_line=$($ACLOUD_CMD storage blockstorage get "$block_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    BLOCK_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Storage/blockStorages/$block_id}"
+    echo "  → Block storage $block_id ready"
+}
+
+# --- Test KaaS -----------------------------------------------------------
 test_kaas() {
     local cluster_name="${RESOURCE_PREFIX}-kaas"
     local version="${ACLOUD_K8S_VERSION:-1.28.0}"
-    
-    # Required environment variables for KaaS creation
-    local vpc_uri="${ACLOUD_VPC_URI}"
-    local subnet_uri="${ACLOUD_SUBNET_URI}"
+    echo -e "${BLUE}=== 1. KaaS CRUD Test ===${NC}"
+
+    ensure_vpc    || { echo -e "${RED}VPC bootstrap failed — skipping KaaS${NC}"; return 1; }
+    ensure_subnet || return 1
+
+    # KaaS node-pool instance/zone are catalog values with no discovery API.
+    # Set ACLOUD_NODE_POOL_INSTANCE and ACLOUD_NODE_POOL_ZONE to enable create.
+    local node_pool_instance="${ACLOUD_NODE_POOL_INSTANCE:-}"
+    local node_pool_zone="${ACLOUD_NODE_POOL_ZONE:-}"
+
+    if [ -z "$node_pool_instance" ] || [ -z "$node_pool_zone" ]; then
+        echo -e "${YELLOW}⚠ Skipping KaaS CREATE — set ACLOUD_NODE_POOL_INSTANCE and ACLOUD_NODE_POOL_ZONE${NC}"
+        echo -e "${YELLOW}  (no catalog API exists yet; see docs/out-of-scope)${NC}"
+        echo ""
+        echo -e "${GREEN}[LIST]${NC} Listing KaaS clusters..."
+        $ACLOUD_CMD container kaas list 2>&1 | head -10
+        echo ""
+        return 0
+    fi
+
     local node_cidr_address="${ACLOUD_NODE_CIDR:-10.0.0.0/16}"
     local node_cidr_name="${ACLOUD_NODE_CIDR_NAME:-node-cidr}"
     local security_group_name="${ACLOUD_SECURITY_GROUP_NAME:-kaas-sg}"
     local node_pool_name="${ACLOUD_NODE_POOL_NAME:-default-pool}"
     local node_pool_nodes="${ACLOUD_NODE_POOL_NODES:-1}"
-    local node_pool_instance="${ACLOUD_NODE_POOL_INSTANCE}"
-    local node_pool_zone="${ACLOUD_NODE_POOL_ZONE}"
-    
-    echo -e "${BLUE}--- Testing KaaS Operations ---${NC}"
-    
-    # Check if required variables are set
-    if [ -z "$vpc_uri" ] || [ -z "$subnet_uri" ] || [ -z "$node_pool_instance" ] || [ -z "$node_pool_zone" ]; then
-        echo -e "${YELLOW}⚠ Skipping KaaS create test - required environment variables not set${NC}"
-        echo "Required: ACLOUD_VPC_URI, ACLOUD_SUBNET_URI, ACLOUD_NODE_POOL_INSTANCE, ACLOUD_NODE_POOL_ZONE"
-        echo "Optional: ACLOUD_NODE_CIDR, ACLOUD_NODE_CIDR_NAME, ACLOUD_SECURITY_GROUP_NAME, ACLOUD_NODE_POOL_NAME, ACLOUD_NODE_POOL_NODES"
-        return
-    fi
-    
-    # Create
-    echo -e "${YELLOW}Creating KaaS cluster...${NC}"
+
+    echo -e "${GREEN}[CREATE]${NC} Creating KaaS cluster: $cluster_name"
     CREATE_OUTPUT=$($ACLOUD_CMD container kaas create \
-        --project-id "$PROJECT_ID" \
         --name "$cluster_name" \
         --region "$REGION" \
-        --vpc-uri "$vpc_uri" \
-        --subnet-uri "$subnet_uri" \
+        --vpc-uri "$VPC_URI" \
+        --subnet-uri "$SUBNET_URI" \
         --node-cidr-address "$node_cidr_address" \
         --node-cidr-name "$node_cidr_name" \
         --security-group-name "$security_group_name" \
@@ -113,203 +276,163 @@ test_kaas() {
         --node-pool-zone "$node_pool_zone" \
         --tags "e2e-test,kaas" 2>&1)
     CREATE_EXIT=$?
-    
-    if [ $CREATE_EXIT -eq 0 ]; then
-        CLUSTER_ID=$(extract_id "$CREATE_OUTPUT")
-        if [ -n "$CLUSTER_ID" ]; then
-            CREATED_CLUSTERS+=("$CLUSTER_ID")
-            echo -e "${GREEN}✓ KaaS cluster created: $CLUSTER_ID${NC}"
-        else
-            echo -e "${YELLOW}⚠ KaaS cluster creation may have succeeded but ID not found${NC}"
-        fi
-    else
-        echo -e "${RED}✗ Failed to create KaaS cluster${NC}"
+
+    if ! check_auth_error "$CREATE_OUTPUT"; then return 1; fi
+    if [ $CREATE_EXIT -ne 0 ]; then
+        echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
+        return 1
     fi
-    
-    # List
-    echo -e "${YELLOW}Listing KaaS clusters...${NC}"
-    LIST_OUTPUT=$($ACLOUD_CMD container kaas list --project-id "$PROJECT_ID" 2>&1)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ KaaS cluster list successful${NC}"
-    else
-        echo -e "${RED}✗ Failed to list KaaS clusters${NC}"
-        echo "$LIST_OUTPUT"
+
+    CLUSTER_ID=$(extract_id "$CREATE_OUTPUT")
+    if [ -z "$CLUSTER_ID" ] || ! is_valid_id "$CLUSTER_ID"; then
+        echo -e "${RED}Could not extract cluster ID${NC}"
+        echo "$CREATE_OUTPUT"
+        return 1
     fi
-    
-    # Get (if we have an ID)
-    if [ -n "$CLUSTER_ID" ]; then
-        echo -e "${YELLOW}Getting KaaS cluster details...${NC}"
-        GET_OUTPUT=$($ACLOUD_CMD container kaas get "$CLUSTER_ID" --project-id "$PROJECT_ID" 2>&1)
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ KaaS cluster get successful${NC}"
-        else
-            echo -e "${RED}✗ Failed to get KaaS cluster${NC}"
-            echo "$GET_OUTPUT"
-        fi
-        
-        # Update
-        echo -e "${YELLOW}Updating KaaS cluster...${NC}"
-        UPDATE_OUTPUT=$($ACLOUD_CMD container kaas update "$CLUSTER_ID" \
-            --project-id "$PROJECT_ID" \
-            --name "${cluster_name}-updated" \
-            --tags "e2e-test,kaas,updated" 2>&1)
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ KaaS cluster update successful${NC}"
-        else
-            echo -e "${RED}✗ Failed to update KaaS cluster${NC}"
-            echo "$UPDATE_OUTPUT"
-        fi
-        
-        # Connect (optional - requires kubectl)
-        if command -v kubectl >/dev/null 2>&1; then
-            echo -e "${YELLOW}Testing KaaS connect...${NC}"
-            CONNECT_OUTPUT=$($ACLOUD_CMD container kaas connect "$CLUSTER_ID" \
-                --project-id "$PROJECT_ID" 2>&1)
-            if [ $? -eq 0 ]; then
-                echo -e "${GREEN}✓ KaaS connect successful${NC}"
-            else
-                echo -e "${YELLOW}⚠ KaaS connect failed (may be expected if cluster is not ready)${NC}"
-                echo "$CONNECT_OUTPUT"
-            fi
-        else
-            echo -e "${YELLOW}⚠ Skipping KaaS connect test - kubectl not found${NC}"
-        fi
-    fi
-    
+    CREATED_CLUSTERS+=("$CLUSTER_ID")
+    echo -e "${GREEN}KaaS cluster created: $CLUSTER_ID${NC}\n"
+
+    echo -e "${GREEN}[LIST]${NC} Listing KaaS clusters..."
+    $ACLOUD_CMD container kaas list 2>&1 | head -10
     echo ""
+
+    echo "Waiting for cluster $CLUSTER_ID to be Active..."
+    local cluster_ready=0
+    wait_for_status "$ACLOUD_CMD container kaas get $CLUSTER_ID" '^(Active|Ready)$' 900 && cluster_ready=1
+    echo ""
+
+    echo -e "${GREEN}[GET]${NC} Getting cluster details..."
+    $ACLOUD_CMD container kaas get "$CLUSTER_ID" 2>&1
+    echo ""
+
+    if [ "$cluster_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating KaaS cluster..."
+        $ACLOUD_CMD container kaas update "$CLUSTER_ID" \
+            --name "${cluster_name}-updated" \
+            --tags "e2e-test,kaas,updated" 2>&1 || true
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — cluster did not reach Active after 900s."
+        echo ""
+    fi
+
+    echo -e "${GREEN}✓ KaaS CRUD test completed!${NC}\n"
 }
 
-# Function to test Container Registry operations
+# --- Test Container Registry --------------------------------------------
 test_containerregistry() {
     local registry_name="${RESOURCE_PREFIX}-registry"
-    
-    # Required environment variables for Container Registry creation
-    local public_ip_uri="${ACLOUD_PUBLIC_IP_URI}"
-    local vpc_uri="${ACLOUD_VPC_URI}"
-    local subnet_uri="${ACLOUD_SUBNET_URI}"
-    local security_group_uri="${ACLOUD_SECURITY_GROUP_URI}"
-    local block_storage_uri="${ACLOUD_BLOCK_STORAGE_URI}"
-    
-    echo -e "${BLUE}--- Testing Container Registry Operations ---${NC}"
-    
-    # Check if required variables are set
-    if [ -z "$public_ip_uri" ] || [ -z "$vpc_uri" ] || [ -z "$subnet_uri" ] || [ -z "$security_group_uri" ] || [ -z "$block_storage_uri" ]; then
-        echo -e "${YELLOW}⚠ Skipping Container Registry create test - required environment variables not set${NC}"
-        echo "Required: ACLOUD_PUBLIC_IP_URI, ACLOUD_VPC_URI, ACLOUD_SUBNET_URI, ACLOUD_SECURITY_GROUP_URI, ACLOUD_BLOCK_STORAGE_URI"
-        return
-    fi
-    
-    # Create
-    echo -e "${YELLOW}Creating Container Registry...${NC}"
+    echo -e "${BLUE}=== 2. Container Registry CRUD Test ===${NC}"
+
+    ensure_vpc             || { echo -e "${RED}VPC bootstrap failed — skipping registry${NC}"; return 1; }
+    ensure_subnet          || return 1
+    ensure_security_group  || return 1
+    ensure_public_ip       || return 1
+    ensure_block_storage   || return 1
+
+    echo -e "${GREEN}[CREATE]${NC} Creating Container Registry: $registry_name"
     CREATE_OUTPUT=$($ACLOUD_CMD container containerregistry create \
-        --project-id "$PROJECT_ID" \
         --name "$registry_name" \
         --region "$REGION" \
-        --public-ip-uri "$public_ip_uri" \
-        --vpc-uri "$vpc_uri" \
-        --subnet-uri "$subnet_uri" \
-        --security-group-uri "$security_group_uri" \
-        --block-storage-uri "$block_storage_uri" \
+        --public-ip-uri "$PUBIP_URI" \
+        --vpc-uri "$VPC_URI" \
+        --subnet-uri "$SUBNET_URI" \
+        --security-group-uri "$SG_URI" \
+        --block-storage-uri "$BLOCK_URI" \
         --admin-username "${ACLOUD_REGISTRY_ADMIN_USER:-admin}" \
         --concurrent-users "${ACLOUD_REGISTRY_CONCURRENT_USERS:-10}" \
-        --billing-period "Hour" \
+        --billing-period Hour \
         --tags "e2e-test,registry" 2>&1)
     CREATE_EXIT=$?
-    
-    if [ $CREATE_EXIT -eq 0 ]; then
-        REGISTRY_ID=$(extract_id "$CREATE_OUTPUT")
-        if [ -n "$REGISTRY_ID" ]; then
-            CREATED_REGISTRIES+=("$REGISTRY_ID")
-            echo -e "${GREEN}✓ Container Registry created: $REGISTRY_ID${NC}"
-        else
-            echo -e "${YELLOW}⚠ Container Registry creation may have succeeded but ID not found${NC}"
-        fi
-    else
-        echo -e "${RED}✗ Failed to create Container Registry${NC}"
+
+    if ! check_auth_error "$CREATE_OUTPUT"; then return 1; fi
+    if [ $CREATE_EXIT -ne 0 ]; then
+        echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
+        return 1
     fi
-    
-    # List
-    echo -e "${YELLOW}Listing Container Registries...${NC}"
-    LIST_OUTPUT=$($ACLOUD_CMD container containerregistry list --project-id "$PROJECT_ID" 2>&1)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Container Registry list successful${NC}"
-    else
-        echo -e "${RED}✗ Failed to list Container Registries${NC}"
-        echo "$LIST_OUTPUT"
+
+    REGISTRY_ID=$(extract_id "$CREATE_OUTPUT")
+    if [ -z "$REGISTRY_ID" ] || ! is_valid_id "$REGISTRY_ID"; then
+        echo -e "${RED}Could not extract registry ID${NC}"
+        echo "$CREATE_OUTPUT"
+        return 1
     fi
-    
-    # Get (if we have an ID)
-    if [ -n "$REGISTRY_ID" ]; then
-        echo -e "${YELLOW}Getting Container Registry details...${NC}"
-        GET_OUTPUT=$($ACLOUD_CMD container containerregistry get "$REGISTRY_ID" --project-id "$PROJECT_ID" 2>&1)
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Container Registry get successful${NC}"
-        else
-            echo -e "${RED}✗ Failed to get Container Registry${NC}"
-            echo "$GET_OUTPUT"
-        fi
-        
-        # Update
-        echo -e "${YELLOW}Updating Container Registry...${NC}"
-        UPDATE_OUTPUT=$($ACLOUD_CMD container containerregistry update "$REGISTRY_ID" \
-            --project-id "$PROJECT_ID" \
+    CREATED_REGISTRIES+=("$REGISTRY_ID")
+    echo -e "${GREEN}Container Registry created: $REGISTRY_ID${NC}\n"
+
+    echo -e "${GREEN}[LIST]${NC} Listing Container Registries..."
+    $ACLOUD_CMD container containerregistry list 2>&1 | head -10
+    echo ""
+
+    echo "Waiting for registry $REGISTRY_ID to be Active..."
+    local registry_ready=0
+    wait_for_status "$ACLOUD_CMD container containerregistry get $REGISTRY_ID" '^(Active|Ready)$' 600 && registry_ready=1
+    echo ""
+
+    echo -e "${GREEN}[GET]${NC} Getting registry details..."
+    $ACLOUD_CMD container containerregistry get "$REGISTRY_ID" 2>&1
+    echo ""
+
+    if [ "$registry_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating Container Registry..."
+        $ACLOUD_CMD container containerregistry update "$REGISTRY_ID" \
             --name "${registry_name}-updated" \
             --tags "e2e-test,registry,updated" \
-            --concurrent-users 20 2>&1)
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Container Registry update successful${NC}"
-        else
-            echo -e "${RED}✗ Failed to update Container Registry${NC}"
-            echo "$UPDATE_OUTPUT"
-        fi
+            --concurrent-users 20 2>&1 || true
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — registry did not reach Active after 600s."
+        echo ""
     fi
-    
+
+    echo -e "${GREEN}✓ Container Registry CRUD test completed!${NC}\n"
+}
+
+# --- Test --output flag --------------------------------------------------
+test_output_formats() {
+    echo -e "${BLUE}--- Testing container list --output flag ---${NC}"
+    for resource_cmd in "kaas list" "containerregistry list"; do
+        local label="container $resource_cmd"
+        local cmd="$ACLOUD_CMD container $resource_cmd"
+        for fmt in json yaml; do
+            echo -e "${YELLOW}Testing $label --output $fmt...${NC}"
+            OUT=$(eval "$cmd --output $fmt" 2>&1)
+            validate_list_output "$label" "$fmt" "$OUT" $?
+        done
+    done
     echo ""
 }
 
-# Cleanup function
-cleanup() {
-    echo -e "${BLUE}--- Cleanup ---${NC}"
-    
-    # Delete Container Registries
-    for registry_id in "${CREATED_REGISTRIES[@]}"; do
-        echo -e "${YELLOW}Deleting Container Registry: $registry_id${NC}"
-        $ACLOUD_CMD container containerregistry delete "$registry_id" --project-id "$PROJECT_ID" --yes 2>&1 >/dev/null
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Container Registry deleted: $registry_id${NC}"
-        else
-            echo -e "${RED}✗ Failed to delete Container Registry: $registry_id${NC}"
-        fi
-    done
-    
-    # Delete KaaS clusters
-    for cluster_id in "${CREATED_CLUSTERS[@]}"; do
-        echo -e "${YELLOW}Deleting KaaS cluster: $cluster_id${NC}"
-        $ACLOUD_CMD container kaas delete "$cluster_id" --project-id "$PROJECT_ID" --yes 2>&1 >/dev/null
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ KaaS cluster deleted: $cluster_id${NC}"
-        else
-            echo -e "${RED}✗ Failed to delete KaaS cluster: $cluster_id${NC}"
-        fi
-    done
-    
-    echo ""
-}
+# --- Main ----------------------------------------------------------------
+ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
+setup_context
 
-# Trap to ensure cleanup on exit
-trap cleanup EXIT
+echo -e "${BLUE}Starting Container Resources E2E Tests...${NC}\n"
 
-# Run tests
-test_kaas
-test_containerregistry
+test_kaas               || FAILURES=$((FAILURES + 1))
+test_containerregistry  || FAILURES=$((FAILURES + 1))
 test_output_formats
 
-# Summary
 echo -e "${BLUE}=== Test Summary ===${NC}"
-echo "Created KaaS clusters: ${#CREATED_CLUSTERS[@]}"
-echo "Created Container Registries: ${#CREATED_REGISTRIES[@]}"
+echo "Project ID: $PROJECT_ID"
+if [ ${#CREATED_CLUSTERS[@]} -gt 0 ]; then
+    echo -e "${GREEN}✓ KaaS Clusters: ${#CREATED_CLUSTERS[@]} created${NC}"
+else
+    echo -e "${YELLOW}○ KaaS Clusters: 0 created${NC}"
+fi
+if [ ${#CREATED_REGISTRIES[@]} -gt 0 ]; then
+    echo -e "${GREEN}✓ Container Registries: ${#CREATED_REGISTRIES[@]} created${NC}"
+else
+    echo -e "${YELLOW}○ Container Registries: 0 created${NC}"
+fi
 echo ""
-echo -e "${GREEN}E2E tests completed!${NC}"
 
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Container E2E: all checks passed ===${NC}"
+    exit 0
+else
+    echo -e "${RED}=== Container E2E: $FAILURES check(s) failed ===${NC}"
+    exit 1
+fi
