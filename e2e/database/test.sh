@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # E2E Test Script for Database Resources
-# Tests CRUD operations for DBaaS, DBaaS Databases, DBaaS Users, and Database Backups
+# Tests CRUD operations for DBaaS, DBaaS Databases, DBaaS Users, and Database Backups.
+# Fully self-contained: bootstraps VPC/Subnet/SG/ElasticIP when env-var URIs are absent
+# and tears them down in reverse order on exit.
 
 # Don't exit on error - we want to continue and show summary
 # set -e  # Exit on error
@@ -13,16 +15,28 @@ source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 CREATED_DBAAS=()
 CREATED_DATABASES=()
 CREATED_USERS=()
+CREATED_GRANTS=0   # count only; API does not return grant IDs in responses
 CREATED_BACKUPS=()
 DBAAS_ID=""
-BOOTSTRAP_PROJECT_ID=""
 
-# Engine/flavor: prefer explicit env vars, then documented defaults.
-# No acloud database engine list command exists (SDK does not expose an
-# Engines client). Set ACLOUD_ENGINE_ID and ACLOUD_FLAVOR to enable DBaaS
-# create; otherwise that step skips cleanly and list/format tests still run.
-ENGINE_ID="${ACLOUD_ENGINE_ID:-${ACLOUD_E2E_DEFAULT_ENGINE_ID:-}}"
-FLAVOR="${ACLOUD_FLAVOR:-${ACLOUD_E2E_DEFAULT_FLAVOR:-}}"
+# Bootstrapped dep IDs (empty = pre-supplied; do not delete on exit)
+BOOTSTRAP_PROJECT_ID=""
+BOOTSTRAP_VPC_ID=""
+BOOTSTRAP_SUBNET_ID=""
+BOOTSTRAP_SG_ID=""
+BOOTSTRAP_ELASTIC_IP_ID=""
+
+# Resolved dep URIs (populated by ensure_* functions)
+VPC_URI="${ACLOUD_VPC_URI:-}"
+SUBNET_URI="${ACLOUD_SUBNET_URI:-}"
+SG_URI="${ACLOUD_SECURITY_GROUP_URI:-}"
+ELASTIC_IP_URI="${ACLOUD_ELASTIC_IP_URI:-}"
+
+# Engine/flavor/zone/storage: prefer explicit env vars, then hardcoded defaults.
+ENGINE_ID="${ACLOUD_ENGINE_ID:-mysql-8.0}"
+FLAVOR="${ACLOUD_FLAVOR:-DBO4A8}"
+ZONE="${ACLOUD_ZONE:-ITBG-1}"
+STORAGE_SIZE="${ACLOUD_STORAGE_SIZE:-50}"
 
 print_banner "Database"
 
@@ -37,6 +51,11 @@ cleanup() {
             $ACLOUD_CMD database backup delete "$backup_id" --yes 2>&1 || true
         fi
     done
+
+    # Grants: The API does not return grant IDs in list/create responses, so
+    # individual grant deletes are not possible here. User/database deletes
+    # will 409 when grants exist — that is expected and harmless; the DBaaS
+    # cascade delete (below) removes all sub-resources atomically.
 
     # Delete DBaaS users
     if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
@@ -61,13 +80,50 @@ cleanup() {
             wait_for_status "$ACLOUD_CMD database dbaas get $dbaas_id" '^(Active|Ready)$' 300 2>/dev/null || true
             echo "Deleting DBaaS instance: $dbaas_id"
             $ACLOUD_CMD database dbaas delete "$dbaas_id" --yes 2>&1 || true
+            # Poll until the DBaaS is fully gone before removing networking deps
+            local wait_del=0
+            echo "  Waiting for DBaaS $dbaas_id to be fully removed..."
+            while [ "$wait_del" -lt 300 ]; do
+                $ACLOUD_CMD database dbaas get "$dbaas_id" >/dev/null 2>&1 || { echo "  → DBaaS $dbaas_id removed"; break; }
+                sleep 10
+                wait_del=$((wait_del + 10))
+            done
         fi
     done
 
-    # Delete bootstrapped project last
+    # Bootstrapped infra in reverse dep order
+    if [ -n "$BOOTSTRAP_ELASTIC_IP_ID" ]; then
+        echo "Deleting bootstrapped elastic IP: $BOOTSTRAP_ELASTIC_IP_ID"
+        $ACLOUD_CMD network elasticip delete "$BOOTSTRAP_ELASTIC_IP_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_SG_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped security group: $BOOTSTRAP_SG_ID"
+        $ACLOUD_CMD network securitygroup delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SG_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_SUBNET_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
+        wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
+        $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+    fi
+    if [ -n "$BOOTSTRAP_VPC_ID" ]; then
+        echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
+        local vpc_del_elapsed=0
+        while [ "$vpc_del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            sleep 15
+            vpc_del_elapsed=$((vpc_del_elapsed + 15))
+        done
+    fi
+
+    # Delete bootstrapped project last (retry — DBaaS and VPC deletions are async)
     if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
         echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
-        $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 || true
+        local proj_del_elapsed=0
+        while [ "$proj_del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 && break
+            sleep 15
+            proj_del_elapsed=$((proj_del_elapsed + 15))
+        done
     fi
 
     echo -e "${GREEN}Cleanup completed!${NC}"
@@ -75,8 +131,113 @@ cleanup() {
 
 trap cleanup EXIT
 
-ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
-setup_context
+# --- Dep resolvers -------------------------------------------------------
+
+ensure_vpc() {
+    if [ -n "$VPC_URI" ]; then
+        echo "  → using pre-supplied VPC: $VPC_URI"
+        return 0
+    fi
+    echo "Bootstrapping VPC for database suite..."
+    local out
+    out=$($ACLOUD_CMD network vpc create \
+        --name "${RESOURCE_PREFIX}-db-vpc" \
+        --region "$REGION" 2>&1) || { echo -e "${RED}VPC create failed: $out${NC}"; return 1; }
+    local vpc_id
+    vpc_id=$(extract_id "$out")
+    if [ -z "$vpc_id" ] || ! is_valid_id "$vpc_id"; then
+        echo -e "${RED}Could not extract VPC ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_VPC_ID="$vpc_id"
+    echo "  → waiting for VPC $vpc_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network vpc get $vpc_id" '^(Active|Ready)$' 300 || {
+        echo -e "${RED}VPC did not become Active${NC}"; return 1
+    }
+    local uri_line
+    uri_line=$($ACLOUD_CMD network vpc get "$vpc_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    VPC_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$vpc_id}"
+    echo "  → VPC $vpc_id ready"
+}
+
+ensure_subnet() {
+    if [ -n "$SUBNET_URI" ]; then
+        echo "  → using pre-supplied Subnet: $SUBNET_URI"
+        return 0
+    fi
+    local vpc_id="${VPC_URI##*/}"
+    echo "Bootstrapping Subnet for database suite..."
+    local _ts="${RESOURCE_PREFIX##*-}"
+    local cidr="10.$(( (_ts % 200) + 10 )).1.0/24"
+    local out
+    out=$($ACLOUD_CMD network subnet create "$vpc_id" \
+        --name "${RESOURCE_PREFIX}-db-subnet" \
+        --cidr "$cidr" \
+        --dhcp-enabled \
+        --region "$REGION" 2>&1) || { echo -e "${RED}Subnet create failed: $out${NC}"; return 1; }
+    local subnet_id
+    subnet_id=$(extract_id "$out" "$vpc_id")
+    if [ -z "$subnet_id" ] || ! is_valid_id "$subnet_id"; then
+        echo -e "${RED}Could not extract Subnet ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_SUBNET_ID="$subnet_id"
+    echo "  → waiting for Subnet $subnet_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network subnet get $vpc_id $subnet_id" '^(Active|Ready)$' 180 || true
+    local uri_line
+    uri_line=$($ACLOUD_CMD network subnet get "$vpc_id" "$subnet_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    SUBNET_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/subnets/$subnet_id}"
+    echo "  → Subnet $subnet_id ready"
+}
+
+ensure_security_group() {
+    if [ -n "$SG_URI" ]; then
+        echo "  → using pre-supplied Security Group: $SG_URI"
+        return 0
+    fi
+    local vpc_id="${VPC_URI##*/}"
+    echo "Bootstrapping Security Group for database suite..."
+    local out
+    out=$($ACLOUD_CMD network securitygroup create "$vpc_id" \
+        --name "${RESOURCE_PREFIX}-db-sg" \
+        --region "$REGION" 2>&1) || { echo -e "${RED}SG create failed: $out${NC}"; return 1; }
+    local sg_id
+    sg_id=$(extract_id "$out" "$vpc_id")
+    if [ -z "$sg_id" ] || ! is_valid_id "$sg_id"; then
+        echo -e "${RED}Could not extract SG ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_SG_ID="$sg_id"
+    echo "  → waiting for Security Group $sg_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network securitygroup get $vpc_id $sg_id" '^(Active|Ready)$' 180 || true
+    local uri_line
+    uri_line=$($ACLOUD_CMD network securitygroup get "$vpc_id" "$sg_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    SG_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/securityGroups/$sg_id}"
+    echo "  → Security Group $sg_id ready"
+}
+
+ensure_elastic_ip() {
+    if [ -n "$ELASTIC_IP_URI" ]; then
+        echo "  → using pre-supplied Elastic IP: $ELASTIC_IP_URI"
+        return 0
+    fi
+    echo "Bootstrapping Elastic IP for database suite..."
+    local out
+    out=$($ACLOUD_CMD network elasticip create \
+        --name "${RESOURCE_PREFIX}-db-eip" \
+        --region "$REGION" \
+        --billing-period Hour \
+        --tags "e2e-test" 2>&1) || { echo -e "${RED}Elastic IP create failed: $out${NC}"; return 1; }
+    local eip_id
+    eip_id=$(extract_id "$out")
+    if [ -z "$eip_id" ] || ! is_valid_id "$eip_id"; then
+        echo -e "${RED}Could not extract Elastic IP ID: $out${NC}"; return 1
+    fi
+    BOOTSTRAP_ELASTIC_IP_ID="$eip_id"
+    echo "  → waiting for Elastic IP $eip_id to be Active..."
+    wait_for_status "$ACLOUD_CMD network elasticip get $eip_id" '^(Active|NotUsed|Ready)$' 180 || true
+    local uri_line
+    uri_line=$($ACLOUD_CMD network elasticip get "$eip_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
+    ELASTIC_IP_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/elasticIps/$eip_id}"
+    echo "  → Elastic IP $eip_id ready"
+}
 
 # --- Test --output flag ---------------------------------------------------
 # dbaas list always tested; dbaas database list only when DBAAS_ID is set.
@@ -109,20 +270,27 @@ test_output_formats() {
 test_dbaas() {
     echo -e "${BLUE}=== 1. DBaaS CRUD Test ===${NC}"
 
-    if [ -z "$ENGINE_ID" ] || [ -z "$FLAVOR" ]; then
-        echo -e "${YELLOW}⚠ Skipping DBaaS create — set ACLOUD_ENGINE_ID and ACLOUD_FLAVOR (or the ACLOUD_E2E_DEFAULT_* fallbacks) to enable.${NC}"
-        echo ""
-        return 0
-    fi
+    echo "Resolving database networking dependencies..."
+    ensure_vpc            || { echo -e "${RED}VPC bootstrap failed — skipping DBaaS${NC}"; return 1; }
+    ensure_subnet         || return 1
+    ensure_security_group || return 1
+    ensure_elastic_ip     || return 1
 
     local dbaas_name="${RESOURCE_PREFIX}-dbaas"
 
     echo -e "${GREEN}[CREATE]${NC} Creating DBaaS instance: $dbaas_name"
+    echo "  (zone=$ZONE, flavor=$FLAVOR, engine=$ENGINE_ID, vpc=$VPC_URI)"
     CREATE_OUTPUT=$($ACLOUD_CMD database dbaas create \
         --name "$dbaas_name" \
         --region "$REGION" \
+        --zone "$ZONE" \
         --engine-id "$ENGINE_ID" \
         --flavor "$FLAVOR" \
+        --storage-size "$STORAGE_SIZE" \
+        --vpc-uri "$VPC_URI" \
+        --subnet-uri "$SUBNET_URI" \
+        --security-group-uri "$SG_URI" \
+        --elastic-ip-uri "$ELASTIC_IP_URI" \
         --tags "e2e-test,created-by-script" 2>&1)
     exit_code=$?
 
@@ -184,7 +352,12 @@ test_dbaas_database() {
         return 0
     fi
 
-    local db_name="${RESOURCE_PREFIX}-database"
+    # MySQL database names: letters, digits, underscore only (no hyphens)
+    local _ts="${RESOURCE_PREFIX##*-}"
+    local db_name="e2edb${_ts}"
+
+    echo "Waiting for DBaaS $DBAAS_ID to be Active before database operations..."
+    wait_for_status "$ACLOUD_CMD database dbaas get $DBAAS_ID" '^(Active|Ready)$' 180 2>/dev/null || true
 
     echo -e "${GREEN}[CREATE]${NC} Creating database: $db_name"
     CREATE_OUTPUT=$($ACLOUD_CMD database dbaas database create "$DBAAS_ID" \
@@ -207,16 +380,8 @@ test_dbaas_database() {
     echo -e "${GREEN}[GET]${NC} Getting database details: $db_name"
     $ACLOUD_CMD database dbaas database get "$DBAAS_ID" "$db_name" 2>&1
 
-    echo -e "${GREEN}[UPDATE]${NC} Updating database: $db_name"
-    UPDATE_OUTPUT=$($ACLOUD_CMD database dbaas database update "$DBAAS_ID" "$db_name" \
-        --name "${db_name}-updated" 2>&1)
-    if [ $? -eq 0 ]; then
-        CREATED_DATABASES=("${CREATED_DATABASES[@]/$db_name/${db_name}-updated}")
-        echo -e "${GREEN}Database updated successfully${NC}"
-    else
-        echo -e "${YELLOW}Update may have failed${NC}"
-        echo "$UPDATE_OUTPUT" | head -5
-    fi
+    # Database rename (UPDATE) is not supported by the API (returns 405)
+    echo -e "${YELLOW}[UPDATE]${NC} Skipping database rename — API does not support PUT on databases (405)"
 
     echo -e "${GREEN}✓ DBaaS Database CRUD test completed!${NC}\n"
     return 0
@@ -231,8 +396,13 @@ test_dbaas_user() {
         return 0
     fi
 
-    local username="${RESOURCE_PREFIX}-user"
-    local password="TestPassword123!"
+    # Username scoped to this DBaaS instance — use the same short name as the
+    # Terraform provider example (restapi) which is verified to pass API validation.
+    local username="restapi"
+    local password="Prova123456789AC@"
+
+    echo "Waiting for DBaaS $DBAAS_ID to be Active before user operations..."
+    wait_for_status "$ACLOUD_CMD database dbaas get $DBAAS_ID" '^(Active|Ready)$' 180 2>/dev/null || true
 
     echo -e "${GREEN}[CREATE]${NC} Creating user: $username"
     CREATE_OUTPUT=$($ACLOUD_CMD database dbaas user create "$DBAAS_ID" \
@@ -256,23 +426,73 @@ test_dbaas_user() {
     echo -e "${GREEN}[GET]${NC} Getting user details: $username"
     $ACLOUD_CMD database dbaas user get "$DBAAS_ID" "$username" 2>&1
 
-    echo -e "${GREEN}[UPDATE]${NC} Updating user password: $username"
-    UPDATE_OUTPUT=$($ACLOUD_CMD database dbaas user update "$DBAAS_ID" "$username" \
-        --password "NewPassword123!" 2>&1)
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}User updated successfully${NC}"
-    else
-        echo -e "${YELLOW}Update may have failed${NC}"
-        echo "$UPDATE_OUTPUT" | head -5
-    fi
+    # User password update is not supported by the API (returns 405)
+    echo -e "${YELLOW}[UPDATE]${NC} Skipping user password update — API does not support PUT on users (405)"
 
     echo -e "${GREEN}✓ DBaaS User CRUD test completed!${NC}\n"
     return 0
 }
 
+# --- Test DBaaS Grant -----------------------------------------------------
+test_dbaas_grant() {
+    echo -e "${BLUE}=== 4. DBaaS Grant CRUD Test ===${NC}"
+
+    if [ -z "$DBAAS_ID" ] || ! is_valid_id "$DBAAS_ID"; then
+        echo -e "${YELLOW}Skipping DBaaS grant test (no DBaaS instance available)${NC}\n"
+        return 0
+    fi
+    if [ ${#CREATED_USERS[@]} -eq 0 ] || [ ${#CREATED_DATABASES[@]} -eq 0 ]; then
+        echo -e "${YELLOW}Skipping DBaaS grant test (no user or database available)${NC}\n"
+        return 0
+    fi
+
+    local username="${CREATED_USERS[0]}"
+    local db_name="${CREATED_DATABASES[0]}"
+    local role="liteadmin"
+
+    echo "Waiting for DBaaS $DBAAS_ID to be Active before grant operations..."
+    wait_for_status "$ACLOUD_CMD database dbaas get $DBAAS_ID" '^(Active|Ready)$' 180 2>/dev/null || true
+
+    echo -e "${GREEN}[CREATE]${NC} Creating grant: $username → $db_name ($role)"
+    CREATE_OUTPUT=$($ACLOUD_CMD database dbaas grant create "$DBAAS_ID" "$db_name" \
+        --username "$username" \
+        --role "$role" 2>&1)
+    exit_code=$?
+
+    if ! check_auth_error "$CREATE_OUTPUT"; then return 1; fi
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${RED}CREATE failed:${NC}"
+        echo "$CREATE_OUTPUT" >&2
+        return 1
+    fi
+    CREATED_GRANTS=$((CREATED_GRANTS + 1))
+    echo -e "${GREEN}Grant created: $username → $db_name${NC}"
+
+    echo -e "${GREEN}[LIST]${NC} Listing grants on database: $db_name"
+    GRANT_LIST_OUTPUT=$($ACLOUD_CMD database dbaas grant list "$DBAAS_ID" "$db_name" 2>&1)
+    echo "$GRANT_LIST_OUTPUT"
+
+    # The grant list/create responses do not include an ID field (API limitation),
+    # so individual grant DELETE is not possible. DBaaS cascade delete handles cleanup.
+    local grant_id
+    grant_id=$(echo "$GRANT_LIST_OUTPUT" | awk 'NR>1 && NF>0 {print $1; exit}')
+    if [ -n "$grant_id" ] && is_valid_id "$grant_id"; then
+        echo -e "${GREEN}[GET]${NC} Getting grant details: $grant_id"
+        $ACLOUD_CMD database dbaas grant get "$DBAAS_ID" "$db_name" "$grant_id" 2>&1
+    else
+        echo -e "${YELLOW}Could not extract grant ID for cleanup (cleanup via user delete)${NC}"
+    fi
+
+    # Grant update is not supported by the API
+    echo -e "${YELLOW}[UPDATE]${NC} Skipping grant update — API does not support PUT on grants"
+
+    echo -e "${GREEN}✓ DBaaS Grant CRUD test completed!${NC}\n"
+    return 0
+}
+
 # --- Test Database Backup -------------------------------------------------
 test_backup() {
-    echo -e "${BLUE}=== 4. Database Backup CRUD Test ===${NC}"
+    echo -e "${BLUE}=== 5. Database Backup CRUD Test ===${NC}"
 
     if [ -z "$DBAAS_ID" ] || ! is_valid_id "$DBAAS_ID"; then
         echo -e "${YELLOW}Skipping backup test (no DBaaS instance available)${NC}\n"
@@ -284,13 +504,16 @@ test_backup() {
         return 0
     fi
 
-    local backup_name="${RESOURCE_PREFIX}-backup"
+    # Backup name: alphanumeric only (no hyphens, same constraint as database/user names)
+    local _ts="${RESOURCE_PREFIX##*-}"
+    local backup_name="e2ebackup${_ts}"
     local database_name="${CREATED_DATABASES[0]}"
 
     echo -e "${GREEN}[CREATE]${NC} Creating backup: $backup_name"
     CREATE_OUTPUT=$($ACLOUD_CMD database backup create \
         --name "$backup_name" \
         --region "$REGION" \
+        --zone "$ZONE" \
         --dbaas-id "$DBAAS_ID" \
         --database-name "$database_name" \
         --billing-period "Hour" \
@@ -325,11 +548,15 @@ test_backup() {
 }
 
 # --- Main -----------------------------------------------------------------
+ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
+setup_context
+
 echo -e "${BLUE}Starting Database Resources E2E Tests...${NC}\n"
 
 test_dbaas
 test_dbaas_database
 test_dbaas_user
+test_dbaas_grant
 test_backup
 test_output_formats
 
@@ -353,6 +580,11 @@ if [ ${#CREATED_USERS[@]} -gt 0 ]; then
     echo -e "${GREEN}✓ Users: ${#CREATED_USERS[@]} created${NC}"
 else
     echo -e "${YELLOW}○ Users: 0 created${NC}"
+fi
+if [ "$CREATED_GRANTS" -gt 0 ]; then
+    echo -e "${GREEN}✓ Grants: $CREATED_GRANTS created${NC}"
+else
+    echo -e "${YELLOW}○ Grants: 0 created${NC}"
 fi
 if [ ${#CREATED_BACKUPS[@]} -gt 0 ]; then
     echo -e "${GREEN}✓ Backups: ${#CREATED_BACKUPS[@]} created${NC}"

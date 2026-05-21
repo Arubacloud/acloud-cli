@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -134,10 +135,13 @@ separately through your database client after the user is created.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
+		// API expects the password base64-encoded (matches Terraform provider behaviour).
+		encodedPassword := base64.StdEncoding.EncodeToString([]byte(password))
+
 		u := aruba.NewUser().
 			IntoDBaaS(dbaasRef(projectID, dbaasID)).
 			WithUsername(username).
-			WithPassword(password)
+			WithPassword(encodedPassword)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -296,7 +300,8 @@ var dbaasUserUpdateCmd = &cobra.Command{
 			return fmt.Errorf("fetching current user: %w", apiErrFromV2(err))
 		}
 
-		current.WithPassword(password)
+		// API expects the password base64-encoded (matches Terraform provider behaviour).
+		current.WithPassword(base64.StdEncoding.EncodeToString([]byte(password)))
 
 		updated, err := client.FromDatabase().Users().Update(ctx, current)
 		if err != nil {

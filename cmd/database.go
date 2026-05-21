@@ -15,5 +15,6 @@ func init() {
 	// DBaaS commands are registered in database.dbaas.go
 	// DBaaS database commands are registered in database.dbaas.database.go
 	// DBaaS user commands are registered in database.dbaas.user.go
+	// DBaaS grant commands are registered in database.dbaas.grant.go
 	// Database backup commands are registered in database.backup.go
 }
