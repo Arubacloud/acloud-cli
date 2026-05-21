@@ -389,6 +389,23 @@ var cloudserverUpdateCmd = &cobra.Command{
 			cur.ReplaceTags(tags...)
 		}
 
+		// The GET response returns subnets via NetworkInterfaces[].Subnet and
+		// security groups via LinkedResources[], not in the request-side arrays.
+		// Re-inject them so the PUT body doesn't appear to strip them.
+		if raw := cur.Raw(); raw != nil {
+			for _, ni := range raw.Properties.NetworkInterfaces {
+				if ni.Subnet != nil && *ni.Subnet != "" {
+					cur.AddSubnet(aruba.URI(*ni.Subnet))
+				}
+			}
+			for _, lr := range raw.Properties.LinkedResources {
+				if strings.Contains(strings.ToLower(lr.URI), "securitygroup") ||
+					strings.Contains(strings.ToLower(lr.URI), "security-group") {
+					cur.AddSecurityGroup(aruba.URI(lr.URI))
+				}
+			}
+		}
+
 		updated, err := client.FromCompute().CloudServers().Update(ctx, cur)
 		if err != nil {
 			return fmt.Errorf("updating cloud server: %w", apiErrFromV2(err))

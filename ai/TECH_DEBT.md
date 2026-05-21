@@ -63,6 +63,15 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 
 ---
 
+### TD-029 · `cloudserver update` always 400 — PUT body missing subnet/SG refs (#125)
+`acloud compute cloudserver update` fails on every call with HTTP 400. The SDK's `fromResponse` does not hydrate `subnetRefs`/`securityGroupRefs` from the GET response because the API returns those in different shapes (`networkInterfaces[].subnet` and `linkedResources[]`). The PUT body therefore omits them, which the API interprets as stripping all subnets/SGs → validation failure.
+
+**Diagnosis:** Run `acloud --debug compute cloudserver update <id> --tags foo` and inspect `[DEBUG] response body:` to confirm which field(s) the API rejects.
+
+**Fix:** Map `networkInterfaces[].subnet` → `subnetRefs` and identify security-group URIs in `linkedResources[]` in the CLI update handler (or upstream in SDK `fromResponse`). Re-inject before calling `Update`. See #125.
+
+---
+
 ### TD-028 · User-facing migration guide for `-o json`/`-o yaml` output-shape change
 TD-016 switched `-o json`/`-o yaml` to emit the full SDK response wrapper (`{ statusCode, data: { values: [...] } }`) instead of the flat shape used by acloud-cli v0.1.x. This is a **breaking change** for machine-readable consumers. There is currently no user-facing migration guide explaining the diff and recommending `jq`/`yq` patterns for downstream callers.
 

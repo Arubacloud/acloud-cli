@@ -158,7 +158,27 @@ func TestDBaaSCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--engine-id", "postgres14", "--flavor", "db.small"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-new", "my-dbaas"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-new") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "success with networking flags",
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
+				"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
+				"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
+				"--security-group-uri", "/projects/proj-123/providers/Aruba.Network/securityGroups/sg-001",
+				"--elastic-ip-uri", "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001",
+			},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-new", "my-dbaas"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
@@ -173,19 +193,19 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "IT-BG", "--engine-id", "postgres14", "--flavor", "db.small"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --engine-id",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--flavor", "db.small"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "engine-id",
 		},
 		{
 			name: "server error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--engine-id", "postgres14", "--flavor", "db.small"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -194,7 +214,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--engine-id", "postgres14", "--flavor", "db.small"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(404, "Not Found", "resource not found"))
 			},

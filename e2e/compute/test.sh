@@ -40,9 +40,18 @@ cleanup() {
     for id in "${CREATED_SERVERS[@]}"; do
         if is_valid_id "$id"; then
             echo "Waiting for server $id before delete..."
-            wait_for_status "$ACLOUD_CMD compute cloudserver get $id" '^(Active|PoweredOff)$' 120 2>/dev/null || true
+            wait_for_status "$ACLOUD_CMD compute cloudserver get $id" '^(Active|PoweredOff|Shutdown|Stopped)$' 180 2>/dev/null || true
             echo "Deleting cloud server: $id"
             $ACLOUD_CMD compute cloudserver delete "$id" --yes 2>&1 || true
+            # Poll until the server is fully gone before removing dependent resources
+            # (boot disk stays LinkedResource and SG stays bound until deletion completes).
+            local wait_del=0
+            echo "  Waiting for server $id to be fully removed..."
+            while [ "$wait_del" -lt 300 ]; do
+                $ACLOUD_CMD compute cloudserver get "$id" >/dev/null 2>&1 || { echo "  → server $id removed"; break; }
+                sleep 10
+                wait_del=$((wait_del + 10))
+            done
         fi
     done
 
@@ -54,6 +63,8 @@ cleanup() {
 
     # Bootstrapped infra in reverse dep order
     if [ -n "$BOOTSTRAP_BOOT_DISK_ID" ]; then
+        echo "Waiting for boot disk $BOOTSTRAP_BOOT_DISK_ID to be unlinked from server..."
+        wait_for_status "$ACLOUD_CMD storage blockstorage get $BOOTSTRAP_BOOT_DISK_ID" '^(NotUsed|Active)$' 120 2>/dev/null || true
         echo "Deleting bootstrapped boot disk: $BOOTSTRAP_BOOT_DISK_ID"
         $ACLOUD_CMD storage blockstorage delete "$BOOTSTRAP_BOOT_DISK_ID" --yes 2>&1 || true
     fi
@@ -225,12 +236,12 @@ test_cloudserver() {
     ensure_boot_disk      || return 1
 
     echo -e "${GREEN}[CREATE]${NC} Creating cloud server: $server_name"
-    echo "  (zone=${ACLOUD_ZONE:-ITBG-1}, flavor=${ACLOUD_FLAVOR:-small}, boot-disk-uri=$BOOT_DISK_URI)"
+    echo "  (zone=${ACLOUD_ZONE:-ITBG-1}, flavor=${ACLOUD_FLAVOR:-CSO4A8}, boot-disk-uri=$BOOT_DISK_URI)"
     CREATE_OUTPUT=$($ACLOUD_CMD --debug compute cloudserver create \
         --name "$server_name" \
         --region "$REGION" \
         --zone "${ACLOUD_ZONE:-ITBG-1}" \
-        --flavor "${ACLOUD_FLAVOR:-small}" \
+        --flavor "${ACLOUD_FLAVOR:-CSO4A8}" \
         --vpc-uri "$VPC_URI" \
         --subnet-uri "$SUBNET_URI" \
         --security-group-uri "$SG_URI" \
@@ -269,13 +280,15 @@ test_cloudserver() {
     echo ""
 
     if [ "$server_ready" -eq 1 ]; then
-        echo -e "${GREEN}[UPDATE]${NC} Updating cloud server..."
+        echo -e "${GREEN}[UPDATE]${NC} Updating cloud server (adding tag)..."
         $ACLOUD_CMD compute cloudserver update "$SERVER_ID" \
-            --name "${server_name}-updated" 2>&1 || true
+            --tags "e2e-test,compute,updated" 2>&1 || true
         echo ""
 
         echo -e "${GREEN}[POWER-OFF]${NC} Powering off server..."
         $ACLOUD_CMD compute cloudserver power-off "$SERVER_ID" 2>&1 || true
+        echo "  Waiting for server to reach powered-off state..."
+        wait_for_status "$ACLOUD_CMD compute cloudserver get $SERVER_ID" '^(PoweredOff|Shutdown|Stopped)$' 180 2>/dev/null || true
         echo ""
 
         echo -e "${GREEN}[POWER-ON]${NC} Powering on server..."

@@ -26,6 +26,7 @@ func init() {
 	backupCreateCmd.Flags().String("region", "", "Region code (required)")
 	backupCreateCmd.Flags().String("dbaas-id", "", "DBaaS instance ID (required)")
 	backupCreateCmd.Flags().String("database-name", "", "Database name (required)")
+	backupCreateCmd.Flags().String("zone", "", "Availability zone (e.g. ITBG-1); defaults to region if unset")
 	backupCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
 	backupCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	backupCreateCmd.MarkFlagRequired("name")
@@ -130,6 +131,7 @@ Billing period: Hour (default), Month, or Year.`,
 		region, _ := cmd.Flags().GetString("region")
 		dbaasID, _ := cmd.Flags().GetString("dbaas-id")
 		databaseName, _ := cmd.Flags().GetString("database-name")
+		zone, _ := cmd.Flags().GetString("zone")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
@@ -145,6 +147,9 @@ Billing period: Hour (default), Month, or Year.`,
 			FromDBaaS(dbaasRef(projectID, dbaasID)).
 			FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
 			WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+		if zone != "" {
+			bk.InZone(aruba.Zone(zone))
+		}
 		if len(tags) > 0 {
 			bk.ReplaceTags(tags...)
 		}

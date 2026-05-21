@@ -23,13 +23,21 @@ func init() {
 	dbaasCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasCreateCmd.Flags().String("name", "", "Name for the DBaaS instance (required)")
 	dbaasCreateCmd.Flags().String("region", "", "Region code (required)")
-	dbaasCreateCmd.Flags().String("engine-id", "", "Database engine ID (required)")
-	dbaasCreateCmd.Flags().String("flavor", "", "DBaaS flavor name (required)")
+	dbaasCreateCmd.Flags().String("zone", "", "Availability zone (required, e.g. ITBG-1)")
+	dbaasCreateCmd.Flags().String("engine-id", "", "Database engine ID (required, e.g. mysql-8.0)")
+	dbaasCreateCmd.Flags().String("flavor", "", "DBaaS flavor name (required, e.g. DBO4A8)")
+	dbaasCreateCmd.Flags().Int("storage-size", 0, "Storage size in GB (required)")
 	dbaasCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	dbaasCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("subnet-uri", "", "Subnet URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("security-group-uri", "", "Security group URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("elastic-ip-uri", "", "Elastic IP URI (optional)")
 	dbaasCreateCmd.MarkFlagRequired("name")
 	dbaasCreateCmd.MarkFlagRequired("region")
+	dbaasCreateCmd.MarkFlagRequired("zone")
 	dbaasCreateCmd.MarkFlagRequired("engine-id")
 	dbaasCreateCmd.MarkFlagRequired("flavor")
+	dbaasCreateCmd.MarkFlagRequired("storage-size")
 
 	dbaasGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -132,9 +140,15 @@ and users with 'acloud database dbaas user create'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
+		zone, _ := cmd.Flags().GetString("zone")
 		engineID, _ := cmd.Flags().GetString("engine-id")
 		flavor, _ := cmd.Flags().GetString("flavor")
+		storageSize, _ := cmd.Flags().GetInt("storage-size")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
+		subnetURI, _ := cmd.Flags().GetString("subnet-uri")
+		sgURI, _ := cmd.Flags().GetString("security-group-uri")
+		elasticIPURI, _ := cmd.Flags().GetString("elastic-ip-uri")
 
 		client, err := GetArubaClient()
 		if err != nil {
@@ -145,10 +159,24 @@ and users with 'acloud database dbaas user create'.`,
 			IntoProject(projectRef(projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
+			InZone(aruba.Zone(zone)).
 			OfEngine(aruba.DatabaseEngine(engineID)).
-			OfFlavor(aruba.DBaaSFlavor(flavor))
+			OfFlavor(aruba.DBaaSFlavor(flavor)).
+			WithSizeGB(storageSize)
 		if len(tags) > 0 {
 			d.ReplaceTags(tags...)
+		}
+		if vpcURI != "" {
+			d.WithVPC(aruba.URI(vpcURI))
+		}
+		if subnetURI != "" {
+			d.WithSubnet(aruba.URI(subnetURI))
+		}
+		if sgURI != "" {
+			d.WithSecurityGroup(aruba.URI(sgURI))
+		}
+		if elasticIPURI != "" {
+			d.WithElasticIP(aruba.URI(elasticIPURI))
 		}
 
 		ctx, cancel := newCtx()
