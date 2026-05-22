@@ -15,6 +15,7 @@ CREATED_SNAPSHOTS=()
 CREATED_BACKUPS=()
 CREATED_RESTORES=()
 BACKUP_ID=""  # Track backup ID for restore operations
+BOOTSTRAP_PROJECT_ID=""
 
 print_banner "Storage"
 
@@ -107,6 +108,17 @@ cleanup() {
         wait_for_volume_ready "$volume_id" 120 2>/dev/null || true
         $ACLOUD_CMD storage blockstorage delete "$volume_id" --yes 2>&1 || true
     done
+
+    # Delete bootstrapped project last
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
+        echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
+        local del_elapsed=0
+        while [ "$del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 && break
+            sleep 10
+            del_elapsed=$((del_elapsed + 10))
+        done
+    fi
 }
 
 trap cleanup EXIT
@@ -287,22 +299,170 @@ test_snapshot() {
     echo -e "${GREEN}✓ Snapshot CRUD test completed!${NC}\n"
 }
 
-# Test Backup (if available)
+# Test Backup
 test_backup() {
-    echo -e "${YELLOW}--- Testing Backup CRUD ---${NC}\n"
-    echo -e "${YELLOW}Note: Backup operations may require specific prerequisites${NC}\n"
-    # Backup tests would go here
-    echo -e "${GREEN}✓ Backup test placeholder${NC}\n"
+    local volume_id="$1"
+    local backup_name="${RESOURCE_PREFIX}-backup"
+
+    if [ -z "$volume_id" ]; then
+        echo -e "${YELLOW}Skipping backup test (no volume available)${NC}\n"
+        return 0
+    fi
+
+    echo -e "${YELLOW}--- Testing Storage Backup CRUD ---${NC}\n"
+
+    # Ensure volume is stable before taking a backup
+    echo "Ensuring volume $volume_id is stable..."
+    wait_for_volume_ready "$volume_id" 60 2>/dev/null || true
+
+    # CREATE
+    echo -e "${GREEN}[CREATE]${NC} Creating backup: $backup_name"
+    CREATE_OUTPUT=$($ACLOUD_CMD storage backup "$volume_id" \
+        --name "$backup_name" \
+        --region "$REGION" \
+        --type Full \
+        --billing-period Hour \
+        --tags "e2e-test,backup" 2>&1)
+    exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${YELLOW}Backup CREATE failed (soft-fail — volume may need to be attached first):${NC}"
+        echo "$CREATE_OUTPUT" | head -5
+        echo -e "${YELLOW}Skipping remaining backup/restore tests${NC}\n"
+        return 0
+    fi
+    echo "$CREATE_OUTPUT"
+
+    local backup_id
+    backup_id=$(extract_id "$CREATE_OUTPUT" "$volume_id" | tr -d '[:space:]')
+    if [ -z "$backup_id" ] || ! is_valid_id "$backup_id"; then
+        echo -e "${YELLOW}Could not extract backup ID — skipping remaining backup/restore tests${NC}\n"
+        return 0
+    fi
+    CREATED_BACKUPS+=("$backup_id")
+    BACKUP_ID="$backup_id"
+    echo -e "${GREEN}Created backup ID: $backup_id${NC}\n"
+
+    echo "Waiting for backup to be ready..."
+    local backup_ready=0
+    wait_for_status "$ACLOUD_CMD storage backup get $backup_id" \
+        '^(Active|Available|Ready|Completed|Complete)$' 300 && backup_ready=1
+
+    # LIST
+    echo -e "${GREEN}[LIST]${NC} Listing backups..."
+    $ACLOUD_CMD storage backup list 2>&1 | head -15
+    echo ""
+
+    # GET
+    echo -e "${GREEN}[GET]${NC} Getting backup details..."
+    $ACLOUD_CMD storage backup get "$backup_id" 2>&1
+    echo ""
+
+    if [ "$backup_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating backup..."
+        UPDATE_OUTPUT=$($ACLOUD_CMD storage backup update "$backup_id" \
+            --name "${backup_name}-updated" \
+            --tags "e2e-test,updated" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo "$UPDATE_OUTPUT"
+        else
+            echo -e "${YELLOW}Update failed (non-fatal):${NC}"
+            echo "$UPDATE_OUTPUT" | head -5
+        fi
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — backup did not reach ready state after 300s."
+        echo ""
+    fi
+
+    echo -e "${GREEN}✓ Storage Backup CRUD test completed!${NC}\n"
 }
 
-# Test Restore (if available)
+# Test Restore
 test_restore() {
-    echo -e "${YELLOW}--- Testing Restore CRUD ---${NC}\n"
-    echo -e "${YELLOW}Note: Restore operations require existing backups${NC}\n"
-    # Restore tests would go here
-    echo -e "${GREEN}✓ Restore test placeholder${NC}\n"
+    local backup_id="$1"
+    local volume_id="$2"
+    local restore_name="${RESOURCE_PREFIX}-restore"
+
+    if [ -z "$backup_id" ] || [ -z "$volume_id" ]; then
+        echo -e "${YELLOW}Skipping restore test (no backup or volume available)${NC}\n"
+        return 0
+    fi
+
+    echo -e "${YELLOW}--- Testing Storage Restore CRUD ---${NC}\n"
+
+    # CREATE
+    echo -e "${GREEN}[CREATE]${NC} Creating restore: $restore_name"
+    CREATE_OUTPUT=$($ACLOUD_CMD storage restore "$backup_id" "$volume_id" \
+        --name "$restore_name" \
+        --region "$REGION" \
+        --tags "e2e-test,restore" 2>&1)
+    exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${YELLOW}Restore CREATE failed (soft-fail):${NC}"
+        echo "$CREATE_OUTPUT" | head -5
+        echo -e "${YELLOW}Skipping remaining restore tests${NC}\n"
+        return 0
+    fi
+    echo "$CREATE_OUTPUT"
+
+    local restore_id
+    restore_id=$(extract_id "$CREATE_OUTPUT" "$backup_id" | tr -d '[:space:]')
+    if [ -z "$restore_id" ] || ! is_valid_id "$restore_id"; then
+        echo -e "${YELLOW}Could not extract restore ID — skipping remaining restore tests${NC}\n"
+        return 0
+    fi
+    CREATED_RESTORES+=("$restore_id")
+    echo -e "${GREEN}Created restore ID: $restore_id${NC}\n"
+
+    # LIST
+    echo -e "${GREEN}[LIST]${NC} Listing restores for backup $backup_id..."
+    $ACLOUD_CMD storage restore list "$backup_id" 2>&1 | head -15
+    echo ""
+
+    # GET
+    echo -e "${GREEN}[GET]${NC} Getting restore details..."
+    $ACLOUD_CMD storage restore get "$backup_id" "$restore_id" 2>&1
+    echo ""
+
+    echo "Waiting for restore to be ready..."
+    local restore_ready=0
+    wait_for_status "$ACLOUD_CMD storage restore get $backup_id $restore_id" \
+        '^(Active|Available|Ready|Completed|Complete)$' 300 && restore_ready=1
+
+    if [ "$restore_ready" -eq 1 ]; then
+        echo -e "${GREEN}[UPDATE]${NC} Updating restore..."
+        UPDATE_OUTPUT=$($ACLOUD_CMD storage restore update "$backup_id" "$restore_id" \
+            --name "${restore_name}-updated" \
+            --tags "e2e-test,updated" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo "$UPDATE_OUTPUT"
+        else
+            echo -e "${YELLOW}Update failed (non-fatal):${NC}"
+            echo "$UPDATE_OUTPUT" | head -5
+        fi
+        echo ""
+    else
+        echo -e "${YELLOW}[UPDATE]${NC} Skipping — restore did not reach ready state after 300s."
+        echo ""
+    fi
+
+    echo -e "${GREEN}[DELETE]${NC} Deleting restore..."
+    DELETE_OUTPUT=$($ACLOUD_CMD storage restore delete "$backup_id" "$restore_id" --yes 2>&1)
+    if [ $? -eq 0 ]; then
+        echo "$DELETE_OUTPUT"
+        CREATED_RESTORES=("${CREATED_RESTORES[@]/$restore_id}")
+    else
+        echo -e "${YELLOW}DELETE failed — cleanup trap will retry:${NC}"
+        echo "$DELETE_OUTPUT" | head -3
+    fi
+    echo ""
+
+    echo -e "${GREEN}✓ Storage Restore CRUD test completed!${NC}\n"
 }
 
+ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
 setup_context
 
 # Run tests
@@ -310,22 +470,23 @@ echo -e "${BLUE}Starting Storage Resources E2E Tests...${NC}\n"
 
 VOLUME_ID=""
 if test_block_storage; then
-    # VOLUME_ID is set inside test_block_storage and added to CREATED_VOLUMES
-    # Get it from the array or the function output
     if [ ${#CREATED_VOLUMES[@]} -gt 0 ]; then
         VOLUME_ID="${CREATED_VOLUMES[0]}"
     fi
     if [ -n "$VOLUME_ID" ]; then
         test_snapshot "$VOLUME_ID" || FAILURES=$((FAILURES + 1))
+        test_backup  "$VOLUME_ID" || FAILURES=$((FAILURES + 1))
+        if [ -n "$BACKUP_ID" ]; then
+            test_restore "$BACKUP_ID" "$VOLUME_ID" || FAILURES=$((FAILURES + 1))
+        else
+            echo -e "${YELLOW}Skipping restore test (no backup available)${NC}\n"
+        fi
     else
-        echo -e "${YELLOW}Skipping snapshot test (no volume ID available)${NC}\n"
+        echo -e "${YELLOW}Skipping snapshot/backup/restore tests (no volume ID available)${NC}\n"
     fi
 else
     FAILURES=$((FAILURES + 1))
 fi
-
-test_backup || FAILURES=$((FAILURES + 1))
-test_restore || FAILURES=$((FAILURES + 1))
 test_output_formats
 
 echo -e "${GREEN}=== All Storage Tests Completed! ===${NC}\n"

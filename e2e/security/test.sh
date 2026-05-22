@@ -47,7 +47,12 @@ cleanup() {
     # Delete bootstrapped project last
     if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
         echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
-        $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 || true
+        local del_elapsed=0
+        while [ "$del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 && break
+            sleep 10
+            del_elapsed=$((del_elapsed + 10))
+        done
     fi
 
     echo -e "${GREEN}Cleanup completed!${NC}"

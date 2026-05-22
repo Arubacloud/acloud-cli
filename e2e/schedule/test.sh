@@ -25,6 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 # Cleanup tracking
 CREATED_JOBS=()
 BOOTSTRAP_PROJECT_ID=""
+BOOTSTRAP_EIP_ID=""
 
 # Step configuration — a valid resource URI is required by the schedule API
 STEP_RESOURCE_URI="${ACLOUD_STEP_RESOURCE_URI:-}"
@@ -32,6 +33,39 @@ STEP_ACTION_URI="${ACLOUD_STEP_ACTION_URI:-poweroff}"
 STEP_HTTP_VERB="${ACLOUD_STEP_HTTP_VERB:-POST}"
 
 print_banner "Schedule"
+
+# Bootstrap an Elastic IP as the step resource when STEP_RESOURCE_URI is not set.
+# The schedule API requires a real resource URI; an EIP is the lightest option
+# with no network prerequisites.
+bootstrap_step_resource() {
+    [ -n "$STEP_RESOURCE_URI" ] && return 0
+    [ "$PROJECT_ID" = "your-project-id" ] && return 1
+
+    echo "Bootstrapping step resource (ACLOUD_STEP_RESOURCE_URI not set)..."
+    local eip_out eip_id
+    eip_out=$($ACLOUD_CMD network elasticip create \
+        --name "${RESOURCE_PREFIX}-step-eip" \
+        --region "$REGION" \
+        --billing-period Hour 2>&1)
+    eip_id=$(extract_id "$eip_out")
+    if [ -z "$eip_id" ] || ! is_valid_id "$eip_id"; then
+        echo -e "${YELLOW}  ⚠ Could not bootstrap step EIP: $eip_out${NC}"
+        return 1
+    fi
+    BOOTSTRAP_EIP_ID="$eip_id"
+    # Wait briefly for EIP to appear in the list
+    local elapsed=0
+    while [ "$elapsed" -lt 60 ]; do
+        local status
+        status=$($ACLOUD_CMD network elasticip list 2>/dev/null | awk -v id="$eip_id" '$2 == id {print $NF}')
+        case "$status" in
+            Active|NotUsed|Ready) break;;
+        esac
+        sleep 5; elapsed=$((elapsed + 5))
+    done
+    STEP_RESOURCE_URI="/projects/$PROJECT_ID/providers/Aruba.Network/elasticIps/$eip_id"
+    echo "  → Step resource bootstrapped: $STEP_RESOURCE_URI"
+}
 
 # Test --output flag for schedule list commands
 test_output_formats() {
@@ -60,10 +94,21 @@ cleanup() {
         fi
     done
 
+    # Delete bootstrapped step resource EIP
+    if [ -n "$BOOTSTRAP_EIP_ID" ]; then
+        echo "Deleting bootstrapped step EIP: $BOOTSTRAP_EIP_ID"
+        $ACLOUD_CMD network elasticip delete "$BOOTSTRAP_EIP_ID" --yes 2>&1 || true
+    fi
+
     # Delete bootstrapped project last (after all child resources)
     if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
         echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
-        $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 || true
+        local del_elapsed=0
+        while [ "$del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 && break
+            sleep 10
+            del_elapsed=$((del_elapsed + 10))
+        done
     fi
 
     echo -e "${GREEN}Cleanup completed!${NC}"
@@ -249,9 +294,9 @@ test_recurring_job() {
 # Run tests
 echo -e "${BLUE}Starting Schedule Resources E2E Tests...${NC}\n"
 
+bootstrap_step_resource || true
 if [ -z "$STEP_RESOURCE_URI" ]; then
-    echo -e "${YELLOW}Note: ACLOUD_STEP_RESOURCE_URI not set — job CREATE steps will be skipped.${NC}"
-    echo -e "${YELLOW}      Set it to a cloud-server (or other resource) URI to enable full CRUD.${NC}\n"
+    echo -e "${YELLOW}Note: step resource could not be bootstrapped — job CREATE steps will be skipped.${NC}\n"
 fi
 
 test_oneshot_job  || FAILURES=$((FAILURES + 1))
