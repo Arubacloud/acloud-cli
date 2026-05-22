@@ -40,6 +40,7 @@ CREATED_PEERINGS=()
 CREATED_PEERING_ROUTES=()
 CREATED_VPN_TUNNELS=()
 CREATED_VPN_ROUTES=()
+BOOTSTRAP_PROJECT_ID=""
 
 print_banner "Network"
 
@@ -330,6 +331,17 @@ cleanup() {
             fi
         fi
     done
+
+    # Delete bootstrapped project last
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
+        echo "Deleting bootstrapped project: $BOOTSTRAP_PROJECT_ID"
+        local del_elapsed=0
+        while [ "$del_elapsed" -lt 120 ]; do
+            $ACLOUD_CMD management project delete "$BOOTSTRAP_PROJECT_ID" --yes 2>&1 && break
+            sleep 10
+            del_elapsed=$((del_elapsed + 10))
+        done
+    fi
 }
 
 trap cleanup EXIT
@@ -1105,6 +1117,7 @@ test_vpn_route() {
     echo -e "${GREEN}VPN Route test completed successfully${NC}\n"
 }
 
+ensure_project || { echo -e "${RED}Cannot proceed without a project ID${NC}"; exit 1; }
 setup_context
 
 # Run tests
