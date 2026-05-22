@@ -1,0 +1,61 @@
+name: Feature Request
+description: Suggest a new command, flag, or improvement to acloud-cli
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea? Describe it below so we can discuss it before implementation starts.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the CLI does this touch?
+      options:
+        - Compute (cloud servers, key pairs)
+        - Container (KaaS, container registry)
+        - Database (DBaaS, backups)
+        - Network (VPC, subnets, EIP, security groups, VPN)
+        - Storage (block storage, snapshots, backups, restores)
+        - Security (KMS)
+        - Management (projects, grants)
+        - Schedule (jobs)
+        - Config / Auth
+        - Output / UX
+        - CI / release pipeline
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What pain point does this solve? Link any related issues.
+      placeholder: "Today I have to ... which is painful because ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should it work? Include example commands or flag names if possible.
+      placeholder: |
+        `acloud <resource> <verb> --new-flag value`
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you looked at and why you ruled them out.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Mockups, related docs, upstream SDK changes, etc.

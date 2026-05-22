@@ -1,0 +1,83 @@
+name: Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      suite:
+        description: Test suite to run (leave blank to run all)
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: Dry-run — print what would run without executing tests
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  acceptance:
+    name: Acceptance tests (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build CLI
+        run: go build -v -o acloud
+
+      - name: Resolve test suite flag
+        id: suite
+        run: |
+          if [ -n "${{ inputs.suite }}" ]; then
+            echo "run_flag=-run ${{ inputs.suite }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print plan (dry-run)
+        if: inputs.dry_run == true
+        run: |
+          echo "=== Dry-run: acceptance test plan ==="
+          echo "Environment : ${{ inputs.environment }}"
+          echo "Suite filter: ${{ inputs.suite || '(all)' }}"
+          echo "Binary      : $(./acloud version 2>/dev/null || echo 'acloud (built)')"
+          echo "Command     : go test -v -timeout 30m ${{ steps.suite.outputs.run_flag }} ./e2e/..."
+          echo "======================================"
+
+      - name: Run acceptance tests
+        if: inputs.dry_run == false
+        env:
+          ACLOUD_CLIENT_ID: ${{ secrets.ACLOUD_CLIENT_ID }}
+          ACLOUD_CLIENT_SECRET: ${{ secrets.ACLOUD_CLIENT_SECRET }}
+          ACLOUD_BASE_URL: ${{ vars.ACLOUD_BASE_URL }}
+          ACLOUD_TOKEN_ISSUER_URL: ${{ vars.ACLOUD_TOKEN_ISSUER_URL }}
+        run: |
+          go test -v -timeout 30m ${{ steps.suite.outputs.run_flag }} ./e2e/...
