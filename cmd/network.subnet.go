@@ -14,7 +14,6 @@ func splitRouteString(routeStr string) []string {
 	return strings.SplitN(routeStr, ":", 2)
 }
 
-
 func subnetListPayload(l *aruba.List[*aruba.Subnet]) any {
 	if r, ok := l.Raw().(*types.Response[types.SubnetList]); ok && r != nil {
 		return r.Data

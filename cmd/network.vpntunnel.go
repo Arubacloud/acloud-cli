@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 func vpnTunnelListPayload(l *aruba.List[*aruba.VPNTunnel]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPNTunnelList]); ok && r != nil {
 		return r.Data

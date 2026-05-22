@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 func vpcPeeringRouteListPayload(l *aruba.List[*aruba.VPCPeeringRoute]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPCPeeringRouteList]); ok && r != nil {
 		return r.Data

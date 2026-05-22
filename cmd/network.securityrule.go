@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 func securityRuleListPayload(l *aruba.List[*aruba.SecurityRule]) any {
 	if r, ok := l.Raw().(*types.Response[types.SecurityRuleList]); ok && r != nil {
 		return r.Data

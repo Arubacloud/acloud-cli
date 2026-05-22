@@ -45,7 +45,6 @@ func init() {
 	elasticipDeleteCmd.ValidArgsFunction = completeElasticIPID
 }
 
-
 func elasticIPListPayload(l *aruba.List[*aruba.ElasticIP]) any {
 	if r, ok := l.Raw().(*types.Response[types.ElasticList]); ok && r != nil {
 		return r.Data

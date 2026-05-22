@@ -44,7 +44,6 @@ func init() {
 	vpcDeleteCmd.ValidArgsFunction = completeVPCID
 }
 
-
 func vpcListPayload(l *aruba.List[*aruba.VPC]) any {
 	if r, ok := l.Raw().(*types.Response[types.VPCList]); ok && r != nil {
 		return r.Data
