@@ -1,9 +1,7 @@
-github.com/Arubacloud/sdk-go v0.1.27 h1:/S10UjYq7ppm8mL4BwuKmbJWzXUuU0BPJQxsDysrV/Q=
-github.com/Arubacloud/sdk-go v0.1.27/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
-github.com/Arubacloud/sdk-go v0.1.28-0.20260428150839-29dadc76c9fb h1:S7wCrRugJkdsv5RV7/g9MhOBnbf3SdIh9xRsESiBv38=
-github.com/Arubacloud/sdk-go v0.1.28-0.20260428150839-29dadc76c9fb/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
-github.com/Arubacloud/sdk-go v0.1.28 h1:F8Qf5UTwP5H1RZKz14YQdeRyahGZGOJ9qrq6kHlqZ3c=
-github.com/Arubacloud/sdk-go v0.1.28/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
+github.com/Arubacloud/sdk-go v0.2.1 h1:J50kF+Za4o7IHdGzSpJuO/MOx9R4cKNp0hOmo9uAZAE=
+github.com/Arubacloud/sdk-go v0.2.1/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
+github.com/Arubacloud/sdk-go v0.2.2 h1:HNSF2pO3ndLMj4sD7d+ikwsY1lHZjjeBWlg8n+IedU0=
+github.com/Arubacloud/sdk-go v0.2.2/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=

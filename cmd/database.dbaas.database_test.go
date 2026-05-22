@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,24 +11,21 @@ import (
 func TestDBaaSDatabaseListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockDatabasesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockDatabasesClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseList], error) {
-					return &types.Response[types.DatabaseList]{
-						StatusCode: 200,
-						Data: &types.DatabaseList{
-							Values: []types.DatabaseResponse{
-								{Name: "my-db"},
-							},
-						},
-					}, nil
-				}
+			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+					Values: []types.DatabaseResponse{
+						{Name: "my-db"},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-db") {
@@ -40,25 +35,20 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockDatabasesClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseList], error) {
-					return &types.Response[types.DatabaseList]{StatusCode: 200, Data: &types.DatabaseList{}}, nil
-				}
+			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockDatabasesClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseList], error) {
-					return &types.Response[types.DatabaseList]{
-						StatusCode: 200,
-						Data: &types.DatabaseList{
-							Values: []types.DatabaseResponse{
-								{Name: "my-db"},
-							},
-						},
-					}, nil
-				}
+			name: "--output json emits valid JSON",
+			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+					Values: []types.DatabaseResponse{
+						{Name: "my-db"},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -68,24 +58,19 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseList], error) {
-					return &types.Response[types.DatabaseList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -93,15 +78,11 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockDatabasesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{databasesClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -113,20 +94,17 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 func TestDBaaSDatabaseGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockDatabasesClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockDatabasesClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return &types.Response[types.DatabaseResponse]{
-						StatusCode: 200,
-						Data:       &types.DatabaseResponse{Name: "my-db"},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", jsonResponse(200, types.DatabaseResponse{
+					Name: "my-db",
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-db") {
@@ -135,24 +113,17 @@ func TestDBaaSDatabaseGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return &types.Response[types.DatabaseResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -160,12 +131,11 @@ func TestDBaaSDatabaseGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockDatabasesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{databasesClient: m})),
-				[]string{"database", "dbaas", "database", "get", "dbaas-001", "my-db", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "database", "get", "dbaas-001", "my-db", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -178,7 +148,7 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockDatabasesClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -186,13 +156,10 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: []string{"database", "dbaas", "database", "create", "dbaas-001", "--project-id", "proj-123", "--name", "my-db"},
-			setupMock: func(m *mockDatabasesClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.DatabaseRequest, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return &types.Response[types.DatabaseResponse]{
-						StatusCode: 200,
-						Data:       &types.DatabaseResponse{Name: "my-db"},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseResponse{
+					Name: "my-db",
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-db") {
@@ -207,12 +174,10 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: []string{"database", "dbaas", "database", "create", "dbaas-001", "--project-id", "proj-123", "--name", "my-db"},
-			setupMock: func(m *mockDatabasesClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.DatabaseRequest, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -220,13 +185,8 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: []string{"database", "dbaas", "database", "create", "dbaas-001", "--project-id", "proj-123", "--name", "my-db"},
-			setupMock: func(m *mockDatabasesClient) {
-				m.createFn = func(_ context.Context, _, _ string, _ types.DatabaseRequest, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return &types.Response[types.DatabaseResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -234,11 +194,11 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockDatabasesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{databasesClient: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -250,17 +210,17 @@ func TestDBaaSDatabaseCreateCmd(t *testing.T) {
 func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockDatabasesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockDatabasesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"database", "dbaas", "database", "delete", "dbaas-001", "my-db", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-db") {
@@ -270,14 +230,11 @@ func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockDatabasesClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.DatabaseResponse], error) {
-					return &types.Response[types.DatabaseResponse]{StatusCode: 200, Data: &types.DatabaseResponse{Name: "my-db"}}, nil
-				}
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			args: []string{"database", "dbaas", "database", "delete", "dbaas-001", "my-db", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", jsonResponse(200, types.DatabaseResponse{
+					Name: "my-db",
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-db") {
@@ -286,24 +243,19 @@ func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"database", "dbaas", "database", "delete", "dbaas-001", "my-db", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockDatabasesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"database", "dbaas", "database", "delete", "dbaas-001", "my-db", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -311,15 +263,82 @@ func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockDatabasesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"database", "dbaas", "database", "delete", "dbaas-001", "my-db", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
-			out, err := runCmdCapture(newMockClient(withDatabase(&mockDatabaseClient{databasesClient: m})), args)
+		})
+	}
+}
+
+func TestDBaaSDatabaseUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "newdb"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", jsonResponse(200, types.DatabaseResponse{
+					Name: "mydb",
+				}))
+				// SDK uses the NEW name in the PUT path for databases
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/newdb", jsonResponse(200, types.DatabaseResponse{
+					Name: "newdb",
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "mydb") {
+					t.Errorf("expected db name in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing --name",
+			args:        []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "name",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", errorResponse(404, "Not Found", "not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", jsonResponse(200, types.DatabaseResponse{
+					Name: "mydb",
+				}))
+				// SDK uses the NEW name in the PUT path for databases
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/x", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

@@ -8,48 +8,119 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
-func TestElasticIPListCmd(t *testing.T) {
+func TestKMSListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		args        []string
 		setupSrv    func(*arubaTestServer)
+		args        []string
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
-					Values: []types.ElasticIPResponse{
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+					Values: []types.KmsResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
 				}))
 			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123"},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
+				if !strings.Contains(out, "kms-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "success empty",
-			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{}))
 			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123"},
 		},
 		{
 			name: "--output json emits valid JSON",
-			args: []string{"network", "elasticip", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
-					Values: []types.ElasticIPResponse{
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+					Values: []types.KmsResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
+				}))
+			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123", "--output", "json"},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+				}
+			},
+		},
+		{
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			args:        []string{"security", "kms", "list", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "listing",
+		},
+		{
+			name: "API error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(404, "Not Found", "resource not found"))
+			},
+			args:        []string{"security", "kms", "list", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestKMSGetCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kms-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "success --output json",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
@@ -61,64 +132,8 @@ func TestElasticIPListCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "boom"))
-			},
-			wantErr:     true,
-			errContains: "listing",
-		},
-		{
-			name: "API error propagates",
-			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
-			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(404, "Not Found", "resource not found"))
-			},
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := newArubaTestServer(t)
-			if tc.setupSrv != nil {
-				tc.setupSrv(srv)
-			}
-			out, err := runCmdCapture(srv.Client(), tc.args)
-			checkErr(t, err, tc.wantErr, tc.errContains)
-			if tc.assertOut != nil {
-				tc.assertOut(t, out)
-			}
-		})
-	}
-}
-
-func TestElasticIPGetCmd(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupSrv    func(*arubaTestServer)
-		wantErr     bool
-		errContains string
-		assertOut   func(*testing.T, string)
-	}{
-		{
-			name: "success",
-			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
-					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-				}))
-			},
-			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
-					t.Errorf("expected ID in output, got: %s", out)
-				}
-			},
-		},
-		{
-			name: "server error propagates",
-			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
@@ -126,7 +141,7 @@ func TestElasticIPGetCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -138,7 +153,11 @@ func TestElasticIPGetCmd(t *testing.T) {
 			if tc.setupSrv != nil {
 				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
+			args := []string{"security", "kms", "get", "kms-001", "--project-id", "proj-123"}
+			if tc.name == "success --output json" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(srv.Client(), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -147,7 +166,7 @@ func TestElasticIPGetCmd(t *testing.T) {
 	}
 }
 
-func TestElasticIPCreateCmd(t *testing.T) {
+func TestKMSCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
@@ -158,45 +177,45 @@ func TestElasticIPCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
+				id, name := "kms-new", "my-kms"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
+				if !strings.Contains(out, "kms-new") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--region", "IT-BG", "--billing-period", "monthly"},
+			args:        []string{"security", "kms", "create", "--project-id", "proj-123", "--region", "IT-BG"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --region",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--billing-period", "monthly"},
+			args:        []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms"},
 			wantErr:     true,
 			errContains: "region",
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "quota exceeded"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -217,7 +236,7 @@ func TestElasticIPCreateCmd(t *testing.T) {
 	}
 }
 
-func TestElasticIPUpdateCmd(t *testing.T) {
+func TestKMSUpdateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
@@ -228,50 +247,46 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "new-name"},
+			args: []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123", "--name", "renamed"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				state := "Active"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+				srv.OnPut("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
+				if !strings.Contains(out, "kms-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
-			name:        "no flags error",
-			args:        []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123"},
+			name:        "missing flags",
+			args:        []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123"},
 			wantErr:     true,
-			errContains: "at least one",
+			errContains: "at least one of",
 		},
 		{
-			name: "pre-Get server error",
-			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "x"},
+			name: "pre-Get API error",
+			args: []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
 		},
 		{
-			name: "update server error",
-			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "x"},
+			name: "Update server error",
+			args: []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				state := "Active"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "updating",
@@ -292,7 +307,7 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 	}
 }
 
-func TestElasticIPDeleteCmd(t *testing.T) {
+func TestKMSDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
@@ -303,45 +318,47 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 	}{
 		{
 			name: "success with --yes",
-			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			args: []string{"security", "kms", "delete", "kms-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, nil))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
+				if !strings.Contains(out, "kms-001") {
 					t.Errorf("expected ID in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			args: []string{"security", "kms", "delete", "kms-001", "--project-id", "proj-123", "--yes", "--dry-run"},
 			setupSrv: func(srv *arubaTestServer) {
-				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+				id, name := "kms-001", "my-kms"
+				// Only register Get; if Delete is called the harness t.Errorf on the
+				// unregistered DELETE route — stronger than a manual t.Fatal guard.
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "eip-001") {
+				if !strings.Contains(out, "kms-001") {
 					t.Errorf("expected ID in dry-run output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			args: []string{"security", "kms", "delete", "kms-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "resource in use"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "elasticip", "delete", "eip-001", "--project-id", "proj-123", "--yes"},
+			args: []string{"security", "kms", "delete", "kms-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",

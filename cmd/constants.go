@@ -2,6 +2,7 @@ package cmd
 
 // Resource state values returned by the API.
 const (
+	StateActive     = "Active"
 	StateInCreation = "InCreation"
 	StateUsed       = "Used"
 	StateNotUsed    = "NotUsed"

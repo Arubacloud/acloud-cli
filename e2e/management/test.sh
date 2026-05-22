@@ -9,13 +9,32 @@
 # shellcheck source=../common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 
-# Management suite uses a name prefix instead of RESOURCE_PREFIX.
-PROJECT_NAME_PREFIX="$RESOURCE_PREFIX"
+# Cleanup tracking
+CREATED_PROJECTS=()
 
-echo -e "${BLUE}=== Management Resources E2E Test ===${NC}\n"
-echo "Test prefix: $PROJECT_NAME_PREFIX"
-echo "ACLOUD command: $ACLOUD_CMD"
-echo ""
+print_banner "Management"
+
+# Cleanup function
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up test resources...${NC}"
+
+    for proj_id in "${CREATED_PROJECTS[@]}"; do
+        if is_valid_id "$proj_id"; then
+            echo "Deleting project: $proj_id"
+            local del_elapsed=0
+            while [ "$del_elapsed" -lt 120 ]; do
+                $ACLOUD_CMD management project delete "$proj_id" --yes 2>&1 && break
+                if $ACLOUD_CMD management project get "$proj_id" 2>&1 | grep -qi "not found\|404"; then break; fi
+                sleep 10
+                del_elapsed=$((del_elapsed + 10))
+            done
+        fi
+    done
+
+    echo -e "${GREEN}Cleanup completed!${NC}"
+}
+
+trap cleanup EXIT
 
 # Test --output flag for project list
 test_project_output_formats() {
@@ -128,117 +147,97 @@ test_project_output_formats() {
 
 # Function to test Project CRUD
 test_project() {
-    local project_name="${PROJECT_NAME_PREFIX}-project"
-    
+    local project_name="${RESOURCE_PREFIX}-project"
+    local crud_project_id=""
+
     echo -e "${YELLOW}--- Testing Project CRUD ---${NC}\n"
-    
+
     # CREATE
     echo -e "${GREEN}[CREATE]${NC} Creating project: $project_name"
     CREATE_OUTPUT=$($ACLOUD_CMD management project create \
         --name "$project_name" \
         --description "E2E test project" \
-        --tags "e2e-test,management" 2>&1) || {
+        --tags "e2e-test,management" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
-        # Check for common error patterns
-        if echo "$CREATE_OUTPUT" | grep -qi "authentication failed\|invalid_client\|Invalid client"; then
-            echo -e "${RED}Authentication error detected. Please check your credentials.${NC}"
-        fi
-        return 1
-    }
-    echo "$CREATE_OUTPUT"
-    
-    PROJECT_ID=$(extract_id "$CREATE_OUTPUT")
-    if [ -z "$PROJECT_ID" ]; then
-        echo -e "${RED}Could not extract project ID from create output${NC}"
-        # Check for common error patterns
-        if echo "$CREATE_OUTPUT" | grep -qi "authentication failed\|invalid_client\|Invalid client"; then
-            echo -e "${RED}Authentication error detected. Please check your credentials.${NC}"
-        fi
         return 1
     fi
-    echo -e "${GREEN}Created project ID: $PROJECT_ID${NC}\n"
-    
+    echo "$CREATE_OUTPUT"
+
+    crud_project_id=$(extract_id "$CREATE_OUTPUT")
+    if [ -z "$crud_project_id" ] || ! is_valid_id "$crud_project_id"; then
+        echo -e "${RED}Could not extract project ID from create output${NC}"
+        return 1
+    fi
+    CREATED_PROJECTS+=("$crud_project_id")
+    echo -e "${GREEN}Created project ID: $crud_project_id${NC}\n"
+
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing projects..."
-    LIST_OUTPUT=$($ACLOUD_CMD management project list 2>&1) || {
+    LIST_OUTPUT=$($ACLOUD_CMD management project list 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}LIST failed:${NC}"
         echo "$LIST_OUTPUT"
         return 1
-    }
+    fi
     echo "$LIST_OUTPUT" | head -15
     echo ""
-    
+
     # GET
     echo -e "${GREEN}[GET]${NC} Getting project details..."
-    GET_OUTPUT=$($ACLOUD_CMD management project get "$PROJECT_ID" 2>&1) || {
+    GET_OUTPUT=$($ACLOUD_CMD management project get "$crud_project_id" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}GET failed:${NC}"
         echo "$GET_OUTPUT"
         return 1
-    }
+    fi
     echo "$GET_OUTPUT"
     echo ""
-    
+
     # UPDATE
     echo -e "${GREEN}[UPDATE]${NC} Updating project..."
-    UPDATE_OUTPUT=$($ACLOUD_CMD management project update "$PROJECT_ID" \
+    UPDATE_OUTPUT=$($ACLOUD_CMD management project update "$crud_project_id" \
         --description "Updated E2E test project" \
-        --tags "e2e-test,updated" 2>&1) || {
+        --tags "e2e-test,updated" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}UPDATE failed:${NC}"
         echo "$UPDATE_OUTPUT"
         return 1
-    }
+    fi
     echo "$UPDATE_OUTPUT"
     echo ""
-    
-    # DELETE
+
+    # DELETE inline — cleanup trap is the safety net
     echo -e "${GREEN}[DELETE]${NC} Deleting project..."
-    DELETE_OUTPUT=$($ACLOUD_CMD management project delete "$PROJECT_ID" --yes 2>&1) || {
-        echo -e "${RED}DELETE failed:${NC}"
+    DELETE_OUTPUT=$($ACLOUD_CMD management project delete "$crud_project_id" --yes 2>&1)
+    if [ $? -eq 0 ]; then
         echo "$DELETE_OUTPUT"
-        return 1
-    }
-    echo "$DELETE_OUTPUT"
+        CREATED_PROJECTS=("${CREATED_PROJECTS[@]/$crud_project_id}")
+    else
+        echo -e "${YELLOW}DELETE may need a retry — cleanup trap will handle it:${NC}"
+        echo "$DELETE_OUTPUT"
+    fi
     echo ""
-    
+
     echo -e "${GREEN}✓ Project CRUD test completed successfully!${NC}\n"
 }
 
 # Run tests
 echo -e "${BLUE}Starting Management Resources E2E Tests...${NC}\n"
 
-TEST_PASSED=false
-if test_project; then
-    TEST_PASSED=true
-fi
+test_project               || FAILURES=$((FAILURES + 1))
+test_project_output_formats || FAILURES=$((FAILURES + 1))
 
-FORMAT_PASSED=false
-if test_project_output_formats; then
-    FORMAT_PASSED=true
-fi
-
-echo -e "${GREEN}=== All Management Tests Completed! ===${NC}\n"
-
-# Print summary
+# Test summary
 echo -e "${BLUE}=== Test Summary ===${NC}"
-if [ "$TEST_PASSED" = true ]; then
-    echo -e "${GREEN}✓ Project CRUD: Passed${NC}"
-    if [ -n "$PROJECT_ID" ]; then
-        echo -e "  Project ID: $PROJECT_ID (deleted)"
-    fi
-else
-    echo -e "${RED}✗ Project CRUD: Failed${NC}"
-fi
-if [ "$FORMAT_PASSED" = true ]; then
-    echo -e "${GREEN}✓ Project output formats: Passed${NC}"
-else
-    echo -e "${RED}✗ Project output formats: Failed${NC}"
-fi
+echo "Test prefix: $RESOURCE_PREFIX"
 echo ""
 
-if [ "$TEST_PASSED" = true ] && [ "$FORMAT_PASSED" = true ]; then
+if [ "$FAILURES" -eq 0 ]; then
+    echo -e "${GREEN}=== Management E2E: all checks passed ===${NC}"
     exit 0
 else
+    echo -e "${RED}=== Management E2E: $FAILURES check(s) failed ===${NC}"
     exit 1
 fi
-

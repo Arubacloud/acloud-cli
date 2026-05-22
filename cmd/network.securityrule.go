@@ -7,9 +7,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+func securityRuleListPayload(l *aruba.List[*aruba.SecurityRule]) any {
+	if r, ok := l.Raw().(*types.Response[types.SecurityRuleList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
 
 func init() {
 
@@ -59,7 +67,6 @@ func init() {
 	securityruleDeleteCmd.ValidArgsFunction = completeSecurityRuleID
 }
 
-// Completion functions for network resources
 func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) < 2 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -79,20 +86,21 @@ func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string
 	securityGroupID := args[1]
 
 	ctx := context.Background()
-	response, err := client.FromNetwork().SecurityGroupRules().List(ctx, projectID, vpcID, securityGroupID, nil)
+	list, err := client.FromNetwork().SecurityGroupRules().List(ctx, securityGroupRef(projectID, vpcID, securityGroupID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, rule := range response.Data.Values {
-			if rule.Metadata.ID != nil && rule.Metadata.Name != nil {
-				id := *rule.Metadata.ID
-				// Filter by partial input - use HasPrefix for more reliable matching
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *rule.Metadata.Name))
-				}
+	if list != nil {
+		for _, rule := range list.Items() {
+			id := rule.SecurityRuleID()
+			name := rule.Name()
+			if id == "" {
+				continue
+			}
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -157,32 +165,6 @@ Example target values:
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Build target
-		target := &types.RuleTarget{
-			Kind:  types.EndpointTypeDto(targetKind),
-			Value: targetValue,
-		}
-
-		// Build the create request
-		req := types.SecurityRuleRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: types.SecurityRulePropertiesRequest{
-				Direction: types.RuleDirection(direction),
-				Protocol:  protocol,
-				Port:      port,
-				Target:    target,
-			},
-		}
-
-		// Debug output if verbose
 		if verbose {
 			fmt.Println("Creating security rule with the following parameters:")
 			fmt.Printf("  Name:         %s\n", name)
@@ -198,18 +180,31 @@ Example target values:
 			fmt.Println()
 		}
 
+		rule := aruba.NewSecurityRule().
+			IntoSecurityGroup(securityGroupRef(projectID, vpcID, securityGroupID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			WithDirection(types.RuleDirection(direction)).
+			WithProtocol(aruba.RuleProtocol(protocol)).
+			WithPort(port)
+		if targetKind == string(types.EndpointTypeSecurityGroup) {
+			rule.WithTargetSecurityGroup(aruba.URI(targetValue))
+		} else {
+			rule.WithTargetCIDR(targetValue)
+		}
+		if len(tags) > 0 {
+			rule.ReplaceTags(tags...)
+		}
+
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromNetwork().SecurityGroupRules().Create(ctx, projectID, vpcID, securityGroupID, req, nil)
+		created, err := client.FromNetwork().SecurityGroupRules().Create(ctx, rule)
 		if err != nil {
-			return fmt.Errorf("creating security rule: %w", err)
+			return fmt.Errorf("creating security rule: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil && resp.Data.Metadata.ID != nil {
+		r := created.Raw()
+		if r != nil && r.Metadata.ID != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -218,20 +213,11 @@ Example target values:
 				{Header: "PORT", Width: 12},
 				{Header: "STATUS", Width: 15},
 			}
-			row := []string{
-				name,
-				*resp.Data.Metadata.ID,
-				direction,
-				protocol,
-				port,
-				func() string {
-					if resp.Data.Status.State != nil {
-						return *resp.Data.Status.State
-					}
-					return ""
-				}(),
+			status := ""
+			if r.Status.State != nil {
+				status = *r.Status.State
 			}
-			PrintOutput(resp.Data, headers, [][]string{row})
+			PrintOutput(r, headers, [][]string{{name, *r.Metadata.ID, direction, protocol, port, status}})
 		} else {
 			fmt.Println(msgCreatedAsync("Security rule", name))
 		}
@@ -260,17 +246,13 @@ var securityruleGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromNetwork().SecurityGroupRules().Get(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
+		got, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 		if err != nil {
-			return fmt.Errorf("getting security rule: %w", err)
+			return fmt.Errorf("getting security rule: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil {
-			rule := resp.Data
+		rule := got.Raw()
+		if rule != nil {
 			fmt.Println("\nSecurity Rule Details:")
 			fmt.Println("=====================")
 			if rule.Metadata.ID != nil {
@@ -283,9 +265,7 @@ var securityruleGetCmd = &cobra.Command{
 				fmt.Printf("Name:            %s\n", *rule.Metadata.Name)
 			}
 			if rule.Metadata.LocationResponse != nil {
-				if rule.Metadata.LocationResponse != nil {
-					fmt.Printf("Region:          %s\n", rule.Metadata.LocationResponse.Value)
-				}
+				fmt.Printf("Region:          %s\n", rule.Metadata.LocationResponse.Value)
 			}
 			fmt.Printf("Direction:       %s\n", rule.Properties.Direction)
 			fmt.Printf("Protocol:        %s\n", rule.Properties.Protocol)
@@ -335,16 +315,12 @@ var securityruleListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromNetwork().SecurityGroupRules().List(ctx, projectID, vpcID, securityGroupID, listParams(cmd))
+		list, err := client.FromNetwork().SecurityGroupRules().List(ctx, securityGroupRef(projectID, vpcID, securityGroupID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing security rules: %w", err)
+			return fmt.Errorf("listing security rules: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -355,29 +331,29 @@ var securityruleListCmd = &cobra.Command{
 				{Header: "STATUS", Width: 15},
 			}
 			var rows [][]string
-			for _, rule := range resp.Data.Values {
-				name := ""
-				if rule.Metadata.Name != nil {
-					name = *rule.Metadata.Name
-				}
-				id := ""
-				if rule.Metadata.ID != nil {
-					id = *rule.Metadata.ID
-				}
-				direction := string(rule.Properties.Direction)
-				protocol := rule.Properties.Protocol
-				port := rule.Properties.Port
+			for _, rule := range list.Items() {
+				r := rule.Raw()
+				name := rule.Name()
+				id := rule.SecurityRuleID()
+				direction := ""
+				protocol := ""
+				port := ""
 				target := ""
-				if rule.Properties.Target != nil {
-					target = fmt.Sprintf("%s:%s", rule.Properties.Target.Kind, rule.Properties.Target.Value)
-				}
 				status := ""
-				if rule.Status.State != nil {
-					status = *rule.Status.State
+				if r != nil {
+					direction = string(r.Properties.Direction)
+					protocol = string(r.Properties.Protocol)
+					port = r.Properties.Port
+					if r.Properties.Target != nil {
+						target = fmt.Sprintf("%s:%s", r.Properties.Target.Kind, r.Properties.Target.Value)
+					}
+					if r.Status.State != nil {
+						status = *r.Status.State
+					}
 				}
 				rows = append(rows, []string{name, id, direction, protocol, port, target, status})
 			}
-			PrintOutput(resp.Data, headers, rows)
+			PrintOutput(securityRuleListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No security rules found.")
 		}
@@ -397,7 +373,6 @@ var securityruleUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		// At least one field must be provided
 		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one field (--name or --tags) must be provided for update")
 		}
@@ -415,90 +390,35 @@ var securityruleUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		// Fetch current security rule details
-		getResp, err := client.FromNetwork().SecurityGroupRules().Get(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
+		cur, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 		if err != nil {
-			return fmt.Errorf("fetching current security rule: %w", err)
+			return fmt.Errorf("fetching current security rule: %w", apiErrFromV2(err))
 		}
-
-		if getResp == nil {
-			return fmt.Errorf("no response received when fetching security rule")
+		r := cur.Raw()
+		if r == nil {
+			return fmt.Errorf("security rule not found")
 		}
-
-		if getResp.IsError() {
-			return apiErrFromResp(getResp.StatusCode, getResp.Error)
-		}
-
-		if getResp.Data == nil {
-			return fmt.Errorf("security rule not found or no data returned")
-		}
-
-		current := getResp.Data
-
-		// Block update if security rule is in 'InCreation' state
-		if current.Status.State != nil && *current.Status.State == StateInCreation {
+		if r.Status.State != nil && *r.Status.State == StateInCreation {
 			return fmt.Errorf("cannot update security rule while it is in 'InCreation' state. Please wait until the security rule is fully created")
 		}
 
-		// Get region value from current rule, or fetch from VPC if not available
-		regionValue := ""
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
-		}
-
-		// If region value is not available from the rule, try to get it from the VPC
-		if regionValue == "" {
-			vpcResp, err := client.FromNetwork().VPCs().Get(ctx, projectID, vpcID, nil)
-			if err == nil && vpcResp != nil && !vpcResp.IsError() && vpcResp.Data != nil {
-				if vpcResp.Data.Metadata.LocationResponse != nil {
-					regionValue = vpcResp.Data.Metadata.LocationResponse.Value
-				}
+		if cur.Region() == "" {
+			vpc, verr := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
+			if verr == nil && vpc != nil && vpc.Raw() != nil && vpc.Raw().Metadata.LocationResponse != nil {
+				cur.InRegion(vpc.Raw().Metadata.LocationResponse.Value)
 			}
 		}
-
-		// If still no region value, we cannot proceed
-		if regionValue == "" {
+		if cur.Region() == "" {
 			return fmt.Errorf("unable to determine region value for security rule. Please ensure the VPC has a valid region")
 		}
 
-		// Build update request - only name and tags can be updated
-		// Properties (direction, protocol, port, target) must remain unchanged
-		req := types.SecurityRuleRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: func() string {
-						if name != "" {
-							return name
-						}
-						if current.Metadata.Name != nil {
-							return *current.Metadata.Name
-						}
-						return ""
-					}(),
-					Tags: func() []string {
-						if cmd.Flags().Changed("tags") {
-							return tags
-						}
-						if current.Metadata.Tags != nil {
-							return current.Metadata.Tags
-						}
-						return []string{}
-					}(),
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.SecurityRulePropertiesRequest{
-				// Properties cannot be updated - use current values
-				Direction: current.Properties.Direction,
-				Protocol:  current.Properties.Protocol,
-				Port:      current.Properties.Port,
-				Target:    current.Properties.Target,
-			},
+		if name != "" {
+			cur.Named(name)
+		}
+		if cmd.Flags().Changed("tags") {
+			cur.ReplaceTags(tags...)
 		}
 
-		// Check if debug flag is enabled
 		debugEnabled, _ := rootCmd.PersistentFlags().GetBool("debug")
 		if debugEnabled {
 			fmt.Fprintf(os.Stderr, "\n=== DEBUG: Security Rule Update Request ===\n")
@@ -506,30 +426,19 @@ var securityruleUpdateCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Security Group ID: %s\n", securityGroupID)
 			fmt.Fprintf(os.Stderr, "Security Rule ID: %s\n", securityRuleID)
 			fmt.Fprintf(os.Stderr, "Request Payload:\n")
-			if reqJSON, err := json.MarshalIndent(req, "", "  "); err == nil {
+			if reqJSON, err := json.MarshalIndent(cur.RawRequest(), "", "  "); err == nil {
 				fmt.Fprintf(os.Stderr, "%s\n", reqJSON)
 			}
 			fmt.Fprintf(os.Stderr, "==========================================\n\n")
 		}
 
-		resp, err := client.FromNetwork().SecurityGroupRules().Update(ctx, projectID, vpcID, securityGroupID, securityRuleID, req, nil)
+		updated, err := client.FromNetwork().SecurityGroupRules().Update(ctx, cur)
 		if err != nil {
-			return fmt.Errorf("updating security rule: %w", err)
+			return fmt.Errorf("updating security rule: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			if debugEnabled {
-				fmt.Fprintf(os.Stderr, "\n=== DEBUG: Error Response ===\n")
-				if resp.RawBody != nil {
-					fmt.Fprintf(os.Stderr, "Raw Response Body:\n%s\n", string(resp.RawBody))
-				}
-				fmt.Fprintf(os.Stderr, "Status Code: %d\n", resp.StatusCode)
-				fmt.Fprintf(os.Stderr, "===========================\n\n")
-			}
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil {
+		ur := updated.Raw()
+		if ur != nil {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -538,30 +447,19 @@ var securityruleUpdateCmd = &cobra.Command{
 				{Header: "PORT", Width: 12},
 				{Header: "STATUS", Width: 15},
 			}
-			row := []string{
-				func() string {
-					if resp.Data.Metadata.Name != nil {
-						return *resp.Data.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if resp.Data.Metadata.ID != nil {
-						return *resp.Data.Metadata.ID
-					}
-					return ""
-				}(),
-				string(resp.Data.Properties.Direction),
-				resp.Data.Properties.Protocol,
-				resp.Data.Properties.Port,
-				func() string {
-					if resp.Data.Status.State != nil {
-						return *resp.Data.Status.State
-					}
-					return ""
-				}(),
+			updName := ""
+			if ur.Metadata.Name != nil {
+				updName = *ur.Metadata.Name
 			}
-			PrintOutput(resp.Data, headers, [][]string{row})
+			updID := ""
+			if ur.Metadata.ID != nil {
+				updID = *ur.Metadata.ID
+			}
+			updStatus := ""
+			if ur.Status.State != nil {
+				updStatus = *ur.Status.State
+			}
+			PrintOutput(ur, headers, [][]string{{updName, updID, string(ur.Properties.Direction), string(ur.Properties.Protocol), ur.Properties.Port, updStatus}})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security rule", securityRuleID))
 		}
@@ -578,15 +476,7 @@ var securityruleDeleteCmd = &cobra.Command{
 		securityGroupID := args[1]
 		securityRuleID := args[2]
 
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		// Get skip confirmation flag
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
-
-		// Prompt for confirmation unless --yes flag is used
 		if !skipConfirm {
 			ok, err := confirmDelete("security rule", securityRuleID)
 			if err != nil {
@@ -595,6 +485,11 @@ var securityruleDeleteCmd = &cobra.Command{
 			if !ok {
 				return nil
 			}
+		}
+
+		projectID, err := GetProjectID(cmd)
+		if err != nil {
+			return err
 		}
 
 		client, err := GetArubaClient()
@@ -607,21 +502,16 @@ var securityruleDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
+			_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 			if err != nil {
-				return fmt.Errorf("dry-run: security rule not found or inaccessible: %w", err)
+				return fmt.Errorf("dry-run: security rule not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("security rule", securityRuleID))
 			return nil
 		}
 
-		resp, err := client.FromNetwork().SecurityGroupRules().Delete(ctx, projectID, vpcID, securityGroupID, securityRuleID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting security rule: %w", err)
-		}
-
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
+		if err := client.FromNetwork().SecurityGroupRules().Delete(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID)); err != nil {
+			return fmt.Errorf("deleting security rule: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	aruba "github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -22,13 +23,21 @@ func init() {
 	dbaasCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasCreateCmd.Flags().String("name", "", "Name for the DBaaS instance (required)")
 	dbaasCreateCmd.Flags().String("region", "", "Region code (required)")
-	dbaasCreateCmd.Flags().String("engine-id", "", "Database engine ID (required)")
-	dbaasCreateCmd.Flags().String("flavor", "", "DBaaS flavor name (required)")
+	dbaasCreateCmd.Flags().String("zone", "", "Availability zone (required, e.g. ITBG-1)")
+	dbaasCreateCmd.Flags().String("engine-id", "", "Database engine ID (required, e.g. mysql-8.0)")
+	dbaasCreateCmd.Flags().String("flavor", "", "DBaaS flavor name (required, e.g. DBO4A8)")
+	dbaasCreateCmd.Flags().Int("storage-size", 0, "Storage size in GB (required)")
 	dbaasCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	dbaasCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("subnet-uri", "", "Subnet URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("security-group-uri", "", "Security group URI (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("elastic-ip-uri", "", "Elastic IP URI (optional)")
 	dbaasCreateCmd.MarkFlagRequired("name")
 	dbaasCreateCmd.MarkFlagRequired("region")
+	dbaasCreateCmd.MarkFlagRequired("zone")
 	dbaasCreateCmd.MarkFlagRequired("engine-id")
 	dbaasCreateCmd.MarkFlagRequired("flavor")
+	dbaasCreateCmd.MarkFlagRequired("storage-size")
 
 	dbaasGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -41,13 +50,33 @@ func init() {
 	dbaasDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	dbaasListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
-	dbaasListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
-	dbaasListCmd.Flags().Int32("offset", 0, "Number of results to skip")
+	dbaasListCmd.Flags().Int("limit", 0, "Maximum number of results to return (0 = no limit)")
+	dbaasListCmd.Flags().Int("offset", 0, "Number of results to skip")
 
 	// Set up auto-completion for resource IDs
 	dbaasGetCmd.ValidArgsFunction = completeDBaaSID
 	dbaasUpdateCmd.ValidArgsFunction = completeDBaaSID
 	dbaasDeleteCmd.ValidArgsFunction = completeDBaaSID
+}
+
+// File-local Ref helpers
+
+func dbaasRef(projectID, dbaasID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+}
+
+func dbaasFromRaw(d *aruba.DBaaS) *types.DBaaSResponse {
+	if d == nil {
+		return nil
+	}
+	return d.Raw()
+}
+
+func dbaasListPayload(l *aruba.List[*aruba.DBaaS]) any {
+	if r, ok := l.Raw().(*types.Response[types.DBaaSList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
 }
 
 // Completion functions for database resources
@@ -63,21 +92,17 @@ func completeDBaaSID(cmd *cobra.Command, args []string, toComplete string) ([]st
 	}
 
 	ctx := context.Background()
-	// Note: This assumes FromDatabase().DBaaS().List() exists in the SDK
-	// If not available, this will need to be updated when SDK methods are added
-	response, err := client.FromDatabase().DBaaS().List(ctx, projectID, nil)
+	list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, dbaas := range response.Data.Values {
-			if dbaas.Metadata.ID != nil && dbaas.Metadata.Name != nil {
-				id := *dbaas.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *dbaas.Metadata.Name))
-				}
+	if list != nil {
+		for _, r := range list.Items() {
+			id := r.DBaaSID()
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, r.Name()))
 			}
 		}
 	}
@@ -115,48 +140,54 @@ and users with 'acloud database dbaas user create'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
+		zone, _ := cmd.Flags().GetString("zone")
 		engineID, _ := cmd.Flags().GetString("engine-id")
 		flavor, _ := cmd.Flags().GetString("flavor")
+		storageSize, _ := cmd.Flags().GetInt("storage-size")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
+		subnetURI, _ := cmd.Flags().GetString("subnet-uri")
+		sgURI, _ := cmd.Flags().GetString("security-group-uri")
+		elasticIPURI, _ := cmd.Flags().GetString("elastic-ip-uri")
 
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Build the create request
-		createRequest := types.DBaaSRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: types.DBaaSPropertiesRequest{
-				Engine: &types.DBaaSEngine{
-					ID: &engineID,
-				},
-				Flavor: &types.DBaaSFlavor{
-					Name: &flavor,
-				},
-			},
+		d := aruba.NewDBaaS().
+			IntoProject(projectRef(projectID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			InZone(aruba.Zone(zone)).
+			OfEngine(aruba.DatabaseEngine(engineID)).
+			OfFlavor(aruba.DBaaSFlavor(flavor)).
+			WithSizeGB(storageSize)
+		if len(tags) > 0 {
+			d.ReplaceTags(tags...)
+		}
+		if vpcURI != "" {
+			d.WithVPC(aruba.URI(vpcURI))
+		}
+		if subnetURI != "" {
+			d.WithSubnet(aruba.URI(subnetURI))
+		}
+		if sgURI != "" {
+			d.WithSecurityGroup(aruba.URI(sgURI))
+		}
+		if elasticIPURI != "" {
+			d.WithElasticIP(aruba.URI(elasticIPURI))
 		}
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromDatabase().DBaaS().Create(ctx, projectID, createRequest, nil)
+		created, err := client.FromDatabase().DBaaS().Create(ctx, d)
 		if err != nil {
-			return fmt.Errorf("creating DBaaS instance: %w", err)
+			return fmt.Errorf("creating DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		resource := dbaasFromRaw(created)
+		if resource != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -167,43 +198,43 @@ and users with 'acloud database dbaas user create'.`,
 			}
 			row := []string{
 				func() string {
-					if response.Data.Metadata.ID != nil {
-						return *response.Data.Metadata.ID
+					if resource.Metadata.ID != nil {
+						return *resource.Metadata.ID
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Metadata.Name != nil {
-						return *response.Data.Metadata.Name
+					if resource.Metadata.Name != nil {
+						return *resource.Metadata.Name
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Properties.Engine != nil && response.Data.Properties.Engine.Type != nil {
-						return *response.Data.Properties.Engine.Type
+					if resource.Properties.Engine != nil && resource.Properties.Engine.Type != nil {
+						return *resource.Properties.Engine.Type
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Properties.Engine != nil && response.Data.Properties.Engine.Version != nil {
-						return *response.Data.Properties.Engine.Version
+					if resource.Properties.Engine != nil && resource.Properties.Engine.Version != nil {
+						return *resource.Properties.Engine.Version
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Properties.Flavor != nil && response.Data.Properties.Flavor.Name != nil {
-						return *response.Data.Properties.Flavor.Name
+					if resource.Properties.Flavor != nil && resource.Properties.Flavor.Name != nil {
+						return *resource.Properties.Flavor.Name
 					}
 					return ""
 				}(),
 				func() string {
-					if response.Data.Metadata.LocationResponse != nil {
-						return response.Data.Metadata.LocationResponse.Value
+					if resource.Metadata.LocationResponse != nil {
+						return string(resource.Metadata.LocationResponse.Value)
 					}
 					return ""
 				}(),
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(resource, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("DBaaS instance", name))
 		}
@@ -230,66 +261,59 @@ var dbaasGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromDatabase().DBaaS().Get(ctx, projectID, dbaasID, nil)
+		got, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
 		if err != nil {
-			return fmt.Errorf("getting DBaaS instance: %w", err)
+			return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil {
-			dbaas := resp.Data
-
+		resource := dbaasFromRaw(got)
+		if resource != nil {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(dbaas, nil, nil)
+				PrintOutput(resource, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nDBaaS Instance Details:")
 			fmt.Println("======================")
 
-			if dbaas.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *dbaas.Metadata.ID)
+			if resource.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
 			}
-			if dbaas.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *dbaas.Metadata.URI)
+			if resource.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *resource.Metadata.URI)
 			}
-			if dbaas.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *dbaas.Metadata.Name)
+			if resource.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
 			}
-			if dbaas.Metadata.LocationResponse != nil {
-				if dbaas.Metadata.LocationResponse != nil {
-					fmt.Printf("Region:          %s\n", dbaas.Metadata.LocationResponse.Value)
+			if resource.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", resource.Metadata.LocationResponse.Value)
+			}
+			if resource.Properties.Engine != nil {
+				if resource.Properties.Engine.Type != nil {
+					fmt.Printf("Engine Type:     %s\n", *resource.Properties.Engine.Type)
+				}
+				if resource.Properties.Engine.Version != nil {
+					fmt.Printf("Engine Version:  %s\n", *resource.Properties.Engine.Version)
+				}
+				if resource.Properties.Engine.Name != nil {
+					fmt.Printf("Engine Name:    %s\n", *resource.Properties.Engine.Name)
 				}
 			}
-			if dbaas.Properties.Engine != nil {
-				if dbaas.Properties.Engine.Type != nil {
-					fmt.Printf("Engine Type:     %s\n", *dbaas.Properties.Engine.Type)
-				}
-				if dbaas.Properties.Engine.Version != nil {
-					fmt.Printf("Engine Version:  %s\n", *dbaas.Properties.Engine.Version)
-				}
-				if dbaas.Properties.Engine.Name != nil {
-					fmt.Printf("Engine Name:    %s\n", *dbaas.Properties.Engine.Name)
-				}
+			if resource.Properties.Flavor != nil && resource.Properties.Flavor.Name != nil {
+				fmt.Printf("Flavor:         %s\n", *resource.Properties.Flavor.Name)
 			}
-			if dbaas.Properties.Flavor != nil && dbaas.Properties.Flavor.Name != nil {
-				fmt.Printf("Flavor:         %s\n", *dbaas.Properties.Flavor.Name)
+			if resource.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *resource.Status.State)
 			}
-			if dbaas.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *dbaas.Status.State)
+			if resource.Metadata.CreationDate != nil && !resource.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", resource.Metadata.CreationDate.Format(DateLayout))
 			}
-			if dbaas.Metadata.CreationDate != nil && !dbaas.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", dbaas.Metadata.CreationDate.Format(DateLayout))
+			if resource.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *resource.Metadata.CreatedBy)
 			}
-			if dbaas.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *dbaas.Metadata.CreatedBy)
-			}
-			if len(dbaas.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", dbaas.Metadata.Tags)
+			if len(resource.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -318,16 +342,12 @@ var dbaasListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromDatabase().DBaaS().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing DBaaS instances: %w", err)
+			return fmt.Errorf("listing DBaaS instances: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 30},
@@ -339,54 +359,58 @@ var dbaasListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, dbaas := range resp.Data.Values {
+			for _, d := range list.Items() {
+				raw := dbaasFromRaw(d)
+				if raw == nil {
+					continue
+				}
 				row := []string{
 					func() string {
-						if dbaas.Metadata.Name != nil {
-							return *dbaas.Metadata.Name
+						if raw.Metadata.Name != nil {
+							return *raw.Metadata.Name
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Metadata.ID != nil {
-							return *dbaas.Metadata.ID
+						if raw.Metadata.ID != nil {
+							return *raw.Metadata.ID
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Properties.Engine != nil && dbaas.Properties.Engine.Type != nil {
-							return *dbaas.Properties.Engine.Type
+						if raw.Properties.Engine != nil && raw.Properties.Engine.Type != nil {
+							return *raw.Properties.Engine.Type
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Properties.Engine != nil && dbaas.Properties.Engine.Version != nil {
-							return *dbaas.Properties.Engine.Version
+						if raw.Properties.Engine != nil && raw.Properties.Engine.Version != nil {
+							return *raw.Properties.Engine.Version
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Properties.Flavor != nil && dbaas.Properties.Flavor.Name != nil {
-							return *dbaas.Properties.Flavor.Name
+						if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
+							return *raw.Properties.Flavor.Name
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Metadata.LocationResponse != nil {
-							return dbaas.Metadata.LocationResponse.Value
+						if raw.Metadata.LocationResponse != nil {
+							return string(raw.Metadata.LocationResponse.Value)
 						}
 						return ""
 					}(),
 					func() string {
-						if dbaas.Status.State != nil {
-							return *dbaas.Status.State
+						if raw.Status.State != nil {
+							return *raw.Status.State
 						}
 						return ""
 					}(),
 				}
 				rows = append(rows, row)
 			}
-			PrintOutput(resp.Data, headers, rows)
+			PrintOutput(dbaasListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No DBaaS instances found")
 		}
@@ -420,76 +444,34 @@ var dbaasUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResp, err := client.FromDatabase().DBaaS().Get(ctx, projectID, dbaasID, nil)
+		current, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
 		if err != nil {
-			return fmt.Errorf("getting DBaaS instance: %w", err)
-		}
-
-		if getResp == nil || getResp.Data == nil {
-			return fmt.Errorf("DBaaS instance not found")
-		}
-
-		current := getResp.Data
-
-		regionValue := ""
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
-		}
-		if regionValue == "" {
-			return fmt.Errorf("unable to determine region value for DBaaS instance")
-		}
-
-		// Build update request preserving current properties
-		updateRequest := types.DBaaSRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: *current.Metadata.Name,
-					Tags: current.Metadata.Tags,
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.DBaaSPropertiesRequest{},
-		}
-
-		// Preserve current engine if it exists
-		if current.Properties.Engine != nil {
-			updateRequest.Properties.Engine = &types.DBaaSEngine{
-				ID: current.Properties.Engine.ID,
-			}
-		}
-
-		// Preserve current flavor if it exists
-		if current.Properties.Flavor != nil {
-			updateRequest.Properties.Flavor = &types.DBaaSFlavor{
-				Name: current.Properties.Flavor.Name,
-			}
+			return fmt.Errorf("fetching current DBaaS instance: %w", apiErrFromV2(err))
 		}
 
 		if name != "" {
-			updateRequest.Metadata.ResourceMetadataRequest.Name = name
+			current.Named(name)
 		}
-
 		if cmd.Flags().Changed("tags") {
-			updateRequest.Metadata.ResourceMetadataRequest.Tags = tags
+			current.ReplaceTags(tags...)
 		}
 
-		response, err := client.FromDatabase().DBaaS().Update(ctx, projectID, dbaasID, updateRequest, nil)
+		updated, err := client.FromDatabase().DBaaS().Update(ctx, current)
 		if err != nil {
-			return fmt.Errorf("updating DBaaS instance: %w", err)
+			return fmt.Errorf("updating DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		resource := dbaasFromRaw(updated)
+		if resource != nil {
 			fmt.Printf("\n%s\n", msgUpdated("DBaaS instance", dbaasID))
-			fmt.Printf("ID:              %s\n", *response.Data.Metadata.ID)
-			fmt.Printf("Name:            %s\n", *response.Data.Metadata.Name)
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", response.Data.Metadata.Tags)
+			if resource.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			}
+			if resource.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			}
+			if len(resource.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("DBaaS instance", dbaasID))
@@ -505,17 +487,7 @@ var dbaasDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 
-		confirm, _ := cmd.Flags().GetBool("yes")
-
-		if !confirm {
-			ok, err := confirmDelete("DBaaS instance", dbaasID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
+		skipConfirm, _ := cmd.Flags().GetBool("yes")
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -532,20 +504,25 @@ var dbaasDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromDatabase().DBaaS().Get(ctx, projectID, dbaasID, nil)
-			if err != nil {
-				return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", err)
+			if _, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID)); err != nil {
+				return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("DBaaS instance", dbaasID))
 			return nil
 		}
 
-		deleteResp, err := client.FromDatabase().DBaaS().Delete(ctx, projectID, dbaasID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting DBaaS instance: %w", err)
+		if !skipConfirm {
+			ok, err := confirmDelete("DBaaS instance", dbaasID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
 		}
-		if deleteResp != nil && deleteResp.IsError() {
-			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
+
+		if err := client.FromDatabase().DBaaS().Delete(ctx, dbaasRef(projectID, dbaasID)); err != nil {
+			return fmt.Errorf("deleting DBaaS instance: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("DBaaS instance", dbaasID))

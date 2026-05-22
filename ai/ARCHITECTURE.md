@@ -43,31 +43,170 @@ If `LoadConfig()` fails (missing `~/.acloud.yaml`), the error is wrapped:
 
 ## SDK Call Pattern
 
-All resource operations follow the builder pattern through the client:
+SDK v0.2.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
+sub-client; each CRUD method returns a hydrated wrapper type or `*aruba.List[T]`
+rather than raw `types.*Response` structs.
 
 ```go
-client.FromStorage().Volumes().Create(ctx, projectID, request, nil)
-client.FromCompute().CloudServers().Get(ctx, projectID, id, nil)
-client.FromNetwork().VPCs().List(ctx, projectID, nil)
+// Top-level resources (e.g. project) — addressed by aruba.Ref:
+client.FromProject().Get(ctx, projectRef(id))      // → (*aruba.Project, error)
+client.FromProject().List(ctx, listOpts(cmd)...)   // → (*aruba.List[*aruba.Project], error)
+client.FromProject().Create(ctx, proj)             // → (*aruba.Project, error)
+client.FromProject().Update(ctx, proj)             // → (*aruba.Project, error)
+client.FromProject().Delete(ctx, projectRef(id))   // → error
+
+// Project-scoped resources — wrapper built with IntoProject(projectRef):
+client.FromCompute().CloudServers().Get(ctx, ref)  // → (*aruba.CloudServer, error)
+client.FromStorage().Volumes().List(ctx, ...)      // → (*aruba.List[*aruba.BlockStorage], error)
+
+// Regional resources carry .InRegion(region) on the wrapper builder.
+// Zonal resources additionally carry .InZone(zone).
+// Resources that need WaitUntilActive call it on the returned wrapper.
 ```
 
-- The 4th argument (`options`) is always `nil` in current commands.
-- `ctx` is always `context.Background()`, declared inline in the handler.
-- The response carries `.IsError()`, `.StatusCode`, `.Error.Title`, `.Error.Detail`, and `.Data`.
+**Ref addressing** — resources are addressed by `aruba.Ref` (an interface with `URI()
+string`). Use `aruba.URI("/projects/"+id)` (wrapped by `projectRef` in `cmd/root.go`)
+for top-level refs and chain `IntoProject(proj)` / `IntoVPC(vpc)` on wrappers for
+scoped resources.
 
-**Response error check pattern:**
+**Combined-URI Refs for project-scoped Get/Delete** — `List` and builder `IntoProject`
+only need the project Ref (`projectRef(id)`). `Get` and `Delete` on project-scoped
+resources require a single Ref encoding *both* the project and resource IDs. Declare
+a file-local helper for each resource:
+
 ```go
-if response != nil && response.IsError() && response.Error != nil {
-    fmt.Printf("Failed - Status: %d\n", response.StatusCode)
-    if response.Error.Title != nil {
-        fmt.Printf("Error: %s\n", *response.Error.Title)
-    }
-    if response.Error.Detail != nil {
-        fmt.Printf("Detail: %s\n", *response.Error.Detail)
-    }
-    return
+func cloudServerRef(projectID, serverID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID +
+        "/providers/Aruba.Compute/cloudServers/" + serverID)
 }
 ```
+
+**Storage family sub-clients and Refs** — The four storage sub-clients are
+`Volumes()`, `Snapshots()`, `Backups()`, `Restores()`. There is no `BlockStorages()`
+alias. Each file declares a file-local Ref helper:
+
+| Helper | Defined in | URI template |
+|---|---|---|
+| `volumeRef(pid, vid)` | `storage.blockstorage.go` | `/projects/<pid>/providers/Aruba.Storage/blockstorages/<vid>` |
+| `snapshotRef(pid, sid)` | `storage.snapshot.go` | `/projects/<pid>/providers/Aruba.Storage/snapshots/<sid>` |
+| `backupRef(pid, bid)` | `storage.backup.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>` |
+| `restoreRef(pid, bid, rid)` | `storage.restore.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>/restores/<rid>` |
+
+Note: path segments use **all-lowercase** (`blockstorages`, `snapshots`, `backups`,
+`restores`) matching `internal/clients/storage/path.go`.
+
+**Cross-family pre-validation** — `StorageBackup` Create fetches the source volume
+(`Volumes().Get(ctx, volumeRef(...))`) before building the backup wrapper. `StorageRestore`
+Create fetches both the parent backup (`Backups().Get`) **and** the target volume
+(`Volumes().Get`) before building the restore wrapper.
+
+**`StorageRestore` diverges from the project-scoped pattern** in two ways:
+- Builder uses `IntoBackup(bk)` (not `IntoProject`) — the backup Ref carries the project ID implicitly.
+- `Restores().List(ctx, backup Ref, ...)` is **backup-scoped**, not project-scoped.
+
+```go
+// Backup Create — cross-family pre-validation then builder:
+vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+bk := aruba.NewStorageBackup().IntoProject(projectRef(projectID)).Named(name).
+    InRegion(aruba.Region(region)).OfType(aruba.StorageBackupType(t)).FromVolume(vol)
+
+// Restore Create — dual cross-family pre-validation:
+bk, err  := client.FromStorage().Backups().Get(ctx, backupRef(projectID, backupID))
+target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+rs := aruba.NewStorageRestore().IntoBackup(bk).Named(name).InRegion(aruba.Region(region)).ToVolume(target)
+
+// Restore List — backup-scoped:
+list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
+```
+
+All four storage wrappers' `Raw()` returns the **full** typed response (e.g. `*types.StorageBackupResponse`). No `RawHTTP()` re-parse is needed, unlike `*aruba.Project`.
+
+**Multi-level nested Refs (network family)** — VPC-scoped resources (Subnet,
+SecurityGroup, VPCPeering) require 3-segment Refs; deeper resources (SecurityRule,
+VPCPeeringRoute, VPNRoute) require 4-segment Refs encoding the full ancestry. The
+path-segment casing matters: `subnets`, `securitygroups`, `securityrules`,
+`loadbalancers` are lowercase; `vpcPeerings`, `vpcPeeringRoutes`, `vpnTunnels`,
+`vpnRoutes`, `elasticIps` are camelCase (matches
+`internal/clients/network/path.go`, which is `internal/` and not importable).
+Each file declares a file-local `<resource>Ref` helper and reuses the parent Ref
+helper from the sibling file where it is defined once:
+
+| Helper | Defined in | URI template |
+|---|---|---|
+| `vpcRef(pid, vid)` | `network.vpc.go` | `/projects/<pid>/providers/Aruba.Network/vpcs/<vid>` |
+| `securityGroupRef(pid, vid, sgid)` | `network.securitygroup.go` | `…/vpcs/<vid>/securitygroups/<sgid>` |
+| `vpcPeeringRef(pid, vid, peerid)` | `network.vpcpeering.go` | `…/vpcs/<vid>/vpcPeerings/<peerid>` |
+| `vpnTunnelRef(pid, tid)` | `network.vpntunnel.go` | `…/vpnTunnels/<tid>` |
+
+**Read-only sub-client** — `LoadBalancersClient` exposes only `List` and `Get`.
+There is no `NewLoadBalancer()` factory and no Create/Update/Delete. The
+`network.loadbalancer.go` command file reflects this: it has only `list` and `get`
+subcommands.
+
+**Deeply-nested VPN sub-builders** — `aruba.NewVPNTunnel()` composes four
+independent sub-builders: `NewVPNIPConfig()`, `NewVPNIKE()`, `NewVPNESP()`,
+`NewVPNPSK()`. Each is constructed separately and attached via
+`WithIPConfig`/`WithIKESettings`/`WithESPSettings`/`WithPSKSettings`.
+
+**VPN `fromResponse` does not rehydrate sub-builders** — `VPNTunnel.fromResponse()`
+only populates top-level fields (`vpnType`, `vpnClientProtocol`, `billingPeriod`,
+`peerClientPublicIP`). A naïve wrapper `Update` would drop the IKE/ESP/PSK/IPConfig
+sub-builders from the PUT body. `network.vpntunnel.go` works around this with a
+file-local `vpnTunnelReattachSettings(cur *aruba.VPNTunnel)` helper that
+reconstructs the sub-builders from `cur.Raw().Properties.*` and re-attaches them
+before calling `Update`.
+
+**VPN crypto enums split per direction** — v0.2.0 replaces the unified
+`types.VPNEncryption*` / `types.VPNHash*` / `types.VPNDHGroup*` / etc. constants
+with per-direction types: `aruba.IKEEncryption` / `aruba.ESPEncryption`,
+`aruba.IKEHash` / `aruba.ESPHash`, `aruba.IKEDHGroup`, `aruba.IKEDPDAction`,
+`aruba.ESPPFSGroup`. The CLI exposes seven separate `[]string` enum slices
+(`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, etc.) and keys each
+`--ike-*` / `--esp-*` flag to the correct family in the validation table.
+
+**Operational methods on hydrated wrappers** — some operations (`PowerOn`, `PowerOff`,
+`SetPassword`) are methods on `*aruba.<T>`, not on the sub-client. They require a
+prior hydrating `Get`; calling them on a freshly-constructed `New<T>()` wrapper will
+fail. `PowerOn`/`PowerOff` re-hydrate the wrapper from the response; `SetPassword`
+does not — render from the pre-`Get` result:
+
+```go
+cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(pid, id))
+if err != nil { return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err)) }
+if err := cs.PowerOn(ctx); err != nil {
+    return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
+}
+// cs is now re-hydrated; render from cs.Raw()
+```
+
+**Error handling** — non-2xx responses surface as `*aruba.HTTPError` in the error
+return. There is no `response.IsError()` check. Use `apiErrFromV2(err)` (in
+`cmd/root.go`) to format HTTP errors while passing transport errors through. Always
+wrap with a verb prefix:
+
+```go
+result, err := client.From<Svc>().<Resource>().Op(ctx, ...)
+if err != nil {
+    return fmt.Errorf("<verb> <resource>: %w", apiErrFromV2(err))
+}
+```
+
+**Rendering** — wrapper types (`*aruba.<T>`) carry only unexported fields and are not
+JSON-marshalable. For table columns the wrapper exposes (`.ID()`, `.Name()`,
+`.State()`, `.CreatedAt()`, …) use the accessors directly. Two cases for full-payload
+rendering:
+
+- **`Raw()` returns the full typed response** (e.g. `*aruba.CloudServer.Raw()` →
+  `*types.CloudServerResponse`) — use it directly; no re-parse helper needed.
+- **`Raw()` returns only metadata** (e.g. `*aruba.Project`) — re-parse the typed
+  `types.<T>Response` from the wrapper's `RawHTTP()` raw body via a file-local
+  `<resource>FromRaw` helper.
+
+For list `-o json`, extract the typed list via `list.Raw()` (stores the original
+`*types.Response[types.<T>List]`) via a file-local `<resource>ListPayload` helper.
+
+**`ctx`** — use `newCtx()` (30-second timeout, in `cmd/root.go`) for all SDK calls.
+Completion functions that run interactively may keep `context.Background()`.
 
 ---
 
@@ -253,13 +392,16 @@ func completeBlockStorageID(cmd *cobra.Command, args []string, toComplete string
     if err != nil { return nil, cobra.ShellCompDirectiveNoFileComp }
 
     ctx := context.Background()
-    response, err := client.FromStorage().Volumes().List(ctx, projectID, nil)
+    list, err := client.FromStorage().Volumes().List(ctx, projectRef(projectID))
     if err != nil { return nil, cobra.ShellCompDirectiveNoFileComp }
 
     var completions []string
-    for _, v := range response.Data.Values {
-        if v.Metadata.ID != nil && strings.HasPrefix(*v.Metadata.ID, toComplete) {
-            completions = append(completions, fmt.Sprintf("%s\t%s", *v.Metadata.ID, *v.Metadata.Name))
+    if list != nil {
+        for _, v := range list.Items() {
+            id := v.ID()
+            if toComplete == "" || strings.HasPrefix(id, toComplete) {
+                completions = append(completions, fmt.Sprintf("%s\t%s", id, v.Name()))
+            }
         }
     }
     return completions, cobra.ShellCompDirectiveNoFileComp
@@ -310,3 +452,230 @@ updateReq := buildRequestFrom(current)    // preserve current values
 if name != "" { updateReq.Metadata.Name = name }
 if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
 ```
+
+---
+
+## Database Family
+
+`client.FromDatabase()` returns a `DatabaseClient` with four sub-clients:
+
+| Sub-client | Method | Resources |
+|---|---|---|
+| `DBaaS()` | `FromDatabase().DBaaS()` | DBaaS instances (project-scoped) |
+| `Databases()` | `FromDatabase().Databases()` | Databases inside a DBaaS (dbaas-scoped) |
+| `Backups()` | `FromDatabase().Backups()` | DBaaS Backups (project-scoped) |
+| `Users()` | `FromDatabase().Users()` | Users inside a DBaaS (dbaas-scoped) |
+
+**Note:** There is no `BlockStorages()` alias — `Volumes()` is the correct name for storage. Similarly, `FromDatabase().Backups()` (database backups) is distinct from `FromStorage().Backups()` (storage backups).
+
+### Two wrapper families
+
+**Family A** (DBaaS, DBaaSBackup) — standard `Metadata/Properties/Status` envelope. Uses `IntoProject(projectRef(projectID))` for the builder.
+
+**Family B** (Database, User) — flat request, name/username IS the path identifier, no `Metadata.ID` in responses. Uses `IntoDBaaS(dbaasRef(projectID, dbaasID))` for the builder. `Database.ID()` returns the name; `User.ID()` returns the username.
+
+### Ref helpers (declared per file)
+
+```go
+func dbaasRef(projectID, dbaasID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+}
+func databaseRef(projectID, dbaasID, name string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + name)
+}
+func userRef(projectID, dbaasID, username string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username)
+}
+func databaseBackupRef(projectID, backupID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/backups/" + backupID)
+}
+```
+
+### List scoping
+
+- **DBaaS / Backup List** — project-scoped: `List(ctx, projectRef(projectID), listOpts(cmd)...)`
+- **Database / User List** — dbaas-scoped: `List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)`
+
+### DBaaS Update — round-trip
+
+`DBaaS.fromResponse()` back-populates `engine`, `flavor`, `sizeGB`, `billingPeriod`, and networking refs automatically. The update pattern is just:
+
+```go
+current, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
+if name != "" { current.Named(name) }
+if cmd.Flags().Changed("size-gb") { current.WithSizeGB(sizeGB) }
+updated, err := client.FromDatabase().DBaaS().Update(ctx, current)
+```
+
+No manual field reconstruction is needed — all unchanged fields survive the round-trip.
+
+### Backup Create — no pre-validation Gets
+
+`FromDBaaS(Ref)` and `FromDatabase(Ref)` on the `DBaaSBackup` builder accept any `aruba.Ref` and call `.URI()` on them. Pass the constructed Refs directly — no pre-validation Gets needed:
+
+```go
+bk := aruba.NewDBaaSBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    FromDBaaS(dbaasRef(projectID, dbaasID)).
+    FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+created, err := client.FromDatabase().Backups().Create(ctx, bk)
+```
+
+The old v0.1.x code performed 2 cross-family Gets just to obtain URIs (and used a malformed URI for the database ref). The v0.2.0 builder eliminates both round-trips.
+
+### BackupsClient — no Update
+
+`BackupsClient` exposes only `List / Get / Create / Delete`. There is no Update method. The `backupUpdateCmd` stub in `database.backup.go` returns an informational error without calling the SDK.
+
+### Identity accessors
+
+- DBaaS: `d.DBaaSID()` (equivalent to `d.ID()`)
+- DBaaSBackup: `b.DBaaSBackupID()` (use this, not `b.ID()`)
+- Database: `db.DatabaseID()` (returns the name, which is the path identifier)
+- User: `u.Username()` (returns the username, which is the path identifier)
+
+---
+
+## Container Family
+
+`client.FromContainer()` returns a `ContainerClient` with two sub-clients:
+
+| Sub-client | Method | Resource |
+|---|---|---|
+| `KaaS()` | `FromContainer().KaaS()` | Kubernetes-as-a-Service clusters (project-scoped) |
+| `ContainerRegistry()` | `FromContainer().ContainerRegistry()` | Container registries (project-scoped) |
+
+### Ref helpers (declared per file)
+
+```go
+func kaasRef(projectID, kaasID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Container/kaas/" + kaasID)
+}
+func containerRegistryRef(projectID, registryID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID)
+}
+```
+
+**Path note**: ContainerRegistry uses `registries` (not `containerregistries`) — matches `internal/clients/container/path.go`.
+
+### Identity accessors
+
+- KaaS: `k.KaaSID()` (use this, not `k.ID()`)
+- ContainerRegistry: `r.ContainerRegistryID()` (equivalent to `r.ID()`)
+
+### `DownloadKubeconfig` — method on `*KaaS`, not on `KaaSClient`
+
+`KaaSClient` interface exposes only `List / Get / Create / Update / Delete`. The kubeconfig download requires a **two-step** approach:
+
+```go
+got, err := client.FromContainer().KaaS().Get(ctx, kaasRef(projectID, kaasID))
+if err != nil { return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err)) }
+kubeconfigBytes, err := got.DownloadKubeconfig(ctx)
+```
+
+Wire path: `GET /projects/{p}/providers/Aruba.Container/kaas/{id}/download` → returns `types.KaaSKubeconfigResponse{Name, Content}`. `DownloadKubeconfig` returns `[]byte(resp.Data.Content)`. The content is base64-encoded YAML; decode before writing to disk.
+
+### `WithSecurityGroup` on KaaS requires `*aruba.SecurityGroup`
+
+`KaaS.WithSecurityGroup(sg Ref)` performs a type assertion `sg.(*SecurityGroup)` internally and fails at runtime if the assertion fails. Do **not** pass `aruba.URI(...)`. Always construct a minimal wrapper:
+
+```go
+sg := aruba.NewSecurityGroup().Named(securityGroupName)
+k.WithSecurityGroup(sg)
+```
+
+The KaaS API stores only the SG name, not a URI. This diverges from `ContainerRegistry.WithSecurityGroup(sg Ref)` which accepts any `Ref` (plain `aruba.URI(...)`).
+
+### NodePool sub-builder
+
+```go
+np := aruba.NewNodePool().
+    Named(poolName).
+    WithCount(n).
+    OfInstance(aruba.NodePoolInstance(instance)).
+    InZone(aruba.Zone(zone))
+if autoscaling { np.WithAutoscaling(minCount, maxCount) }
+k.AddNodePool(np)
+```
+
+`AddNodePool` **appends** to pools already set by `fromResponse()` on an existing wrapper. There is no `ClearNodePools` or `ReplaceNodePools`. When updating via Get→mutate→Update, adding a pool appends rather than replaces.
+
+### `ContainerRegistry.OfSize` — replaces `ConcurrentUsers` string
+
+The old v0.1.x `ConcurrentUsers *string` field is replaced by a typed enum:
+
+```go
+r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) // "Small", "Medium", "HighPerf"
+```
+
+Use `aruba.ContainerRegistrySizeFlavorSmall`, `ContainerRegistrySizeFlavorMedium`, `ContainerRegistrySizeFlavorHighPerf` constants.
+
+### `ContainerRegistry.WithElasticIP` — replaces `PublicIp.URI`
+
+```go
+r.WithElasticIP(aruba.URI(publicIPURI))
+```
+
+The response field is still `resource.Properties.PublicIp.URI` (unchanged wire format).
+
+### KubernetesVersion constants
+
+v0.2.0 removed `KubernetesVersion1313`. Available: `aruba.KubernetesVersion1323`, `KubernetesVersion1332`, `KubernetesVersion1341`. The CLI accepts any string via `aruba.KubernetesVersion(version)` — validation is left to the API.
+
+## Schedule Family
+
+`cmd/schedule.job.go` — one resource, managed via `client.FromSchedule().Jobs()`.
+
+### Ref helpers
+
+```go
+func jobRef(projectID, jobID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
+}
+func jobFromRaw(j *aruba.Job) *types.JobResponse { return j.Raw() }
+func jobListPayload(l *aruba.List[*aruba.Job]) any {
+    if r, ok := l.Raw().(*types.Response[types.JobList]); ok && r != nil {
+        return r.Data
+    }
+    return nil
+}
+```
+
+### Identity accessors
+
+`j.JobID()` (not `j.ID()`), `j.Name()`, `j.Region()` (→ `aruba.Region`, cast with `string()`), `j.JobType()` (→ `types.JobType`), `j.Enabled()` bool, `j.State()` string.
+
+### Schedule modes — mutually exclusive
+
+```go
+// One-shot:
+j.OneShotAt(t)
+
+// Recurring:
+j.WithCron(cronExpr).RecurringUntil(endTime)
+```
+
+Call `j.Err()` after builder setup to surface any validation errors before the Create call.
+
+### `WithEnabled(false)` omitempty limitation
+
+The `enabled` field in the Job request body is tagged `omitempty`. Passing `false` via `WithEnabled(false)` has no effect on the wire — the field is omitted and the server keeps the previous value. This is an upstream SDK bug tracked in `Arubacloud/sdk-go`. Disabling a job via Update is currently a no-op.
+
+## Security (KMS) Family
+
+`cmd/security.kms.go` — migrated to v0.2.0 in #108 (alongside schedule).
+
+### Ref helpers
+
+```go
+func kmsRef(projectID, kmsID string) aruba.Ref {
+    return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
+}
+```
+
+### Identity accessor
+
+`k.KMSID()` (not `k.ID()`). Other accessors: `k.Name()`, `k.Region()`, `k.State()`, `k.Raw()` → `*types.KMSResponse`.

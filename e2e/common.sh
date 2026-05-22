@@ -172,3 +172,89 @@ setup_context() {
         echo ""
     fi
 }
+
+# --- Status polling -------------------------------------------------------
+# Generic poller: wait_for_status "<get-cmd>" "<ready-regex>" [timeout]
+# Polls Status: line every 5s; returns 0 on match, 1 on terminal state or
+# timeout. Suites may define narrower wrappers that call this.
+wait_for_status() {
+    local get_cmd="$1" ready_regex="$2" timeout="${3:-180}" elapsed=0 status=""
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local out
+        out=$(eval "$get_cmd" 2>&1) || return 1
+        status=$(echo "$out" | grep -iE "^Status:" | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+        if [[ "$status" =~ $ready_regex ]]; then
+            echo "  → ready (status=$status)"; return 0
+        fi
+        if [[ "$status" =~ ^(Failed|Error|Deleted)$ ]]; then
+            echo -e "${YELLOW}wait_for_status: terminal state ($status), aborting${NC}"
+            return 1
+        fi
+        sleep 5; elapsed=$((elapsed + 5))
+    done
+    echo -e "${YELLOW}wait_for_status: timeout after ${timeout}s (last status=$status)${NC}"
+    return 1
+}
+
+# --- Ephemeral SSH key for keypair tests ---------------------------------
+# Generates a temporary ed25519 key; prints the public-key string to stdout.
+# Returns 1 if ssh-keygen is unavailable.
+gen_ephemeral_pubkey() {
+    local path="${1:-${TMPDIR:-/tmp}/acloud-e2e-key-$$}"
+    command -v ssh-keygen >/dev/null 2>&1 || return 1
+    ssh-keygen -t ed25519 -N "" -f "$path" -C "acloud-e2e-test" >/dev/null 2>&1 || return 1
+    cat "${path}.pub"
+}
+
+# --- Project-ID extraction from any resource URI -------------------------
+# URIs look like: /projects/<24hex>/providers/...
+resolve_project_id_from_uri() {
+    echo "$1" | sed -n 's|.*/projects/\([a-f0-9]\{24\}\)/.*|\1|p'
+}
+
+# --- Project bootstrapping -----------------------------------------------
+# Call before setup_context in any suite that needs a project-scoped API.
+# Sets PROJECT_ID (and BOOTSTRAP_PROJECT_ID when it creates one).
+# Resolution order:
+#   1. PROJECT_ID already valid  → done (no-op)
+#   2. Any ACLOUD_*_URI env var  → extract project from URI → done
+#   3. Nothing available         → create project via management API
+#
+# BOOTSTRAP_PROJECT_ID must be declared in each suite and deleted last in
+# that suite's cleanup() so the project is removed after all child resources.
+ensure_project() {
+    [ "$PROJECT_ID" != "your-project-id" ] && return 0
+
+    # Try to resolve from any pre-supplied resource URI
+    local _uri_vars=(ACLOUD_VPC_URI ACLOUD_SUBNET_URI ACLOUD_SECURITY_GROUP_URI
+                     ACLOUD_BOOT_DISK_URI ACLOUD_PUBLIC_IP_URI ACLOUD_BLOCK_STORAGE_URI)
+    local _var _uri _pid
+    for _var in "${_uri_vars[@]}"; do
+        _uri="${!_var:-}"
+        if [ -n "$_uri" ]; then
+            _pid=$(resolve_project_id_from_uri "$_uri")
+            if is_valid_id "$_pid"; then
+                PROJECT_ID="$_pid"
+                setup_context
+                echo "  → resolved PROJECT_ID=$PROJECT_ID from $_var"
+                return 0
+            fi
+        fi
+    done
+
+    # No resource URI to resolve from — create a project
+    echo "Bootstrapping project (ACLOUD_PROJECT_ID not set)..."
+    local _out
+    _out=$($ACLOUD_CMD management project create \
+        --name "${RESOURCE_PREFIX}-project" \
+        --description "acloud-cli e2e auto-bootstrapped project" \
+        --tags "e2e-test" 2>&1) || { echo -e "${RED}Project create failed: $_out${NC}"; return 1; }
+    _pid=$(extract_id "$_out")
+    if [ -z "$_pid" ] || ! is_valid_id "$_pid"; then
+        echo -e "${RED}Could not extract project ID: $_out${NC}"; return 1
+    fi
+    BOOTSTRAP_PROJECT_ID="$_pid"
+    PROJECT_ID="$_pid"
+    setup_context
+    echo "  → Project $PROJECT_ID created and set as active context"
+}

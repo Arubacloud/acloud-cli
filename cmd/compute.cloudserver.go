@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -83,18 +84,19 @@ func init() {
 	cloudserverConnectCmd.ValidArgsFunction = completeCloudServerID
 }
 
-// Helper function to extract ID from URI
-func extractIDFromURI(uri string) string {
-	if uri == "" {
-		return ""
+// cloudServerRef builds the combined project+server Ref that v0.2.0 Get/Delete need.
+func cloudServerRef(projectID, serverID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID +
+		"/providers/Aruba.Compute/cloudServers/" + serverID)
+}
+
+// csListPayload extracts the typed list for -o json/yaml; the List wrapper is not
+// JSON-marshalable. Mirrors projectListPayload from the #102 playbook.
+func csListPayload(l *aruba.List[*aruba.CloudServer]) any {
+	if r, ok := l.Raw().(*types.Response[types.CloudServerList]); ok && r != nil {
+		return r.Data
 	}
-	// URI format: /projects/{projectId}/providers/Aruba.Compute/cloudServers/{serverId}
-	parts := strings.Split(uri, "/")
-	if len(parts) > 0 {
-		// Get the last part which should be the ID
-		return parts[len(parts)-1]
-	}
-	return ""
+	return nil
 }
 
 // Completion functions for compute resources
@@ -110,24 +112,20 @@ func completeCloudServerID(cmd *cobra.Command, args []string, toComplete string)
 	}
 
 	ctx := context.Background()
-	response, err := client.FromCompute().CloudServers().List(ctx, projectID, nil)
+	list, err := client.FromCompute().CloudServers().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, server := range response.Data.Values {
-			if server.Metadata.ID == nil || *server.Metadata.ID == "" {
+	if list != nil {
+		for _, cs := range list.Items() {
+			id := cs.ID()
+			if id == "" {
 				continue
 			}
-			id := *server.Metadata.ID
-			var name string
-			if server.Metadata.Name != nil {
-				name = *server.Metadata.Name
-			}
 			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, cs.Name()))
 			}
 		}
 	}
@@ -161,7 +159,6 @@ Billing period: Hour (default), Month, or Year.`,
     --security-group-uri /projects/<proj-id>/providers/Aruba.Network/securityGroups/<sg-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get new network flags
 		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
 		subnetURIs, _ := cmd.Flags().GetStringSlice("subnet-uri")
 		securityGroupURIs, _ := cmd.Flags().GetStringSlice("security-group-uri")
@@ -178,6 +175,7 @@ Billing period: Hour (default), Month, or Year.`,
 		bootDiskURI, _ := cmd.Flags().GetString("boot-disk-uri")
 		keypairURI, _ := cmd.Flags().GetString("keypair-uri")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		userDataFile, _ := cmd.Flags().GetString("user-data-file")
 
 		client, err := GetArubaClient()
@@ -185,80 +183,49 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		// Build the create request
-		// Note: Template (image) should be provided as a ReferenceResource URI
-		// Format: /projects/{projectId}/providers/Aruba.Compute/templates/{templateId}
-		// Use bootDiskURI for BootVolume
-		bootVolumeURI := bootDiskURI
-
-		createRequest := types.CloudServerRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: types.CloudServerPropertiesRequest{
-				Zone:       zone,
-				FlavorName: &flavor,
-				BootVolume: types.ReferenceResource{
-					URI: bootVolumeURI,
-				},
-				VPC: types.ReferenceResource{URI: vpcURI},
-				Subnets: func() []types.ReferenceResource {
-					var refs []types.ReferenceResource
-					for _, s := range subnetURIs {
-						refs = append(refs, types.ReferenceResource{URI: s})
-					}
-					return refs
-				}(),
-				SecurityGroups: func() []types.ReferenceResource {
-					var refs []types.ReferenceResource
-					for _, sg := range securityGroupURIs {
-						refs = append(refs, types.ReferenceResource{URI: sg})
-					}
-					return refs
-				}(),
-			},
+		cs := aruba.NewCloudServer().
+			IntoProject(projectRef(projectID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			InZone(aruba.Zone(zone)).
+			OfFlavor(aruba.CloudServerFlavor(flavor)).
+			WithBootVolume(aruba.URI(bootDiskURI)).
+			WithVPC(aruba.URI(vpcURI))
+		if len(tags) > 0 {
+			cs.ReplaceTags(tags...)
 		}
-
-		// Optionally set Elastic IP
-		if elasticIPURI != "" {
-			createRequest.Properties.ElasticIP = &types.ReferenceResource{URI: elasticIPURI}
+		for _, s := range subnetURIs {
+			cs.AddSubnet(aruba.URI(s))
 		}
-
+		for _, sg := range securityGroupURIs {
+			cs.AddSecurityGroup(aruba.URI(sg))
+		}
 		if keypairURI != "" {
-			createRequest.Properties.KeyPair = &types.ReferenceResource{
-				URI: keypairURI,
-			}
+			cs.WithKeyPair(aruba.URI(keypairURI))
 		}
-
-		// Handle userData file if provided
+		if elasticIPURI != "" {
+			cs.WithElasticIP(aruba.URI(elasticIPURI))
+		}
+		if billingPeriod != "" {
+			cs.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+		}
 		if userDataFile != "" {
 			fileContent, err := os.ReadFile(userDataFile)
 			if err != nil {
 				return fmt.Errorf("reading user-data file: %w", err)
 			}
-			// Encode file content to base64
-			userDataBase64 := base64.StdEncoding.EncodeToString(fileContent)
-			createRequest.Properties.UserData = &userDataBase64
+			cs.WithUserData(base64.StdEncoding.EncodeToString(fileContent))
 		}
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromCompute().CloudServers().Create(ctx, projectID, createRequest, nil)
+		created, err := client.FromCompute().CloudServers().Create(ctx, cs)
 		if err != nil {
-			return fmt.Errorf("creating cloud server: %w", err)
+			return fmt.Errorf("creating cloud server: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		r := created.Raw()
+		if r != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -268,31 +235,31 @@ Billing period: Hour (default), Month, or Year.`,
 				{Header: "HD(GB)", Width: 15},
 				{Header: "REGION", Width: 20},
 			}
-			var id, name string
-			if response.Data.Metadata.ID != nil {
-				id = *response.Data.Metadata.ID
+			var id, csName string
+			if r.Metadata.ID != nil {
+				id = *r.Metadata.ID
 			}
-			if response.Data.Metadata.Name != nil {
-				name = *response.Data.Metadata.Name
+			if r.Metadata.Name != nil {
+				csName = *r.Metadata.Name
 			}
-			flavorName := response.Data.Properties.Flavor.Name
-			cpu := response.Data.Properties.Flavor.CPU
-			ram := response.Data.Properties.Flavor.RAM
-			hd := response.Data.Properties.Flavor.HD
+			flavorName := string(r.Properties.Flavor.Name)
+			cpu := r.Properties.Flavor.CPU
+			ram := r.Properties.Flavor.RAM
+			hd := r.Properties.Flavor.HD
 			regionValue := ""
-			if response.Data.Metadata.LocationResponse != nil {
-				regionValue = response.Data.Metadata.LocationResponse.Value
+			if r.Metadata.LocationResponse != nil {
+				regionValue = string(r.Metadata.LocationResponse.Value)
 			}
 			row := []string{
 				id,
-				name,
+				csName,
 				flavorName,
 				fmt.Sprintf("%d", cpu),
 				fmt.Sprintf("%d", ram),
 				fmt.Sprintf("%d", hd),
 				regionValue,
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(r, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Cloud server", name))
 		}
@@ -319,67 +286,60 @@ var cloudserverGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromCompute().CloudServers().Get(ctx, projectID, serverID, nil)
+		got, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", err)
+			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil {
-			server := resp.Data
-
+		r := got.Raw()
+		if r != nil {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(server, nil, nil)
+				PrintOutput(r, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nCloud Server Details:")
 			fmt.Println("====================")
 
-			if server.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *server.Metadata.ID)
+			if r.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *r.Metadata.ID)
 			}
-			if server.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *server.Metadata.Name)
+			if r.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *r.Metadata.Name)
 			}
-			if server.Metadata.LocationResponse != nil && server.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", server.Metadata.LocationResponse.Value)
-			}
-
-			// Flavor is a direct struct, not a pointer
-			if server.Properties.Flavor.Name != "" {
-				fmt.Printf("Flavor:          %s\n", server.Properties.Flavor.Name)
-			}
-			fmt.Printf("CPU:             %d\n", server.Properties.Flavor.CPU)
-			fmt.Printf("RAM:             %d GB\n", server.Properties.Flavor.RAM)
-			fmt.Printf("HD:              %d GB\n", server.Properties.Flavor.HD)
-
-			if server.Properties.BootVolume.URI != "" {
-				fmt.Printf("Boot Volume URI: %s\n", server.Properties.BootVolume.URI)
+			if r.Metadata.LocationResponse != nil && r.Metadata.LocationResponse.Value != "" {
+				fmt.Printf("Region:          %s\n", r.Metadata.LocationResponse.Value)
 			}
 
-			if server.Properties.KeyPair.URI != "" {
-				fmt.Printf("Keypair URI:     %s\n", server.Properties.KeyPair.URI)
+			if r.Properties.Flavor.Name != "" {
+				fmt.Printf("Flavor:          %s\n", r.Properties.Flavor.Name)
+			}
+			fmt.Printf("CPU:             %d\n", r.Properties.Flavor.CPU)
+			fmt.Printf("RAM:             %d GB\n", r.Properties.Flavor.RAM)
+			fmt.Printf("HD:              %d GB\n", r.Properties.Flavor.HD)
+
+			if r.Properties.BootVolume.URI != "" {
+				fmt.Printf("Boot Volume URI: %s\n", r.Properties.BootVolume.URI)
 			}
 
-			if server.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *server.Status.State)
+			if r.Properties.KeyPair.URI != "" {
+				fmt.Printf("Keypair URI:     %s\n", r.Properties.KeyPair.URI)
 			}
 
-			if len(server.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", server.Metadata.Tags)
+			if r.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *r.Status.State)
+			}
+
+			if len(r.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", r.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
 
-			// Show JSON output if verbose
 			verbose, _ := cmd.Flags().GetBool("verbose")
 			if verbose {
-				jsonData, _ := json.MarshalIndent(server, "", "  ")
+				jsonData, _ := json.MarshalIndent(r, "", "  ")
 				fmt.Println("\nFull JSON Response:")
 				fmt.Println("==================")
 				fmt.Println(string(jsonData))
@@ -401,7 +361,7 @@ var cloudserverUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -417,78 +377,48 @@ var cloudserverUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResponse, err := client.FromCompute().CloudServers().Get(ctx, projectID, serverID, nil)
+		cur, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server details: %w", err)
+			return fmt.Errorf("fetching current cloud server: %w", apiErrFromV2(err))
 		}
 
-		if getResponse == nil || getResponse.Data == nil {
-			return fmt.Errorf("cloud server not found")
-		}
-
-		current := getResponse.Data
-
-		// Get region value
-		var regionValue string
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
-		}
-		if regionValue == "" {
-			return fmt.Errorf("unable to determine region value for cloud server")
-		}
-
-		// Build the update request, preserving existing values
-		flavorName := current.Properties.Flavor.Name
-
-		var currentName string
-		if current.Metadata.Name != nil {
-			currentName = *current.Metadata.Name
-		}
-
-		updateRequest := types.CloudServerRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: currentName,
-					Tags: current.Metadata.Tags,
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.CloudServerPropertiesRequest{
-				FlavorName: &flavorName,
-				BootVolume: current.Properties.BootVolume,
-			},
-		}
-
-		if current.Properties.KeyPair.URI != "" {
-			updateRequest.Properties.KeyPair = &current.Properties.KeyPair
-		}
-
-		// Apply updates
 		if name != "" {
-			updateRequest.Metadata.Name = name
+			cur.Named(name)
 		}
-		if len(tags) > 0 {
-			updateRequest.Metadata.Tags = tags
-		}
-
-		response, err := client.FromCompute().CloudServers().Update(ctx, projectID, serverID, updateRequest, nil)
-		if err != nil {
-			return fmt.Errorf("updating cloud server: %w", err)
+		if cmd.Flags().Changed("tags") {
+			cur.ReplaceTags(tags...)
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
-			fmt.Printf("\n%s\n", msgUpdated("Cloud server", serverID))
-			if response.Data.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *response.Data.Metadata.Name)
+		// The GET response returns subnets via NetworkInterfaces[].Subnet and
+		// security groups via LinkedResources[], not in the request-side arrays.
+		// Re-inject them so the PUT body doesn't appear to strip them.
+		if raw := cur.Raw(); raw != nil {
+			for _, ni := range raw.Properties.NetworkInterfaces {
+				if ni.Subnet != nil && *ni.Subnet != "" {
+					cur.AddSubnet(aruba.URI(*ni.Subnet))
+				}
 			}
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", response.Data.Metadata.Tags)
+			for _, lr := range raw.Properties.LinkedResources {
+				if strings.Contains(strings.ToLower(lr.URI), "securitygroup") ||
+					strings.Contains(strings.ToLower(lr.URI), "security-group") {
+					cur.AddSecurityGroup(aruba.URI(lr.URI))
+				}
+			}
+		}
+
+		updated, err := client.FromCompute().CloudServers().Update(ctx, cur)
+		if err != nil {
+			return fmt.Errorf("updating cloud server: %w", apiErrFromV2(err))
+		}
+
+		r := updated.Raw()
+		if r != nil {
+			fmt.Printf("\n%s\n", msgUpdated("Cloud server", serverID))
+			if r.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *r.Metadata.Name)
+			}
+			if len(r.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", r.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("Cloud server", serverID))
@@ -504,7 +434,6 @@ var cloudserverDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		serverID := args[0]
 
-		// Confirmation prompt
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
 		if !skipConfirm {
 			ok, err := confirmDelete("cloud server", serverID)
@@ -531,21 +460,16 @@ var cloudserverDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromCompute().CloudServers().Get(ctx, projectID, serverID, nil)
+			_, err = client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 			if err != nil {
-				return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", err)
+				return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("cloud server", serverID))
 			return nil
 		}
 
-		response, err := client.FromCompute().CloudServers().Delete(ctx, projectID, serverID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting cloud server: %w", err)
-		}
-
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+		if err := client.FromCompute().CloudServers().Delete(ctx, cloudServerRef(projectID, serverID)); err != nil {
+			return fmt.Errorf("deleting cloud server: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Cloud server", serverID))
@@ -570,15 +494,12 @@ var cloudserverListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromCompute().CloudServers().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromCompute().CloudServers().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing cloud servers: %w", err)
-		}
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+			return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 25},
 				{Header: "ID", Width: 30},
@@ -588,30 +509,16 @@ var cloudserverListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, server := range response.Data.Values {
-				if server.Metadata.ID == nil || *server.Metadata.ID == "" {
+			for _, cs := range list.Items() {
+				if cs.ID() == "" {
 					continue
 				}
-				id := *server.Metadata.ID
-				var name string
-				if server.Metadata.Name != nil {
-					name = *server.Metadata.Name
-				}
-				var location string
-				if server.Metadata.LocationResponse != nil {
-					location = server.Metadata.LocationResponse.Value
-				}
-				flavor := server.Properties.Flavor.Name
-				status := ""
-				if server.Status.State != nil {
-					status = *server.Status.State
-				}
 				rows = append(rows, []string{
-					name,
-					id,
-					location,
-					flavor,
-					status,
+					cs.Name(),
+					cs.ID(),
+					string(cs.Region()),
+					string(cs.Flavor()),
+					cs.State(),
 				})
 			}
 
@@ -619,7 +526,7 @@ var cloudserverListCmd = &cobra.Command{
 				fmt.Println("No cloud servers found")
 				return nil
 			}
-			PrintOutput(response.Data, headers, rows)
+			PrintOutput(csListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No cloud servers found")
 		}
@@ -646,22 +553,22 @@ var cloudserverPowerOnCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromCompute().CloudServers().PowerOn(ctx, projectID, serverID, nil)
+		cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("powering on cloud server: %w", err)
+			return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+		if err := cs.PowerOn(ctx); err != nil {
+			return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil {
+		if cs.Raw() != nil {
 			fmt.Println(msgAction("Cloud server", serverID, "powered on"))
-			if response.Data.Metadata.Name != nil {
-				fmt.Printf("Server: %s\n", *response.Data.Metadata.Name)
+			if cs.Raw().Metadata.Name != nil {
+				fmt.Printf("Server: %s\n", *cs.Raw().Metadata.Name)
 			}
-			if response.Data.Status.State != nil {
-				fmt.Printf("Status: %s\n", *response.Data.Status.State)
+			if cs.Raw().Status.State != nil {
+				fmt.Printf("Status: %s\n", *cs.Raw().Status.State)
 			}
 		} else {
 			fmt.Println(msgAction("Cloud server", serverID, "power-on initiated"))
@@ -689,22 +596,22 @@ var cloudserverPowerOffCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromCompute().CloudServers().PowerOff(ctx, projectID, serverID, nil)
+		cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("powering off cloud server: %w", err)
+			return fmt.Errorf("powering off cloud server: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+		if err := cs.PowerOff(ctx); err != nil {
+			return fmt.Errorf("powering off cloud server: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil {
+		if cs.Raw() != nil {
 			fmt.Println(msgAction("Cloud server", serverID, "powered off"))
-			if response.Data.Metadata.Name != nil {
-				fmt.Printf("Server: %s\n", *response.Data.Metadata.Name)
+			if cs.Raw().Metadata.Name != nil {
+				fmt.Printf("Server: %s\n", *cs.Raw().Metadata.Name)
 			}
-			if response.Data.Status.State != nil {
-				fmt.Printf("Status: %s\n", *response.Data.Status.State)
+			if cs.Raw().Status.State != nil {
+				fmt.Printf("Status: %s\n", *cs.Raw().Status.State)
 			}
 		} else {
 			fmt.Println(msgAction("Cloud server", serverID, "power-off initiated"))
@@ -737,35 +644,25 @@ var cloudserverSetPasswordCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		passwordRequest := types.CloudServerPasswordRequest{
-			Password: password,
-		}
-
-		response, err := client.FromCompute().CloudServers().SetPassword(ctx, projectID, serverID, passwordRequest, nil)
+		cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("setting password for cloud server: %w", err)
+			return fmt.Errorf("setting cloud server password: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
+		// SetPassword does not re-hydrate cs; name/state are from the prior Get.
+		if err := cs.SetPassword(ctx, password); err != nil {
+			return fmt.Errorf("setting cloud server password: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.Data != nil {
-			// Try to cast to CloudServerResponse to get detailed info
-			// response.Data is *any, so we need to dereference and assert
-			if data, ok := (*response.Data).(*types.CloudServerResponse); ok && data != nil {
-				fmt.Println(msgAction("Cloud server", serverID, "password set"))
-				if data.Metadata.Name != nil {
-					fmt.Printf("Server: %s\n", *data.Metadata.Name)
-				}
-				if data.Status.State != nil {
-					fmt.Printf("Status: %s\n", *data.Status.State)
-				}
-			} else {
-				fmt.Println(msgAction("Cloud server", serverID, "password set"))
+		fmt.Println(msgAction("Cloud server", serverID, "password set"))
+		r := cs.Raw()
+		if r != nil {
+			if r.Metadata.Name != nil {
+				fmt.Printf("Server: %s\n", *r.Metadata.Name)
 			}
-		} else {
-			fmt.Println(msgAction("Cloud server", serverID, "password set"))
+			if r.Status.State != nil {
+				fmt.Printf("Status: %s\n", *r.Status.State)
+			}
 		}
 		return nil
 	},
@@ -802,26 +699,19 @@ var cloudserverConnectCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		// First, get the cloud server details
-		serverResp, err := client.FromCompute().CloudServers().Get(ctx, projectID, serverID, nil)
+		cs, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(projectID, serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", err)
+			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 		}
 
-		if serverResp != nil && serverResp.IsError() {
-			return apiErrFromResp(serverResp.StatusCode, serverResp.Error)
-		}
-
-		if serverResp == nil || serverResp.Data == nil {
+		r := cs.Raw()
+		if r == nil {
 			fmt.Println("Cloud server not found or no data returned.")
 			return nil
 		}
 
-		server := serverResp.Data
-
-		// Check for ElasticIP in linked resources
 		var elasticIPURI string
-		for _, linkedResource := range server.Properties.LinkedResources {
+		for _, linkedResource := range r.Properties.LinkedResources {
 			if strings.Contains(linkedResource.URI, "providers/Aruba.Network/elasticIps") {
 				elasticIPURI = linkedResource.URI
 				break
@@ -834,35 +724,18 @@ var cloudserverConnectCmd = &cobra.Command{
 			return nil
 		}
 
-		// Extract ElasticIP ID from URI
-		elasticIPID := extractIDFromURI(elasticIPURI)
-		if elasticIPID == "" {
-			return fmt.Errorf("could not extract Elastic IP ID from URI: %s", elasticIPURI)
-		}
-
-		// Get ElasticIP details
-		eipResp, err := client.FromNetwork().ElasticIPs().Get(ctx, projectID, elasticIPID, nil)
+		eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.URI(elasticIPURI))
 		if err != nil {
-			return fmt.Errorf("getting Elastic IP details: %w", err)
+			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
 
-		if eipResp != nil && eipResp.IsError() {
-			return apiErrFromResp(eipResp.StatusCode, eipResp.Error)
-		}
-
-		if eipResp == nil || eipResp.Data == nil {
-			fmt.Println("Elastic IP not found or no data returned.")
-			return nil
-		}
-
-		eip := eipResp.Data
-		if eip.Properties.Address == nil || *eip.Properties.Address == "" {
+		addr := eip.Address()
+		if addr == "" {
 			fmt.Println("Elastic IP address not available.")
 			return nil
 		}
 
-		// Print SSH connection command
-		fmt.Printf("Connect by running: ssh %s@%s\n", user, *eip.Properties.Address)
+		fmt.Printf("Connect by running: ssh %s@%s\n", user, addr)
 		return nil
 	},
 }

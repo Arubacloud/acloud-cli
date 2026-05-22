@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,25 +11,23 @@ import (
 func TestSecurityRuleListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupRulesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
+			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleList], error) {
-					return &types.Response[types.SecurityRuleList]{
-						StatusCode: 200,
-						Data: &types.SecurityRuleList{
-							Values: []types.SecurityRuleResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					jsonResponse(200, types.SecurityRuleList{
+						Values: []types.SecurityRuleResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rule-001") {
@@ -41,26 +37,23 @@ func TestSecurityRuleListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleList], error) {
-					return &types.Response[types.SecurityRuleList]{StatusCode: 200, Data: &types.SecurityRuleList{}}, nil
-				}
+			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					jsonResponse(200, types.SecurityRuleList{}))
 			},
 		},
 		{
-			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
+			name: "--output json emits valid JSON",
+			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleList], error) {
-					return &types.Response[types.SecurityRuleList]{
-						StatusCode: 200,
-						Data: &types.SecurityRuleList{
-							Values: []types.SecurityRuleResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					jsonResponse(200, types.SecurityRuleList{
+						Values: []types.SecurityRuleResponse{
+							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
-					}, nil
-				}
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -70,24 +63,21 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.listFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleList], error) {
-					return &types.Response[types.SecurityRuleList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -95,15 +85,11 @@ func TestSecurityRuleListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupRulesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupRules: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -115,21 +101,21 @@ func TestSecurityRuleListCmd(t *testing.T) {
 func TestSecurityRuleGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupRulesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
+			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return &types.Response[types.SecurityRuleResponse]{
-						StatusCode: 200,
-						Data:       &types.SecurityRuleResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rule-001") {
@@ -138,24 +124,21 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.getFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return &types.Response[types.SecurityRuleResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -163,12 +146,11 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupRulesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupRules: m})),
-				[]string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -186,12 +168,12 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 		"--direction", "Ingress",
 		"--protocol", "TCP",
 		"--target-kind", "Ip",
-		"--target-value", "0.0.0.0/0",
+		"--target-value", "10.0.0.0/8",
 	}
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockSecurityGroupRulesClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -199,14 +181,12 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: baseArgs,
-			setupMock: func(m *mockSecurityGroupRulesClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-new", "my-rule"
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.SecurityRuleRequest, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return &types.Response[types.SecurityRuleResponse]{
-						StatusCode: 200,
-						Data:       &types.SecurityRuleResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rule-new") {
@@ -227,26 +207,27 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 			errContains: "direction",
 		},
 		{
-			name: "SDK error propagates",
+			name:        "missing required flag --protocol",
+			args:        removeFlag(baseArgs, "--protocol", "TCP"),
+			wantErr:     true,
+			errContains: "protocol",
+		},
+		{
+			name: "server error propagates",
 			args: baseArgs,
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.SecurityRuleRequest, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return nil, fmt.Errorf("validation error")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
-			name: "API error propagates",
+			name: "API 404 propagates",
 			args: baseArgs,
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.createFn = func(_ context.Context, _, _, _ string, _ types.SecurityRuleRequest, _ *types.RequestParameters) (*types.Response[types.SecurityRuleResponse], error) {
-					return &types.Response[types.SecurityRuleResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -254,11 +235,128 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupRulesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupRules: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestSecurityRuleUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rule-001", "my-rule"
+				region := types.Region("IT-BG")
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{
+							ID:               &id,
+							Name:             &name,
+							LocationResponse: &types.LocationResponse{Value: region},
+						},
+						Status: types.ResourceStatus{State: strPtr("Active")},
+					}))
+				updID, updName := "rule-001", "new-name"
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
+					}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rule-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no fields provided returns error",
+			args:        []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
+			setupSrv:    nil,
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "server error on update propagates",
+			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rule-001", "my-rule"
+				region := types.Region("IT-BG")
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{
+							ID:               &id,
+							Name:             &name,
+							LocationResponse: &types.LocationResponse{Value: region},
+						},
+						Status: types.ResourceStatus{State: strPtr("Active")},
+					}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+		{
+			name: "API 404 on get propagates",
+			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update falls back to VPC region when rule has no region",
+			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rule-001", "my-rule"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+						Status:   types.ResourceStatus{State: strPtr("Active")},
+					}))
+				vpcID, vpcName := "vpc-001", "my-vpc"
+				region := types.Region("IT-BG")
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
+					jsonResponse(200, types.VPCResponse{
+						Metadata: types.ResourceMetadataResponse{
+							ID:               &vpcID,
+							Name:             &vpcName,
+							LocationResponse: &types.LocationResponse{Value: region},
+						},
+					}))
+				updID, updName := "rule-001", "new-name"
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
+					}))
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -270,17 +368,18 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 func TestSecurityRuleDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockSecurityGroupRulesClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rule-001") {
@@ -289,12 +388,14 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			name: "--dry-run registers only GET",
+			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes", "--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rule-001", "my-rule"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					jsonResponse(200, types.SecurityRuleResponse{
+						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rule-001") {
@@ -303,24 +404,21 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockSecurityGroupRulesClient) {
-				m.deleteFn = func(_ context.Context, _, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "API 404 propagates",
+			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -328,15 +426,11 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockSecurityGroupRulesClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
-			}
-			out, err := runCmdCapture(newMockClient(withNetworkMock(&mockNetworkClient{securityGroupRules: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

@@ -4,10 +4,25 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+func jobRef(projectID, jobID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
+}
+
+func jobFromRaw(j *aruba.Job) *types.JobResponse { return j.Raw() }
+
+func jobListPayload(l *aruba.List[*aruba.Job]) any {
+	if r, ok := l.Raw().(*types.Response[types.JobList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
 
 func init() {
 	// Job commands
@@ -28,6 +43,10 @@ func init() {
 	jobCreateCmd.Flags().String("execute-until", "", "End date until which the job can run (required for Recurring)")
 	jobCreateCmd.Flags().Bool("enabled", true, "Enable the job (default: true)")
 	jobCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	jobCreateCmd.Flags().String("step-resource-uri", "", "Resource URI targeted by the step (required by the API)")
+	jobCreateCmd.Flags().String("step-action-uri", "", "Action URI to invoke on the resource (e.g. poweroff, start)")
+	jobCreateCmd.Flags().String("step-http-verb", "POST", "HTTP verb for the step action")
+	jobCreateCmd.Flags().String("step-name", "", "Optional display name for the step")
 	jobCreateCmd.MarkFlagRequired("name")
 	jobCreateCmd.MarkFlagRequired("region")
 	jobCreateCmd.MarkFlagRequired("job-type")
@@ -66,19 +85,17 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	}
 
 	ctx := context.Background()
-	response, err := client.FromSchedule().Jobs().List(ctx, projectID, nil)
+	list, err := client.FromSchedule().Jobs().List(ctx, projectRef(projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
-	if response != nil && response.Data != nil {
-		for _, job := range response.Data.Values {
-			if job.Metadata.ID != nil && job.Metadata.Name != nil {
-				id := *job.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *job.Metadata.Name))
-				}
+	if list != nil {
+		for _, j := range list.Items() {
+			id := j.JobID()
+			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, j.Name()))
 			}
 		}
 	}
@@ -104,13 +121,17 @@ Job types:
 
 For Recurring jobs, use --execute-until (RFC3339) to set an end date.
 The job is enabled by default; pass --enabled=false to create it disabled.`,
-	Example: `  # One-time job
-  acloud schedule job create --name my-job --region IT-BG \
-    --job-type OneShot --schedule-at 2026-06-01T10:00:00Z
+	Example: `  # One-time job (power off a cloud server)
+  acloud schedule job create --name my-job --region ITBG-Bergamo \
+    --job-type OneShot --schedule-at 2026-06-01T10:00:00Z \
+    --step-resource-uri /projects/<pid>/providers/Aruba.Compute/cloudServers/<id> \
+    --step-action-uri poweroff
 
   # Recurring job (every day at midnight)
-  acloud schedule job create --name daily-job --region IT-BG \
-    --job-type Recurring --cron "0 0 * * *"`,
+  acloud schedule job create --name daily-job --region ITBG-Bergamo \
+    --job-type Recurring --cron "0 0 * * *" --execute-until 2027-01-01T00:00:00Z \
+    --step-resource-uri /projects/<pid>/providers/Aruba.Compute/cloudServers/<id> \
+    --step-action-uri poweroff`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -126,17 +147,17 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 		executeUntil, _ := cmd.Flags().GetString("execute-until")
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		stepResourceURI, _ := cmd.Flags().GetString("step-resource-uri")
+		stepActionURI, _ := cmd.Flags().GetString("step-action-uri")
+		stepHTTPVerb, _ := cmd.Flags().GetString("step-http-verb")
+		stepName, _ := cmd.Flags().GetString("step-name")
 
-		// Validate job type
 		if jobType != "OneShot" && jobType != "Recurring" {
 			return fmt.Errorf("--job-type must be either 'OneShot' or 'Recurring'")
 		}
-
-		// Validate required fields based on job type
 		if jobType == "OneShot" && scheduleAt == "" {
 			return fmt.Errorf("--schedule-at is required for OneShot jobs")
 		}
-
 		if jobType == "Recurring" {
 			if cron == "" {
 				return fmt.Errorf("--cron is required for Recurring jobs")
@@ -151,43 +172,53 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		properties := types.JobPropertiesRequest{
-			Enabled: enabled,
-			JobType: types.TypeJob(jobType),
+		j := aruba.NewJob().
+			IntoProject(projectRef(projectID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			WithEnabled(enabled)
+		if len(tags) > 0 {
+			j.ReplaceTags(tags...)
 		}
 
 		if jobType == "OneShot" {
-			properties.ScheduleAt = &scheduleAt
+			t, err := time.Parse(time.RFC3339, scheduleAt)
+			if err != nil {
+				return fmt.Errorf("parsing --schedule-at: %w", err)
+			}
+			j.OneShotAt(t)
 		} else {
-			properties.Cron = &cron
-			properties.ExecuteUntil = &executeUntil
+			j.WithCron(cron)
+			t, err := time.Parse(time.RFC3339, executeUntil)
+			if err != nil {
+				return fmt.Errorf("parsing --execute-until: %w", err)
+			}
+			j.RecurringUntil(t)
 		}
 
-		createRequest := types.JobRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: name,
-					Tags: tags,
-				},
-				Location: types.LocationRequest{
-					Value: region,
-				},
-			},
-			Properties: properties,
+		if stepResourceURI != "" {
+			step := aruba.NewJobStep().
+				OfResource(aruba.URI(stepResourceURI)).
+				WithAction(stepActionURI).
+				WithVerb(aruba.HTTPVerb(stepHTTPVerb))
+			if stepName != "" {
+				step.Named(stepName)
+			}
+			j.AddStep(step)
+		}
+
+		if err := j.Err(); err != nil {
+			return fmt.Errorf("building job: %w", err)
 		}
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		response, err := client.FromSchedule().Jobs().Create(ctx, projectID, createRequest, nil)
+		created, err := client.FromSchedule().Jobs().Create(ctx, j)
 		if err != nil {
-			return fmt.Errorf("creating job: %w", err)
+			return fmt.Errorf("creating job: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
+		if created.Raw() != nil {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -196,38 +227,18 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 				{Header: "REGION", Width: 20},
 			}
 			row := []string{
+				created.JobID(),
+				created.Name(),
+				string(created.JobType()),
 				func() string {
-					if response.Data.Metadata.ID != nil {
-						return *response.Data.Metadata.ID
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Metadata.Name != nil {
-						return *response.Data.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Properties.JobType != "" {
-						return string(response.Data.Properties.JobType)
-					}
-					return ""
-				}(),
-				func() string {
-					if response.Data.Properties.Enabled {
+					if created.Enabled() {
 						return "Yes"
 					}
 					return "No"
 				}(),
-				func() string {
-					if response.Data.Metadata.LocationResponse != nil {
-						return response.Data.Metadata.LocationResponse.Value
-					}
-					return ""
-				}(),
+				string(created.Region()),
 			}
-			PrintOutput(response.Data, headers, [][]string{row})
+			PrintOutput(jobFromRaw(created), headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Job", name))
 		}
@@ -254,70 +265,59 @@ var jobGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromSchedule().Jobs().Get(ctx, projectID, jobID, nil)
+		got, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
 		if err != nil {
-			return fmt.Errorf("getting job: %w", err)
+			return fmt.Errorf("getting job: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(jobFromRaw(got), nil, nil)
+			return nil
 		}
 
-		if resp != nil && resp.Data != nil {
-			job := resp.Data
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(job, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nJob Details:")
-			fmt.Println("============")
-
-			if job.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *job.Metadata.ID)
-			}
-			if job.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *job.Metadata.URI)
-			}
-			if job.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *job.Metadata.Name)
-			}
-			if job.Metadata.LocationResponse != nil {
-				if job.Metadata.LocationResponse != nil {
-					fmt.Printf("Region:          %s\n", job.Metadata.LocationResponse.Value)
-				}
-			}
-			fmt.Printf("Job Type:        %s\n", job.Properties.JobType)
-			fmt.Printf("Enabled:         %t\n", job.Properties.Enabled)
-			if job.Properties.ScheduleAt != nil {
-				fmt.Printf("Schedule At:     %s\n", *job.Properties.ScheduleAt)
-			}
-			if job.Properties.Cron != nil {
-				fmt.Printf("CRON:            %s\n", *job.Properties.Cron)
-			}
-			if job.Properties.ExecuteUntil != nil {
-				fmt.Printf("Execute Until:   %s\n", *job.Properties.ExecuteUntil)
-			}
-			if job.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *job.Status.State)
-			}
-			if job.Metadata.CreationDate != nil && !job.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", job.Metadata.CreationDate.Format(DateLayout))
-			}
-			if job.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *job.Metadata.CreatedBy)
-			}
-			if len(job.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", job.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			fmt.Println()
-		} else {
+		raw := got.Raw()
+		if raw == nil {
 			fmt.Println("Job not found")
+			return nil
 		}
+
+		fmt.Println("\nJob Details:")
+		fmt.Println("============")
+		fmt.Printf("ID:              %s\n", got.JobID())
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+		}
+		fmt.Printf("Name:            %s\n", got.Name())
+		if raw.Metadata.LocationResponse != nil {
+			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+		}
+		fmt.Printf("Job Type:        %s\n", string(got.JobType()))
+		fmt.Printf("Enabled:         %t\n", got.Enabled())
+		if raw.Properties.ScheduleAt != nil {
+			fmt.Printf("Schedule At:     %s\n", *raw.Properties.ScheduleAt)
+		}
+		if raw.Properties.Cron != nil {
+			fmt.Printf("CRON:            %s\n", *raw.Properties.Cron)
+		}
+		if raw.Properties.ExecuteUntil != nil {
+			fmt.Printf("Execute Until:   %s\n", *raw.Properties.ExecuteUntil)
+		}
+		if state := got.State(); state != "" {
+			fmt.Printf("Status:          %s\n", state)
+		}
+		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		fmt.Println()
 		return nil
 	},
 }
@@ -339,16 +339,12 @@ var jobListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		resp, err := client.FromSchedule().Jobs().List(ctx, projectID, listParams(cmd))
+		list, err := client.FromSchedule().Jobs().List(ctx, projectRef(projectID), listOpts(cmd)...)
 		if err != nil {
-			return fmt.Errorf("listing jobs: %w", err)
+			return fmt.Errorf("listing jobs: %w", apiErrFromV2(err))
 		}
 
-		if resp != nil && resp.IsError() {
-			return apiErrFromResp(resp.StatusCode, resp.Error)
-		}
-
-		if resp != nil && resp.Data != nil && len(resp.Data.Values) > 0 {
+		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 30},
@@ -359,48 +355,22 @@ var jobListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, job := range resp.Data.Values {
-				row := []string{
+			for _, j := range list.Items() {
+				rows = append(rows, []string{
+					j.Name(),
+					j.JobID(),
+					string(j.JobType()),
 					func() string {
-						if job.Metadata.Name != nil {
-							return *job.Metadata.Name
-						}
-						return ""
-					}(),
-					func() string {
-						if job.Metadata.ID != nil {
-							return *job.Metadata.ID
-						}
-						return ""
-					}(),
-					func() string {
-						if job.Properties.JobType != "" {
-							return string(job.Properties.JobType)
-						}
-						return ""
-					}(),
-					func() string {
-						if job.Properties.Enabled {
+						if j.Enabled() {
 							return "Yes"
 						}
 						return "No"
 					}(),
-					func() string {
-						if job.Metadata.LocationResponse != nil {
-							return job.Metadata.LocationResponse.Value
-						}
-						return ""
-					}(),
-					func() string {
-						if job.Status.State != nil {
-							return *job.Status.State
-						}
-						return ""
-					}(),
-				}
-				rows = append(rows, row)
+					string(j.Region()),
+					j.State(),
+				})
 			}
-			PrintOutput(resp.Data, headers, rows)
+			PrintOutput(jobListPayload(list), headers, rows)
 		} else {
 			fmt.Println("No jobs found")
 		}
@@ -436,76 +406,32 @@ var jobUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		getResp, err := client.FromSchedule().Jobs().Get(ctx, projectID, jobID, nil)
+		current, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
 		if err != nil {
-			return fmt.Errorf("getting job: %w", err)
-		}
-
-		if getResp == nil || getResp.Data == nil {
-			return fmt.Errorf("job not found")
-		}
-
-		current := getResp.Data
-
-		regionValue := ""
-		if current.Metadata.LocationResponse != nil {
-			regionValue = current.Metadata.LocationResponse.Value
-		}
-		if regionValue == "" {
-			return fmt.Errorf("unable to determine region value for job")
-		}
-
-		updateRequest := types.JobRequest{
-			Metadata: types.RegionalResourceMetadataRequest{
-				ResourceMetadataRequest: types.ResourceMetadataRequest{
-					Name: *current.Metadata.Name,
-					Tags: current.Metadata.Tags,
-				},
-				Location: types.LocationRequest{
-					Value: regionValue,
-				},
-			},
-			Properties: types.JobPropertiesRequest{
-				Enabled:      current.Properties.Enabled,
-				JobType:      current.Properties.JobType,
-				ScheduleAt:   current.Properties.ScheduleAt,
-				ExecuteUntil: current.Properties.ExecuteUntil,
-				Cron:         current.Properties.Cron,
-				// Steps are not included in update as they're read-only in response
-			},
+			return fmt.Errorf("getting job: %w", apiErrFromV2(err))
 		}
 
 		if name != "" {
-			updateRequest.Metadata.ResourceMetadataRequest.Name = name
+			current.Named(name)
 		}
-
 		if enabledSet {
-			updateRequest.Properties.Enabled = enabled
+			current.WithEnabled(enabled)
 		}
-
 		if cmd.Flags().Changed("tags") {
-			updateRequest.Metadata.ResourceMetadataRequest.Tags = tags
+			current.ReplaceTags(tags...)
 		}
 
-		response, err := client.FromSchedule().Jobs().Update(ctx, projectID, jobID, updateRequest, nil)
+		updated, err := client.FromSchedule().Jobs().Update(ctx, current)
 		if err != nil {
-			return fmt.Errorf("updating job: %w", err)
+			return fmt.Errorf("updating job: %w", apiErrFromV2(err))
 		}
 
-		if response != nil && response.IsError() {
-			return apiErrFromResp(response.StatusCode, response.Error)
-		}
-
-		if response != nil && response.Data != nil {
-			fmt.Printf("\n%s\n", msgUpdated("Job", jobID))
-			fmt.Printf("ID:              %s\n", *response.Data.Metadata.ID)
-			fmt.Printf("Name:            %s\n", *response.Data.Metadata.Name)
-			fmt.Printf("Enabled:         %t\n", response.Data.Properties.Enabled)
-			if len(response.Data.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", response.Data.Metadata.Tags)
-			}
-		} else {
-			fmt.Println(msgUpdatedAsync("Job", jobID))
+		fmt.Printf("\n%s\n", msgUpdated("Job", jobID))
+		fmt.Printf("ID:              %s\n", updated.JobID())
+		fmt.Printf("Name:            %s\n", updated.Name())
+		fmt.Printf("Enabled:         %t\n", updated.Enabled())
+		if raw := updated.Raw(); raw != nil && len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 		}
 		return nil
 	},
@@ -517,18 +443,6 @@ var jobDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		jobID := args[0]
-
-		confirm, _ := cmd.Flags().GetBool("yes")
-
-		if !confirm {
-			ok, err := confirmDelete("job", jobID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -545,22 +459,27 @@ var jobDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromSchedule().Jobs().Get(ctx, projectID, jobID, nil)
-			if err != nil {
-				return fmt.Errorf("dry-run: schedule job not found or inaccessible: %w", err)
+			if _, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID)); err != nil {
+				return fmt.Errorf("dry-run: schedule job not found or inaccessible: %w", apiErrFromV2(err))
 			}
 			fmt.Println(msgDryRun("schedule job", jobID))
 			return nil
 		}
 
-		deleteResp, err := client.FromSchedule().Jobs().Delete(ctx, projectID, jobID, nil)
-		if err != nil {
-			return fmt.Errorf("deleting job: %w", err)
-		}
-		if deleteResp != nil && deleteResp.IsError() {
-			return apiErrFromResp(deleteResp.StatusCode, deleteResp.Error)
+		skipConfirm, _ := cmd.Flags().GetBool("yes")
+		if !skipConfirm {
+			ok, err := confirmDelete("job", jobID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
 		}
 
+		if err := client.FromSchedule().Jobs().Delete(ctx, jobRef(projectID, jobID)); err != nil {
+			return fmt.Errorf("deleting job: %w", apiErrFromV2(err))
+		}
 		fmt.Println(msgDeleted("Job", jobID))
 		return nil
 	},

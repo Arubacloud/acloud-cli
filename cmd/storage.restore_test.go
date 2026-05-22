@@ -1,49 +1,25 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
-// storage restore create uses storageRestoreCmd directly (no separate "create" subcommand).
-// Invocation: storage restore [backup-id] [volume-id] --name <name> ...
-
-// newStorageRestoreCreateMock wires a mockStorageClient for the restore create
-// flow, which first fetches the backup and volume (to get their URIs) then calls
-// Restores().Create(). All three sub-clients must be set.
-func newStorageRestoreCreateMock(restoreFn func(context.Context, string, string, types.RestoreRequest, *types.RequestParameters) (*types.Response[types.RestoreResponse], error)) *mockStorageClient {
-	bkpURI := "/projects/proj-123/providers/Aruba.Storage/backups/bkp-001"
-	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
-	backups := &mockStorageBackupsClient{
-		getFn: func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.StorageBackupResponse], error) {
-			return &types.Response[types.StorageBackupResponse]{
-				StatusCode: 200,
-				Data:       &types.StorageBackupResponse{Metadata: types.ResourceMetadataResponse{URI: &bkpURI}},
-			}, nil
-		},
-	}
-	volumes := &mockVolumesClient{
-		getFn: func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.BlockStorageResponse], error) {
-			return &types.Response[types.BlockStorageResponse]{
-				StatusCode: 200,
-				Data:       &types.BlockStorageResponse{Metadata: types.ResourceMetadataResponse{URI: &volURI}},
-			}, nil
-		},
-	}
-	return &mockStorageClient{volumesMock: volumes, backupsMock: backups, restoresMock: &mockStorageRestoreClient{createFn: restoreFn}}
-}
+const (
+	restoreBkpURI = "/projects/proj-123/providers/Aruba.Storage/backups/bkp-001"
+	restoreVolURI = "/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001"
+)
 
 func TestStorageRestoreCreateCmd(t *testing.T) {
 	createArgs := []string{"storage", "restore", "bkp-001", "vol-001", "--project-id", "proj-123", "--name", "my-restore"}
+
 	tests := []struct {
 		name        string
 		args        []string
-		storageMock *mockStorageClient
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -51,13 +27,23 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: createArgs,
-			storageMock: newStorageRestoreCreateMock(func(_ context.Context, _, _ string, _ types.RestoreRequest, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-				id, rname := "rst-new", "my-restore"
-				return &types.Response[types.RestoreResponse]{
-					StatusCode: 200,
-					Data:       &types.RestoreResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
-				}, nil
-			}),
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-new", "my-restore"
+				bkpURI := restoreBkpURI
+				volURI := restoreVolURI
+				// Pre-validation: GET backup
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
+				}))
+				// Pre-validation: GET volume
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &volURI},
+				}))
+				// Create: POST restore (scoped to the backup)
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rst-new") {
 					t.Errorf("expected ID in output, got: %s", out)
@@ -71,34 +57,65 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 			errContains: "name",
 		},
 		{
-			name: "SDK error propagates",
+			name: "backup pre-validation error propagates",
 			args: createArgs,
-			storageMock: newStorageRestoreCreateMock(func(_ context.Context, _, _ string, _ types.RestoreRequest, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-				return nil, fmt.Errorf("quota exceeded")
-			}),
-			wantErr:     true,
-			errContains: "creating",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", errorResponse(404, "Not Found", "backup not found"))
+			},
+			wantErr: true, errContains: "getting backup",
+		},
+		{
+			name: "volume pre-validation error propagates",
+			args: createArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				bkpURI := restoreBkpURI
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
+				}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
+			},
+			wantErr: true, errContains: "getting volume",
 		},
 		{
 			name: "API error propagates",
 			args: createArgs,
-			storageMock: newStorageRestoreCreateMock(func(_ context.Context, _, _ string, _ types.RestoreRequest, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-				return &types.Response[types.RestoreResponse]{
-					StatusCode: 404,
-					Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-				}, nil
-			}),
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			setupSrv: func(srv *arubaTestServer) {
+				bkpURI := restoreBkpURI
+				volURI := restoreVolURI
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
+				}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &volURI},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr: true, errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "server error propagates",
+			args: createArgs,
+			setupSrv: func(srv *arubaTestServer) {
+				bkpURI := restoreBkpURI
+				volURI := restoreVolURI
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
+				}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+					Metadata: types.ResourceMetadataResponse{URI: &volURI},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr: true, errContains: "creating",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			sm := tc.storageMock
-			if sm == nil {
-				sm = &mockStorageClient{}
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withStorageMock(sm)), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -110,25 +127,22 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 func TestStorageRestoreListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockStorageRestoreClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockStorageRestoreClient) {
-				id, rname := "rst-001", "my-restore"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
-					return &types.Response[types.RestoreList]{
-						StatusCode: 200,
-						Data: &types.RestoreList{
-							Values: []types.RestoreResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
-							},
-						},
-					}, nil
-				}
+			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+					Values: []types.StorageRestoreResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rst-001") {
@@ -138,26 +152,21 @@ func TestStorageRestoreListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
-					return &types.Response[types.RestoreList]{StatusCode: 200, Data: &types.RestoreList{}}, nil
-				}
+			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{}))
 			},
 		},
 		{
 			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockStorageRestoreClient) {
-				id, rname := "rst-001", "my-restore"
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
-					return &types.Response[types.RestoreList]{
-						StatusCode: 200,
-						Data: &types.RestoreList{
-							Values: []types.RestoreResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
-							},
-						},
-					}, nil
-				}
+			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+					Values: []types.StorageRestoreResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -167,40 +176,29 @@ func TestStorageRestoreListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(500, "Internal Server Error", "boom"))
 			},
-			wantErr:     true,
-			errContains: "listing",
+			wantErr: true, errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.listFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreList], error) {
-					return &types.Response[types.RestoreList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(404, "Not Found", "resource not found"))
 			},
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockStorageRestoreClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -212,21 +210,18 @@ func TestStorageRestoreListCmd(t *testing.T) {
 func TestStorageRestoreGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockStorageRestoreClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockStorageRestoreClient) {
-				id, rname := "rst-001", "my-restore"
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-					return &types.Response[types.RestoreResponse]{
-						StatusCode: 200,
-						Data:       &types.RestoreResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &rname}},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rst-001") {
@@ -235,36 +230,27 @@ func TestStorageRestoreGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "API error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(404, "Not Found", "resource not found"))
 			},
-			wantErr:     true,
-			errContains: "getting",
+			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.getFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[types.RestoreResponse], error) {
-					return &types.Response[types.RestoreResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			wantErr: true, errContains: "getting",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockStorageRestoreClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})),
+			out, err := runCmdCapture(srv.Client(),
 				[]string{"storage", "restore", "get", "bkp-001", "rst-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
@@ -277,17 +263,16 @@ func TestStorageRestoreGetCmd(t *testing.T) {
 func TestStorageRestoreDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockStorageRestoreClient)
+		setupSrv    func(*arubaTestServer)
+		extraArgs   []string
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rst-001") {
@@ -296,12 +281,13 @@ func TestStorageRestoreDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			name:      "--dry-run: prints intent, does not call Delete",
+			extraArgs: []string{"--dry-run"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "rst-001") {
@@ -310,40 +296,100 @@ func TestStorageRestoreDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "API error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(404, "Not Found", "resource not found"))
 			},
-			wantErr:     true,
-			errContains: "deleting",
+			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
 		{
-			name: "API error propagates",
-			setupMock: func(m *mockStorageRestoreClient) {
-				m.deleteFn = func(_ context.Context, _, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
-			wantErr:     true,
-			errContains: "API error (status 404): Not Found",
+			wantErr: true, errContains: "deleting",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockStorageRestoreClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
 			args := []string{"storage", "restore", "delete", "bkp-001", "rst-001", "--project-id", "proj-123", "--yes"}
-			if tc.name == "--dry-run: prints intent, does not call Delete" {
-				args = append(args, "--dry-run")
+			args = append(args, tc.extraArgs...)
+			out, err := runCmdCapture(srv.Client(), args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
 			}
-			out, err := runCmdCapture(newMockClient(withStorageMock(&mockStorageClient{restoresMock: m})), args)
+		})
+	}
+}
+
+func TestStorageRestoreUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"storage", "restore", "update", "bkp-001", "rst-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "rst-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"storage", "restore", "update", "bkp-001", "rst-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"storage", "restore", "update", "bkp-001", "rst-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"storage", "restore", "update", "bkp-001", "rst-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "rst-001", "my-restore"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", jsonResponse(200, types.StorageRestoreResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores/rst-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

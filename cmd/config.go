@@ -170,24 +170,56 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(homeDir, ".acloud.yaml"), nil
 }
 
-// LoadConfig loads the configuration from the config file
+// LoadConfig loads the configuration from the config file, with env var overrides.
+// Env vars ACLOUD_CLIENT_ID, ACLOUD_CLIENT_SECRET, ACLOUD_BASE_URL, and
+// ACLOUD_TOKEN_ISSUER_URL take precedence over the config file when set.
+// If the config file is missing but credentials are supplied via env vars,
+// the file is not required and no error is returned.
 func LoadConfig() (*Config, error) {
 	configPath, err := GetConfigPath()
 	if err != nil {
 		return nil, err
 	}
 
+	config := &Config{}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, err
+		// File missing: only succeeds if env vars supply the credentials.
+		envID := os.Getenv("ACLOUD_CLIENT_ID")
+		envSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+		if envID == "" && envSecret == "" {
+			return nil, err
+		}
+		config.ClientID = envID
+		config.ClientSecret = envSecret
+		if v := os.Getenv("ACLOUD_BASE_URL"); v != "" {
+			config.BaseURL = v
+		}
+		if v := os.Getenv("ACLOUD_TOKEN_ISSUER_URL"); v != "" {
+			config.TokenIssuerURL = v
+		}
+		return config, nil
 	}
 
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("config file %s is corrupted (%w). Delete it and run 'acloud config set' to reconfigure", configPath, err)
+	if err2 := yaml.Unmarshal(data, config); err2 != nil {
+		return nil, fmt.Errorf("config file %s is corrupted (%w). Delete it and run 'acloud config set' to reconfigure", configPath, err2)
 	}
 
-	return &config, nil
+	// Env vars override file values — useful for CI/CD and e2e tests.
+	if v := os.Getenv("ACLOUD_CLIENT_ID"); v != "" {
+		config.ClientID = v
+	}
+	if v := os.Getenv("ACLOUD_CLIENT_SECRET"); v != "" {
+		config.ClientSecret = v
+	}
+	if v := os.Getenv("ACLOUD_BASE_URL"); v != "" {
+		config.BaseURL = v
+	}
+	if v := os.Getenv("ACLOUD_TOKEN_ISSUER_URL"); v != "" {
+		config.TokenIssuerURL = v
+	}
+
+	return config, nil
 }
 
 // SaveConfig saves the configuration to the config file

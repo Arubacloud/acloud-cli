@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -14,25 +12,22 @@ import (
 func TestCloudServerListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockCloudServersClient) {
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return &types.Response[types.CloudServerList]{
-						StatusCode: 200,
-						Data: &types.CloudServerList{
-							Values: []types.CloudServerResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+					Values: []types.CloudServerResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "cs-001") {
@@ -42,43 +37,34 @@ func TestCloudServerListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockCloudServersClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return &types.Response[types.CloudServerList]{StatusCode: 200, Data: &types.CloudServerList{}}, nil
-				}
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{}))
 			},
 		},
 		{
 			name: "skips entries with nil ID",
-			setupMock: func(m *mockCloudServersClient) {
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return &types.Response[types.CloudServerList]{
-						StatusCode: 200,
-						Data: &types.CloudServerList{
-							Values: []types.CloudServerResponse{
-								{Metadata: types.ResourceMetadataResponse{Name: &name}},
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+					Values: []types.CloudServerResponse{
+						{Metadata: types.ResourceMetadataResponse{Name: &name}},
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 		},
 		{
 			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockCloudServersClient) {
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return &types.Response[types.CloudServerList]{
-						StatusCode: 200,
-						Data: &types.CloudServerList{
-							Values: []types.CloudServerResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+					Values: []types.CloudServerResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -88,24 +74,19 @@ func TestCloudServerListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-					return &types.Response[types.CloudServerList]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -113,15 +94,11 @@ func TestCloudServerListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"compute", "cloudserver", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withCompute(m)), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -133,21 +110,18 @@ func TestCloudServerListCmd(t *testing.T) {
 func TestCloudServerGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockCloudServersClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 200,
-						Data:       &types.CloudServerResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "cs-001") {
@@ -156,24 +130,17 @@ func TestCloudServerGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -181,11 +148,11 @@ func TestCloudServerGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withCompute(m)), []string{"compute", "cloudserver", "get", "cs-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "get", "cs-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -210,7 +177,7 @@ func TestCloudServerCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -218,14 +185,11 @@ func TestCloudServerCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: baseArgs,
-			setupMock: func(m *mockCloudServersClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-new", "my-cs"
-				m.createFn = func(_ context.Context, _ string, _ types.CloudServerRequest, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 200,
-						Data:       &types.CloudServerResponse{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					}, nil
-				}
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "cs-new") {
@@ -246,12 +210,10 @@ func TestCloudServerCreateCmd(t *testing.T) {
 			errContains: "region",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: baseArgs,
-			setupMock: func(m *mockCloudServersClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.CloudServerRequest, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return nil, fmt.Errorf("quota exceeded")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -259,13 +221,8 @@ func TestCloudServerCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: baseArgs,
-			setupMock: func(m *mockCloudServersClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.CloudServerRequest, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -273,11 +230,82 @@ func TestCloudServerCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withCompute(m)), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestCloudServerUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"compute", "cloudserver", "update", "cs-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "cs-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing flags",
+			args:        []string{"compute", "cloudserver", "update", "cs-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-Get API error",
+			args: []string{"compute", "cloudserver", "update", "cs-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "Update server error",
+			args: []string{"compute", "cloudserver", "update", "cs-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -289,17 +317,15 @@ func TestCloudServerCreateCmd(t *testing.T) {
 func TestCloudServerDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockCloudServersClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "cs-001") {
@@ -309,11 +335,12 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockCloudServersClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				// Only register Get; an erroneous DELETE would trip the harness t.Errorf.
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "cs-001") {
@@ -322,24 +349,17 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("resource in use")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -347,15 +367,15 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
 			args := []string{"compute", "cloudserver", "delete", "cs-001", "--project-id", "proj-123", "--yes"}
 			if tc.name == "--dry-run: prints intent, does not call Delete" {
 				args = append(args, "--dry-run")
 			}
-			out, err := runCmdCapture(newMockClient(withCompute(m)), args)
+			out, err := runCmdCapture(srv.Client(), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -367,37 +387,42 @@ func TestCloudServerDeleteCmd(t *testing.T) {
 func TestCloudServerPowerOnCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOnFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{StatusCode: 200, Data: &types.CloudServerResponse{}}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweron", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOnFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return nil, fmt.Errorf("server busy")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweron", errorResponse(500, "Internal Server Error", "server busy"))
 			},
 			wantErr:     true,
 			errContains: "power",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOnFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweron", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -405,11 +430,11 @@ func TestCloudServerPowerOnCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			err := runCmd(newMockClient(withCompute(m)), []string{"compute", "cloudserver", "power-on", "cs-001", "--project-id", "proj-123"})
+			err := runCmd(srv.Client(), []string{"compute", "cloudserver", "power-on", "cs-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 		})
 	}
@@ -418,37 +443,42 @@ func TestCloudServerPowerOnCmd(t *testing.T) {
 func TestCloudServerPowerOffCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOffFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{StatusCode: 200, Data: &types.CloudServerResponse{}}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweroff", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOffFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return nil, fmt.Errorf("server busy")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweroff", errorResponse(500, "Internal Server Error", "server busy"))
 			},
 			wantErr:     true,
 			errContains: "power",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.powerOffFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.CloudServerResponse], error) {
-					return &types.Response[types.CloudServerResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweroff", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -456,11 +486,11 @@ func TestCloudServerPowerOffCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			err := runCmd(newMockClient(withCompute(m)), []string{"compute", "cloudserver", "power-off", "cs-001", "--project-id", "proj-123"})
+			err := runCmd(srv.Client(), []string{"compute", "cloudserver", "power-off", "cs-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 		})
 	}
@@ -469,37 +499,40 @@ func TestCloudServerPowerOffCmd(t *testing.T) {
 func TestCloudServerSetPasswordCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockCloudServersClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockCloudServersClient) {
-				m.setPasswordFn = func(_ context.Context, _, _ string, _ types.CloudServerPasswordRequest, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/password", jsonResponse(200, nil))
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.setPasswordFn = func(_ context.Context, _, _ string, _ types.CloudServerPasswordRequest, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("invalid password")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/password", errorResponse(500, "Internal Server Error", "invalid password"))
 			},
 			wantErr:     true,
 			errContains: "password",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockCloudServersClient) {
-				m.setPasswordFn = func(_ context.Context, _, _ string, _ types.CloudServerPasswordRequest, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "cs-001", "my-server"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/password", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -507,13 +540,38 @@ func TestCloudServerSetPasswordCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockCloudServersClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			err := runCmd(newMockClient(withCompute(m)), []string{"compute", "cloudserver", "set-password", "cs-001", "--project-id", "proj-123", "--password", "Pass1!"})
+			err := runCmd(srv.Client(), []string{"compute", "cloudserver", "set-password", "cs-001", "--project-id", "proj-123", "--password", "Pass1!"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 		})
+	}
+}
+
+func TestCompleteCloudServerID(t *testing.T) {
+	id, name := "cs-001", "test-server"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+		Values: []types.CloudServerResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	cmd := cloudserverGetCmd
+	if err := cmd.Flags().Set("project-id", "proj-123"); err != nil {
+		cmd.Flags().String("project-id", "proj-123", "")
+	}
+
+	completions, directive := completeCloudServerID(cmd, nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("expected NoFileComp directive, got %v", directive)
+	}
+	if len(completions) != 1 {
+		t.Errorf("expected 1 completion, got %d: %v", len(completions), completions)
 	}
 }
 
@@ -529,58 +587,6 @@ func checkErr(t *testing.T, err error, wantErr bool, errContains string) {
 		}
 	} else if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestExtractIDFromURI(t *testing.T) {
-	cases := []struct {
-		uri  string
-		want string
-	}{
-		{"/projects/p1/providers/Aruba.Compute/cloudServers/cs-123", "cs-123"},
-		{"cs-abc", "cs-abc"},
-		{"", ""},
-	}
-	for _, c := range cases {
-		got := extractIDFromURI(c.uri)
-		if got != c.want {
-			t.Errorf("extractIDFromURI(%q) = %q, want %q", c.uri, got, c.want)
-		}
-	}
-}
-
-func TestCompleteCloudServerID(t *testing.T) {
-	id := "cs-001"
-	name := "test-server"
-	m := &mockCloudServersClient{
-		listFn: func(ctx context.Context, projectID string, params *types.RequestParameters) (*types.Response[types.CloudServerList], error) {
-			return &types.Response[types.CloudServerList]{
-				StatusCode: 200,
-				Data: &types.CloudServerList{
-					Values: []types.CloudServerResponse{
-						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
-					},
-				},
-			}, nil
-		},
-	}
-	setClientForTesting(newMockClient(withCompute(m)))
-	defer resetClientState()
-
-	cmd := cloudserverCmd
-	_ = cmd.Flags().Lookup("project-id") // ensure flag exists
-	if cmd.Flags().Lookup("project-id") == nil {
-		cmd.Flags().String("project-id", "proj-123", "")
-	} else {
-		_ = cmd.Flags().Set("project-id", "proj-123")
-	}
-
-	completions, directive := completeCloudServerID(cmd, nil, "")
-	if directive != cobra.ShellCompDirectiveNoFileComp {
-		t.Errorf("expected NoFileComp directive, got %v", directive)
-	}
-	if len(completions) != 1 {
-		t.Errorf("expected 1 completion, got %d: %v", len(completions), completions)
 	}
 }
 

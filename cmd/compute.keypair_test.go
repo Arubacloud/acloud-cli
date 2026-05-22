@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,71 +11,59 @@ import (
 func TestKeyPairListCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKeyPairsClient)
+		args        []string
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with results",
-			setupMock: func(m *mockKeyPairsClient) {
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return &types.Response[types.KeyPairListResponse]{
-						StatusCode: 200,
-						Data: &types.KeyPairListResponse{
-							Values: []types.KeyPairResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+					Values: []types.KeyPairResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
-				if !strings.Contains(out, "kp-001") {
-					t.Errorf("expected ID in output, got: %s", out)
+				if !strings.Contains(out, "my-kp") {
+					t.Errorf("expected name in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "success empty",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return &types.Response[types.KeyPairListResponse]{StatusCode: 200, Data: &types.KeyPairListResponse{}}, nil
-				}
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{}))
 			},
 		},
 		{
-			name: "skips entries with nil ID",
-			setupMock: func(m *mockKeyPairsClient) {
+			name: "skips entries with empty ID",
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return &types.Response[types.KeyPairListResponse]{
-						StatusCode: 200,
-						Data: &types.KeyPairListResponse{
-							Values: []types.KeyPairResponse{
-								{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
-								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+					Values: []types.KeyPairResponse{
+						{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
+						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
+					},
+				}))
 			},
 		},
 		{
 			name: "--output=json emits valid JSON",
-			setupMock: func(m *mockKeyPairsClient) {
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return &types.Response[types.KeyPairListResponse]{
-						StatusCode: 200,
-						Data: &types.KeyPairListResponse{
-							Values: []types.KeyPairResponse{
-								{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
-							},
-						},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+					Values: []types.KeyPairResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
+					},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				var result map[string]any
@@ -87,24 +73,19 @@ func TestKeyPairListCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return nil, fmt.Errorf("connection refused")
-				}
+			name: "server error propagates",
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.listFn = func(_ context.Context, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairListResponse], error) {
-					return &types.Response[types.KeyPairListResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -112,15 +93,11 @@ func TestKeyPairListCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKeyPairsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			args := []string{"compute", "keypair", "list", "--project-id", "proj-123"}
-			if tc.name == "--output=json emits valid JSON" {
-				args = append(args, "--output", "json")
-			}
-			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -132,21 +109,18 @@ func TestKeyPairListCmd(t *testing.T) {
 func TestKeyPairGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKeyPairsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockKeyPairsClient) {
+			setupSrv: func(srv *arubaTestServer) {
 				kpName := "my-kp"
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return &types.Response[types.KeyPairResponse]{
-						StatusCode: 200,
-						Data:       &types.KeyPairResponse{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
-					}, nil
-				}
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, types.KeyPairResponse{
+					Metadata: types.ResourceMetadataResponse{Name: &kpName},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-kp") {
@@ -155,24 +129,17 @@ func TestKeyPairGetCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.getFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return &types.Response[types.KeyPairResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -180,12 +147,11 @@ func TestKeyPairGetCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKeyPairsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})),
-				[]string{"compute", "keypair", "get", "kp-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), []string{"compute", "keypair", "get", "kp-001", "--project-id", "proj-123"})
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -198,7 +164,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
-		setupMock   func(*mockKeyPairsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
@@ -206,14 +172,11 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		{
 			name: "success",
 			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
-			setupMock: func(m *mockKeyPairsClient) {
-				kpName := "my-kp"
-				m.createFn = func(_ context.Context, _ string, _ types.KeyPairRequest, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return &types.Response[types.KeyPairResponse]{
-						StatusCode: 200,
-						Data:       &types.KeyPairResponse{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				kpID, kpName := "kp-new", "my-kp"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "my-kp") {
@@ -234,12 +197,10 @@ func TestKeyPairCreateCmd(t *testing.T) {
 			errContains: "public-key",
 		},
 		{
-			name: "SDK error propagates",
+			name: "server error propagates",
 			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
-			setupMock: func(m *mockKeyPairsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.KeyPairRequest, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return nil, fmt.Errorf("duplicate name")
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(500, "Internal Server Error", "duplicate name"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -247,13 +208,8 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
-			setupMock: func(m *mockKeyPairsClient) {
-				m.createFn = func(_ context.Context, _ string, _ types.KeyPairRequest, _ *types.RequestParameters) (*types.Response[types.KeyPairResponse], error) {
-					return &types.Response[types.KeyPairResponse]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -261,11 +217,11 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKeyPairsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), tc.args)
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -274,60 +230,63 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	}
 }
 
+func TestKeyPairUpdateCmd(t *testing.T) {
+	// keypairUpdateCmd is a pure stub — no API call is made.
+	// Registering no routes means any HTTP call would trip the harness t.Errorf.
+	srv := newArubaTestServer(t)
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "keypair", "update", "kp-001", "--project-id", "proj-123"})
+	checkErr(t, err, false, "")
+	if !strings.Contains(out, "not supported") {
+		t.Errorf("expected 'not supported' in output, got: %s", out)
+	}
+}
+
 func TestKeyPairDeleteCmd(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mockKeyPairsClient)
+		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
 		assertOut   func(*testing.T, string)
 	}{
 		{
 			name: "success with --yes",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{StatusCode: 200}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kp-001") {
-					t.Errorf("expected ID in output, got: %s", out)
+					t.Errorf("expected name in output, got: %s", out)
 				}
 			},
 		},
 		{
 			name: "--dry-run: prints intent, does not call Delete",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					t.Fatal("Delete must not be called in --dry-run mode")
-					return nil, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				kpName := "my-kp"
+				// Only register Get; an erroneous DELETE would trip the harness t.Errorf.
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, types.KeyPairResponse{
+					Metadata: types.ResourceMetadataResponse{Name: &kpName},
+				}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kp-001") {
-					t.Errorf("expected ID in dry-run output, got: %s", out)
+					t.Errorf("expected name in dry-run output, got: %s", out)
 				}
 			},
 		},
 		{
-			name: "SDK error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return nil, fmt.Errorf("not found")
-				}
+			name: "server error propagates",
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(500, "Internal Server Error", "not found"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
 		},
 		{
 			name: "API error propagates",
-			setupMock: func(m *mockKeyPairsClient) {
-				m.deleteFn = func(_ context.Context, _, _ string, _ *types.RequestParameters) (*types.Response[any], error) {
-					return &types.Response[any]{
-						StatusCode: 404,
-						Error:      &types.ErrorResponse{Title: strPtr("Not Found"), Detail: strPtr("resource not found")},
-					}, nil
-				}
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -335,15 +294,15 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &mockKeyPairsClient{}
-			if tc.setupMock != nil {
-				tc.setupMock(m)
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
 			}
 			args := []string{"compute", "keypair", "delete", "kp-001", "--project-id", "proj-123", "--yes"}
 			if tc.name == "--dry-run: prints intent, does not call Delete" {
 				args = append(args, "--dry-run")
 			}
-			out, err := runCmdCapture(newMockClient(withComputeMock(&mockComputeClient{keyPairsClient: m})), args)
+			out, err := runCmdCapture(srv.Client(), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

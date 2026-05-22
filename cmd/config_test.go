@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -219,5 +220,195 @@ func TestGetConfigPath(t *testing.T) {
 	expectedPath := filepath.Join(tmpDir, ".acloud.yaml")
 	if configPath != expectedPath {
 		t.Errorf("GetConfigPath() = %v, want %v", configPath, expectedPath)
+	}
+}
+
+func TestLoadConfig_EnvVarsNoFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	origID := os.Getenv("ACLOUD_CLIENT_ID")
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	origBase := os.Getenv("ACLOUD_BASE_URL")
+	origToken := os.Getenv("ACLOUD_TOKEN_ISSUER_URL")
+	defer func() {
+		os.Setenv("ACLOUD_CLIENT_ID", origID)
+		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+		os.Setenv("ACLOUD_BASE_URL", origBase)
+		os.Setenv("ACLOUD_TOKEN_ISSUER_URL", origToken)
+	}()
+
+	os.Setenv("ACLOUD_CLIENT_ID", "env-id")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
+	os.Setenv("ACLOUD_BASE_URL", "https://custom.example.com")
+	os.Setenv("ACLOUD_TOKEN_ISSUER_URL", "https://token.example.com")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() should succeed with env vars: %v", err)
+	}
+	if config.ClientID != "env-id" {
+		t.Errorf("ClientID = %q, want env-id", config.ClientID)
+	}
+	if config.ClientSecret != "env-secret" {
+		t.Errorf("ClientSecret = %q, want env-secret", config.ClientSecret)
+	}
+	if config.BaseURL != "https://custom.example.com" {
+		t.Errorf("BaseURL = %q, want https://custom.example.com", config.BaseURL)
+	}
+	if config.TokenIssuerURL != "https://token.example.com" {
+		t.Errorf("TokenIssuerURL = %q, want https://token.example.com", config.TokenIssuerURL)
+	}
+}
+
+func TestLoadConfig_EnvVarOverridesFile(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	if err := SaveConfig(&Config{ClientID: "file-id", ClientSecret: "file-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	origID := os.Getenv("ACLOUD_CLIENT_ID")
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	origBase := os.Getenv("ACLOUD_BASE_URL")
+	origToken := os.Getenv("ACLOUD_TOKEN_ISSUER_URL")
+	defer func() {
+		os.Setenv("ACLOUD_CLIENT_ID", origID)
+		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+		os.Setenv("ACLOUD_BASE_URL", origBase)
+		os.Setenv("ACLOUD_TOKEN_ISSUER_URL", origToken)
+	}()
+
+	os.Setenv("ACLOUD_CLIENT_ID", "override-id")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "override-secret")
+	os.Setenv("ACLOUD_BASE_URL", "https://override.api.com")
+	os.Setenv("ACLOUD_TOKEN_ISSUER_URL", "https://override.token.com")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig(): %v", err)
+	}
+	if config.ClientID != "override-id" {
+		t.Errorf("ClientID = %q, want override-id", config.ClientID)
+	}
+	if config.BaseURL != "https://override.api.com" {
+		t.Errorf("BaseURL = %q, want https://override.api.com", config.BaseURL)
+	}
+	if config.TokenIssuerURL != "https://override.token.com" {
+		t.Errorf("TokenIssuerURL = %q, want https://override.token.com", config.TokenIssuerURL)
+	}
+}
+
+func TestConfigSetCmd_Success(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	origID := os.Getenv("ACLOUD_CLIENT_ID")
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+		os.Setenv("ACLOUD_CLIENT_ID", origID)
+		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+	}()
+
+	out, err := runCmdCapture(nil, []string{"config", "set", "--client-id", "test-id", "--client-secret", "test-secret"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "updated successfully") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+}
+
+func TestConfigSetCmd_MissingClientID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	origID := os.Getenv("ACLOUD_CLIENT_ID")
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+		os.Setenv("ACLOUD_CLIENT_ID", origID)
+		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+	}()
+
+	_, err := runCmdCapture(nil, []string{"config", "set", "--client-secret", "test-secret"})
+	if err == nil {
+		t.Fatal("expected error for missing --client-id")
+	}
+	if !strings.Contains(err.Error(), "client-id") {
+		t.Errorf("expected client-id mention in error, got: %s", err.Error())
+	}
+}
+
+func TestConfigShowCmd(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	if err := SaveConfig(&Config{ClientID: "show-id", ClientSecret: "show-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	out, err := runCmdCapture(nil, []string{"config", "show"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "show-id") {
+		t.Errorf("expected client ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "********") {
+		t.Errorf("expected redacted secret in output, got: %s", out)
+	}
+}
+
+func TestConfigShowCmd_NoConfig(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	out, err := runCmdCapture(nil, []string{"config", "show"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "No configuration found") {
+		t.Errorf("expected no-config message, got: %s", out)
 	}
 }

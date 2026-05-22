@@ -176,29 +176,58 @@ Never dereference a response pointer without a nil guard.
 
 ## Standard Command Bodies
 
+SDK v0.2.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
+typed client whose CRUD methods take/return hydrated wrapper types (`*aruba.<T>`,
+`*aruba.List[*aruba.<T>]`) rather than raw request/response structs. Non-2xx
+responses surface as `*aruba.HTTPError` in the error return — there is no separate
+`response.IsError()` check. Use `apiErrFromV2(err)` to format HTTP errors; wrap with
+a verb prefix for all error sites.
+
+**Wrapper note:** `*aruba.<T>` wrapper types carry only unexported fields and are not
+JSON-marshalable. For single-resource rendering and `-o json`/`-o yaml` payloads,
+use `.Raw()` directly when the wrapper exposes the full typed response (e.g.
+`*aruba.CloudServer.Raw()` → `*types.CloudServerResponse`). Only fall back to re-
+parsing via `RawHTTP()` when `.Raw()` returns only metadata (e.g. `*aruba.Project`
+— see `management.project.go`). For project-scoped resources, build the create
+wrapper with `.IntoProject(projectRef(projectID))` and use a file-local
+`<resource>Ref(projectID, id)` helper (encoding both project + resource IDs in the
+URI) for `Get` and `Delete`.
+
+**Multi-segment ancestry Refs** — For nested resources (e.g. `Subnet` inside `VPC`,
+`SecurityRule` inside `SecurityGroup` inside `VPC`), each file declares a file-local
+`<resource>Ref(...)` helper that hand-builds the full URI string including all
+ancestor IDs. Parent Ref helpers (`vpcRef`, `securityGroupRef`, `vpcPeeringRef`,
+`vpnTunnelRef`) are defined once in their respective files and imported by sibling
+files — never redefined. Path-segment casing must match the API exactly (see
+`ARCHITECTURE.md` for the casing table).
+
+**Read-only resources** — Resources that the API exposes as read-only (e.g.
+`LoadBalancer`) have only `list` and `get` subcommands; no `create`, `update`, or
+`delete`. Do not add a `NewLoadBalancer()` builder call or Create/Update/Delete
+command vars.
+
 ### list
 ```go
-projectID, err := GetProjectID(cmd)
-if err != nil { fmt.Printf("Error: %v\n", err); return }
-
 client, err := GetArubaClient()
-if err != nil { fmt.Printf("Error initializing client: %v\n", err); return }
+if err != nil { return fmt.Errorf("initializing client: %w", err) }
 
-ctx := context.Background()
-response, err := client.From<Svc>().<Resource>().List(ctx, projectID, nil)
-if err != nil { fmt.Printf("Error listing <resources>: %v\n", err); return }
+ctx, cancel := newCtx()
+defer cancel()
+list, err := client.From<Svc>().<Resource>().List(ctx, listOpts(cmd)...)
+if err != nil { return fmt.Errorf("listing <resources>: %w", apiErrFromV2(err)) }
 
-if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
+if list != nil && len(list.Items()) > 0 {
     headers := []TableColumn{
         {Header: "NAME", Width: 30},
         {Header: "ID",   Width: 26},
         // ...
     }
     var rows [][]string
-    for _, r := range response.Data.Values {
-        rows = append(rows, []string{safePtrStr(r.Metadata.Name), safePtrStr(r.Metadata.ID), ...})
+    for _, r := range list.Items() {
+        rows = append(rows, []string{r.Name(), r.ID(), ...})
     }
-    PrintOutput(response.Data, headers, rows)
+    // For -o json/yaml, extract the typed list from Raw() — see <resource>ListPayload.
+    PrintOutput(<resource>ListPayload(list), headers, rows)
 } else {
     fmt.Println("No <resources> found")
 }
@@ -207,46 +236,71 @@ if response != nil && response.Data != nil && len(response.Data.Values) > 0 {
 ### get
 ```go
 resourceID := args[0]
-// GetProjectID, GetArubaClient, context.Background() ...
-resp, err := client.From<Svc>().<Resource>().Get(ctx, projectID, resourceID, nil)
-if err != nil { ... return }
-// check resp.IsError() ...
+client, err := GetArubaClient()
+if err != nil { return fmt.Errorf("initializing client: %w", err) }
 
-// Honour -o json / -o yaml before the human-formatted block
-format := resolveOutputFormat()
-if format == OutputFormatJSON || format == OutputFormatYAML {
-    PrintOutput(resp.Data, nil, nil)
-    return nil
+ctx, cancel := newCtx()
+defer cancel()
+got, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
+if err != nil { return fmt.Errorf("getting <resource>: %w", apiErrFromV2(err)) }
+
+// Re-parse for fields the wrapper omits and for -o json/yaml (wrapper is not marshalable).
+resource := <resource>FromRaw(got)
+if resource != nil {
+    format := resolveOutputFormat()
+    if format == OutputFormatJSON || format == OutputFormatYAML {
+        PrintOutput(resource, nil, nil)
+        return nil
+    }
+    fmt.Println("\n<Resource> Details:")
+    fmt.Println("===================")
+    if resource.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resource.Metadata.ID) }
+    // ...
+} else {
+    fmt.Println("<Resource> not found")
 }
-
-fmt.Println("\n<Resource> Details:")
-fmt.Println("===================")
-if resp.Data.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resp.Data.Metadata.ID) }
-// ...
 ```
 
 ### create
 ```go
-// 1. GetProjectID
-// 2. Extract flags; validate required ones early
-// 3. GetArubaClient
-// 4. Build types.<Resource>Request{} (nested struct)
-// 5. Call .Create(ctx, projectID, request, nil)
-// 6. Check err, then response.IsError()
-// 7. PrintOutput with single-row result (pass response.Data as first arg)
-PrintOutput(response.Data, headers, [][]string{row})
+// 1. Extract flags; validate required ones early
+// 2. GetArubaClient
+// 3. Build wrapper via aruba.New<T>() fluent setters:
+wrapper := aruba.New<T>().Named(name)
+if description != "" { wrapper.WithDescription(description) }
+// ...
+// 4. Call Create:
+ctx, cancel := newCtx()
+defer cancel()
+created, err := client.From<Svc>().<Resource>().Create(ctx, wrapper, ...)
+if err != nil { return fmt.Errorf("creating <resource>: %w", apiErrFromV2(err)) }
+// 5. Re-parse for output (wrapper not marshalable; may expose extra fields):
+resource := <resource>FromRaw(created)
+if resource != nil {
+    PrintOutput(resource, headers, [][]string{row})
+} else {
+    fmt.Println(msgCreatedAsync("<Resource>", name))
+}
 ```
 
 ### update
 ```go
-// 1. Get current resource via .Get() to preserve unmodified fields
-// 2. Build request from current values
-// 3. Overwrite only flags that were explicitly Changed:
-if name != "" { updateReq.Metadata.Name = name }
-if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
-// 4. Call .Update(ctx, projectID, id, request, nil)
-// 5. PrintOutput with single-row result
-PrintOutput(response.Data, headers, [][]string{row})
+// 1. Get current resource via Get to preserve unmodified fields:
+current, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
+if err != nil { return fmt.Errorf("fetching current <resource>: %w", apiErrFromV2(err)) }
+// 2. Apply only the flags that were explicitly Changed:
+if description != "" { current.WithDescription(description) }
+if cmd.Flags().Changed("tags") { current.ReplaceTags(tags...) }
+// 3. Call Update with the hydrated wrapper (ID is preserved from Get):
+updated, err := client.From<Svc>().<Resource>().Update(ctx, current, ...)
+if err != nil { return fmt.Errorf("updating <resource>: %w", apiErrFromV2(err)) }
+// 4. Re-parse and render:
+resource := <resource>FromRaw(updated)
+if resource != nil {
+    PrintOutput(resource, headers, [][]string{row})
+} else {
+    fmt.Println(msgUpdatedAsync("<Resource>", id))
+}
 ```
 
 ### delete
@@ -254,8 +308,8 @@ PrintOutput(response.Data, headers, [][]string{row})
 // 1. --dry-run: call Get to validate existence, print msgDryRun, return nil
 dryRun, _ := cmd.Flags().GetBool("dry-run")
 if dryRun {
-    // GetProjectID, GetArubaClient, call .Get() to validate
-    if err != nil { return fmt.Errorf("getting <resource>: %w", err) }
+    _, err := client.From<Svc>().<Resource>().Get(ctx, <ref>)
+    if err != nil { return fmt.Errorf("dry-run: <resource> not found or inaccessible: %w", apiErrFromV2(err)) }
     fmt.Println(msgDryRun("<resource type>", id))
     return nil
 }
@@ -265,9 +319,12 @@ confirmed, err := confirmDelete("<resource type>", id)
 if err != nil { return err }
 if !confirmed { return nil }
 
-// 3. GetProjectID, GetArubaClient, .Delete(ctx, projectID, id, nil)
-// 4. Success message:
-fmt.Println(msgDeleted("<resource type>", id))
+// 3. GetArubaClient, Delete — returns error only (no response object):
+if err := client.From<Svc>().<Resource>().Delete(ctx, <ref>); err != nil {
+    return fmt.Errorf("deleting <resource>: %w", apiErrFromV2(err))
+}
+// 4. Success output (use PrintOutput for -o json support):
+PrintOutput(result, headers, [][]string{row})
 ```
 
 `confirmDelete(resourceType, id string) (bool, error)` is a helper in `cmd/root.go` that detects non-interactive stdin and skips the prompt when `--yes` is set or when stdin is not a terminal. Use it — do not inline the prompt.
@@ -278,10 +335,255 @@ fmt.Println(msgDeleted("<resource type>", id))
 
 - Tests live in `package cmd` (same package as the code).
 - Use `t.TempDir()` for isolated file paths; override `HOME` (or `USERPROFILE` on Windows) to redirect config/context files.
-- Clear the client cache after each test:
-  ```go
-  resetClientState()  // helper in cmd/root.go (TD-018)
-  ```
 - Use `defer cleanup()` to restore environment variables.
 - Skip live-API tests with `ACLOUD_TEST_SKIP_CLIENT=true`.
 - Table-driven tests are preferred for multiple input/output cases.
+
+### Test client — httptest harness (v0.2.0+)
+
+Since SDK v0.2.0, wrapper types (`aruba.CloudServer`, `aruba.VPC`, …) carry unexported internal state that can only be populated by the SDK's own adapters. Hand-built fake structs cannot produce a hydrated wrapper with real `.ID()`/`.State()`/`List[T]` values.
+
+Use the `arubaTestServer` harness in `cmd/mock_test.go` instead:
+
+```go
+func TestMyCommand(t *testing.T) {
+    srv := newArubaTestServer(t)          // real aruba.Client pointed at httptest.Server
+    srv.OnGet("/projects/p1/cloudServers", jsonResponse(200, types.CloudServerList{
+        // ... fixture fields ...
+    }))
+
+    err := runCmd(srv.Client(), []string{"cloud-server", "list", "--project-id", "p1"})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+}
+```
+
+- Register routes with `OnGet`/`OnPost`/`OnPut`/`OnDelete`/`OnPatch` before calling `runCmd`.
+- `jsonResponse(status, body)` marshals `body` (a `types.*Response` or `types.*List`) to JSON.
+- `errorResponse(status, title, detail)` emits a `types.ErrorResponse` body so the SDK surfaces an `*aruba.HTTPError`.
+- Unregistered routes cause `t.Errorf` (not a silent 404) — mis-keyed paths fail loudly.
+- `runCmd`/`runCmdCapture`/`resetCmdFlags`/`strPtr` helpers are unchanged; pass `srv.Client()` where the old code passed a `newMockClient(...)`.
+- Clear the client cache after each test (handled automatically by `runCmd` via `defer resetClientState()`).
+
+---
+
+## Storage-Specific Patterns
+
+The storage family has three patterns that diverge from the canonical command bodies above.
+
+### Cross-family pre-validation in Backup Create
+
+`StorageBackup.Create` requires a source volume. The file validates the volume exists
+before building the backup wrapper. The volume GET response **must** include a URI
+field so the SDK can carry it through the builder chain.
+
+```go
+// Pre-validate source volume (cross-family Get)
+vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
+
+bk := aruba.NewStorageBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
+    FromVolume(vol)
+if retentionDays > 0 { bk.WithRetentionDays(int(retentionDays)) }
+
+created, err := client.FromStorage().Backups().Create(ctx, bk)
+if err != nil { return fmt.Errorf("creating backup: %w", apiErrFromV2(err)) }
+```
+
+### Restore Create: dual cross-family Gets + IntoBackup/ToVolume
+
+`StorageRestore` is parented on a Backup (not a project). Use `IntoBackup(bk)` (not
+`IntoProject`) — it extracts projectID and backupID from the backup's URI. Both the
+backup GET and volume GET responses **must** include a URI field. `ToVolume(target)`
+extracts the URI from the volume wrapper.
+
+```go
+// Pre-validate parent backup AND target volume
+bk, err := client.FromStorage().Backups().Get(ctx, backupRef(projectID, backupID))
+if err != nil { return fmt.Errorf("getting backup: %w", apiErrFromV2(err)) }
+target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
+if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
+
+rs := aruba.NewStorageRestore().
+    IntoBackup(bk).       // parents on backup, NOT IntoProject(...)
+    Named(name).
+    InRegion(aruba.Region(region)).
+    ToVolume(target)
+
+created, err := client.FromStorage().Restores().Create(ctx, rs)
+if err != nil { return fmt.Errorf("creating restore: %w", apiErrFromV2(err)) }
+```
+
+### Restore List: backup-scoped (not project-scoped)
+
+Unlike all other storage resources, `StorageRestoreClient.List` takes a **backup Ref**
+as its first argument, not a project Ref.
+
+```go
+// Use backupRef(projectID, backupID), NOT projectRef(projectID)
+list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
+if err != nil { return fmt.Errorf("listing restores: %w", apiErrFromV2(err)) }
+```
+
+In tests, register the list route under the backup-scoped path:
+`/projects/{p}/providers/Aruba.Storage/backups/{bid}/restores`
+
+---
+
+## Database-specific patterns
+
+### Family B create (Database, User)
+
+Family B resources (Database, User) use `IntoDBaaS(dbaasRef(projectID, dbaasID))` rather than `IntoProject`. Name/username is the path identifier.
+
+```go
+// Database create
+db := aruba.NewDatabase().
+    IntoDBaaS(dbaasRef(projectID, dbaasID)).
+    Named(name)
+created, err := client.FromDatabase().Databases().Create(ctx, db)
+
+// User create
+u := aruba.NewUser().
+    IntoDBaaS(dbaasRef(projectID, dbaasID)).
+    WithUsername(username).
+    WithPassword(password)
+created, err := client.FromDatabase().Users().Create(ctx, u)
+```
+
+### DBaaSBackup create (no pre-validation Gets)
+
+Pass constructed Refs directly — `FromDBaaS` and `FromDatabase` accept any `aruba.Ref`:
+
+```go
+bk := aruba.NewDBaaSBackup().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    FromDBaaS(dbaasRef(projectID, dbaasID)).
+    FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
+    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+created, err := client.FromDatabase().Backups().Create(ctx, bk)
+```
+
+### Dbaas-scoped List
+
+Database and User List are scoped to a DBaaS instance, not a project:
+
+```go
+list, err := client.FromDatabase().Databases().List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)
+list, err := client.FromDatabase().Users().List(ctx, dbaasRef(projectID, dbaasID), listOpts(cmd)...)
+```
+
+DBaaS and Backup List are project-scoped (standard pattern):
+
+```go
+list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID), listOpts(cmd)...)
+list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID), listOpts(cmd)...)
+```
+
+---
+
+## Container-Specific Patterns
+
+### KaaS Create — SecurityGroup wrapper required
+
+`KaaS.WithSecurityGroup` does a type assertion to `*aruba.SecurityGroup`. Pass a named wrapper, not a URI Ref:
+
+```go
+sg := aruba.NewSecurityGroup().Named(securityGroupName) // *aruba.SecurityGroup, not aruba.URI(...)
+k := aruba.NewKaaS().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).
+    WithNodeCIDR(nodeCIDRAddress, nodeCIDRName).
+    WithSecurityGroup(sg).
+    WithVPC(aruba.URI(vpcURI)).
+    WithSubnet(aruba.URI(subnetURI)).
+    AddNodePool(nodePool)
+created, err := client.FromContainer().KaaS().Create(ctx, k)
+```
+
+### KaaS Connect — two-step kubeconfig download
+
+`DownloadKubeconfig` lives on `*KaaS` (not `KaaSClient`). Must `Get` first to obtain a hydrated wrapper:
+
+```go
+got, err := client.FromContainer().KaaS().Get(ctx, kaasRef(projectID, kaasID))
+if err != nil { return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err)) }
+kubeconfigBytes, err := got.DownloadKubeconfig(ctx)
+if err != nil { return fmt.Errorf("downloading kubeconfig: %w", apiErrFromV2(err)) }
+// kubeconfigBytes is []byte(resp.Data.Content) — base64-encoded YAML; decode before writing
+decodedContent, err := base64.StdEncoding.DecodeString(string(kubeconfigBytes))
+if err != nil { decodedContent = kubeconfigBytes } // already raw if decode fails
+```
+
+### ContainerRegistry Create — URI Refs for all network resources
+
+Unlike KaaS, `ContainerRegistry.WithSecurityGroup` accepts any `Ref` (no type assertion):
+
+```go
+r := aruba.NewContainerRegistry().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    WithElasticIP(aruba.URI(publicIPURI)).
+    WithVPC(aruba.URI(vpcURI)).
+    WithSubnet(aruba.URI(subnetURI)).
+    WithSecurityGroup(aruba.URI(securityGroupURI)).
+    WithBlockStorage(aruba.URI(blockStorageURI))
+if concurrentUsers != "" { r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) }
+created, err := client.FromContainer().ContainerRegistry().Create(ctx, r)
+```
+
+## Schedule-Specific Patterns
+
+### Job Create — OneShot vs Recurring (mutually exclusive)
+
+```go
+j := aruba.NewJob().
+    IntoProject(projectRef(projectID)).
+    Named(name).
+    InRegion(aruba.Region(region)).
+    OfType(aruba.JobType(jobType)).
+    WithEnabled(enabled)
+
+if cronExpr != "" {
+    endTime, _ := time.Parse(time.RFC3339, endTimeStr)
+    j.WithCron(cronExpr).RecurringUntil(endTime)
+} else {
+    shotTime, _ := time.Parse(time.RFC3339, shotTimeStr)
+    j.OneShotAt(shotTime)
+}
+
+if err := j.Err(); err != nil {
+    return fmt.Errorf("invalid job configuration: %w", err)
+}
+
+ctx, cancel := newCtx(); defer cancel()
+created, err := client.FromSchedule().Jobs().Create(ctx, j)
+if err != nil { return fmt.Errorf("creating schedule job: %w", apiErrFromV2(err)) }
+```
+
+`j.Err()` surfaces builder validation failures (e.g. mixing OneShot and Recurring). Always check it before the Create call.
+
+### Job Update
+
+```go
+cur, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
+if err != nil { return fmt.Errorf("getting schedule job: %w", apiErrFromV2(err)) }
+
+if name != "" { cur.Named(name) }
+if enabledSet { cur.WithEnabled(enabled) }  // enabledSet = cmd.Flags().Changed("enabled")
+if cmd.Flags().Changed("tags") { cur.ReplaceTags(tags...) }
+
+updated, err := client.FromSchedule().Jobs().Update(ctx, cur)
+```
+
+Note: `WithEnabled(false)` is a no-op on the wire due to `omitempty` in the SDK request type. See ARCHITECTURE.md.
