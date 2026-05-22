@@ -116,6 +116,21 @@ func TestKMSGetCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success --output json",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(500, "Internal Server Error", "boom"))
@@ -138,7 +153,11 @@ func TestKMSGetCmd(t *testing.T) {
 			if tc.setupSrv != nil {
 				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(srv.Client(), []string{"security", "kms", "get", "kms-001", "--project-id", "proj-123"})
+			args := []string{"security", "kms", "get", "kms-001", "--project-id", "proj-123"}
+			if tc.name == "success --output json" {
+				args = append(args, "--output", "json")
+			}
+			out, err := runCmdCapture(srv.Client(), args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)

@@ -295,3 +295,96 @@ func TestSnapshotDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"storage", "snapshot", "update", "snap-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "snap-001", "my-snapshot"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots/snap-001", jsonResponse(200, types.SnapshotResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/snapshots/snap-001", jsonResponse(200, types.SnapshotResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "snap-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"storage", "snapshot", "update", "snap-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"storage", "snapshot", "update", "snap-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots/snap-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"storage", "snapshot", "update", "snap-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "snap-001", "my-snapshot"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots/snap-001", jsonResponse(200, types.SnapshotResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/snapshots/snap-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestSnapshotCreateCmd_Verbose(t *testing.T) {
+	id, name := "snap-new", "my-snapshot"
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"storage", "snapshot", "create",
+		"--project-id", "proj-123",
+		"--name", "my-snapshot",
+		"--region", "IT-BG",
+		"--volume-uri", snapshotVolURI,
+		"--verbose",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "my-snapshot") {
+		t.Errorf("expected name in verbose output, got: %s", out)
+	}
+}

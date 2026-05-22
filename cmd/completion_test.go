@@ -1,0 +1,661 @@
+package cmd
+
+import (
+	"testing"
+
+	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
+)
+
+// makeProjectCmd returns a minimal cobra.Command with --project-id set.
+func makeProjectCmd(projectID string) *cobra.Command {
+	cmd := &cobra.Command{}
+	_ = cmd.Flags().String("project-id", "", "")
+	_ = cmd.Flags().Set("project-id", projectID)
+	return cmd
+}
+
+// ─── completeCloudServerID ──────────────────────────────────────────────────
+
+func TestCompleteCloudServerID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeCloudServerID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+// ─── completeKeyPairID ──────────────────────────────────────────────────────
+
+func TestCompleteKeyPairID(t *testing.T) {
+	name := "my-keypair"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+		Values: []types.KeyPairResponse{
+			{Metadata: types.ResourceMetadataResponse{Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeKeyPairID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteKeyPairID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeKeyPairID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+// ─── completeContainerRegistryID ────────────────────────────────────────────
+
+func TestCompleteContainerRegistryID(t *testing.T) {
+	id, name := "cr-001", "my-registry"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+		Values: []types.ContainerRegistryResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeContainerRegistryID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteContainerRegistryID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeContainerRegistryID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeKaaSID ─────────────────────────────────────────────────────────
+
+func TestCompleteKaaSID(t *testing.T) {
+	id, name := "kaas-001", "my-cluster"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+		Values: []types.KaaSResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeKaaSID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteKaaSID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeKaaSID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeDatabaseBackupID ───────────────────────────────────────────────
+
+func TestCompleteDatabaseBackupID(t *testing.T) {
+	id, name := "bkp-001", "my-backup"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{
+		Values: []types.BackupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDatabaseBackupID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteDatabaseBackupID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeDatabaseBackupID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeDBaaSDatabaseID ────────────────────────────────────────────────
+
+func TestCompleteDBaaSDatabaseID_NoArgs(t *testing.T) {
+	comps, _ := completeDBaaSDatabaseID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with no args, got %v", comps)
+	}
+}
+
+func TestCompleteDBaaSDatabaseID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+		Values: []types.DatabaseResponse{
+			{Name: "my-db"},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDBaaSDatabaseID(makeProjectCmd("proj-123"), []string{"dbaas-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeDBaaSID ────────────────────────────────────────────────────────
+
+func TestCompleteDBaaSID(t *testing.T) {
+	id, name := "dbaas-001", "my-dbaas"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+		Values: []types.DBaaSResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDBaaSID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteDBaaSID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeDBaaSID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeGrantID ────────────────────────────────────────────────────────
+
+func TestCompleteGrantID_NoArgs(t *testing.T) {
+	comps, _ := completeGrantID(&cobra.Command{}, []string{"only-one"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with insufficient args, got %v", comps)
+	}
+}
+
+func TestCompleteGrantID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb/grants", jsonResponse(200, types.GrantList{
+		Values: []types.GrantResponse{
+			{User: types.GrantUser{Username: "alice"}, Role: types.GrantRole{Name: "admin"}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeGrantID(makeProjectCmd("proj-123"), []string{"dbaas-001", "mydb"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeDBaaSUserID ────────────────────────────────────────────────────
+
+func TestCompleteDBaaSUserID_NoArgs(t *testing.T) {
+	comps, _ := completeDBaaSUserID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with no args, got %v", comps)
+	}
+}
+
+func TestCompleteDBaaSUserID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{
+		Values: []types.UserResponse{
+			{Username: "testuser"},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDBaaSUserID(makeProjectCmd("proj-123"), []string{"dbaas-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeProjectID ──────────────────────────────────────────────────────
+
+func TestCompleteProjectID(t *testing.T) {
+	id, name := "proj-001", "my-project"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+		Values: []types.ProjectResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeProjectID(&cobra.Command{}, nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteProjectID_NoClient(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+	resetClientState()
+
+	comps, _ := completeProjectID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without client, got %v", comps)
+	}
+}
+
+// ─── completeElasticIPID ────────────────────────────────────────────────────
+
+func TestCompleteElasticIPID(t *testing.T) {
+	id, name := "eip-001", "my-eip"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+		Values: []types.ElasticIPResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeElasticIPID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteElasticIPID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeElasticIPID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeLoadBalancerID ─────────────────────────────────────────────────
+
+func TestCompleteLoadBalancerID(t *testing.T) {
+	id, name := "lb-001", "my-lb"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", jsonResponse(200, types.LoadBalancerList{
+		Values: []types.LoadBalancerResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeLoadBalancerID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteLoadBalancerID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeLoadBalancerID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeSecurityRuleID ─────────────────────────────────────────────────
+
+func TestCompleteSecurityRuleID_InsufficientArgs(t *testing.T) {
+	comps, _ := completeSecurityRuleID(&cobra.Command{}, []string{"vpc-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with insufficient args, got %v", comps)
+	}
+}
+
+func TestCompleteSecurityRuleID(t *testing.T) {
+	id, name := "rule-001", "my-rule"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules", jsonResponse(200, types.SecurityRuleList{
+		Values: []types.SecurityRuleResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSecurityRuleID(makeProjectCmd("proj-123"), []string{"vpc-001", "sg-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeVPCID ──────────────────────────────────────────────────────────
+
+func TestCompleteVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteVPCID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeVPCID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeVPCPeeringRouteID ──────────────────────────────────────────────
+
+func TestCompleteVPCPeeringRouteID_InsufficientArgs(t *testing.T) {
+	comps, _ := completeVPCPeeringRouteID(&cobra.Command{}, []string{"vpc-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with insufficient args, got %v", comps)
+	}
+}
+
+func TestCompleteVPCPeeringRouteID(t *testing.T) {
+	id, name := "route-001", "my-route"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteList{
+		Values: []types.VPCPeeringRouteResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCPeeringRouteID(makeProjectCmd("proj-123"), []string{"vpc-001", "peer-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeVPNRouteID ─────────────────────────────────────────────────────
+
+func TestCompleteVPNRouteID_NoArgs(t *testing.T) {
+	comps, _ := completeVPNRouteID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with no args, got %v", comps)
+	}
+}
+
+func TestCompleteVPNRouteID(t *testing.T) {
+	id, name := "vroute-001", "my-route"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteList{
+		Values: []types.VPNRouteResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPNRouteID(makeProjectCmd("proj-123"), []string{"vpn-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeVPNTunnelID ────────────────────────────────────────────────────
+
+func TestCompleteVPNTunnelID(t *testing.T) {
+	id, name := "vpn-001", "my-tunnel"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelList{
+		Values: []types.VPNTunnelResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPNTunnelID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteVPNTunnelID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeVPNTunnelID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeJobID ──────────────────────────────────────────────────────────
+
+func TestCompleteJobID(t *testing.T) {
+	id, name := "job-001", "my-job"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+		Values: []types.JobResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeJobID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteJobID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeJobID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeKMSID ──────────────────────────────────────────────────────────
+
+func TestCompleteKMSID(t *testing.T) {
+	id, name := "kms-001", "my-kms"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+		Values: []types.KmsResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeKMSID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteKMSID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeKMSID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeBackupID (storage) ─────────────────────────────────────────────
+
+func TestCompleteBackupID(t *testing.T) {
+	id, name := "bkp-001", "my-backup"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+		Values: []types.StorageBackupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeBackupID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteBackupID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeBackupID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeBlockStorageID ─────────────────────────────────────────────────
+
+func TestCompleteBlockStorageID(t *testing.T) {
+	id, name := "vol-001", "my-volume"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageList{
+		Values: []types.BlockStorageResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeBlockStorageID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteBlockStorageID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeBlockStorageID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}
+
+// ─── completeRestoreID ──────────────────────────────────────────────────────
+
+func TestCompleteRestoreID_NoArgs_DelegatesToBackup(t *testing.T) {
+	id, name := "bkp-001", "my-backup"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+		Values: []types.StorageBackupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	// When no args: delegates to completeBackupID
+	completions, _ := completeRestoreID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions from backup delegation, got none")
+	}
+}
+
+func TestCompleteRestoreID_TooManyArgs(t *testing.T) {
+	comps, _ := completeRestoreID(&cobra.Command{}, []string{"bkp-001", "rst-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil with too many args, got %v", comps)
+	}
+}
+
+func TestCompleteRestoreID(t *testing.T) {
+	id, name := "rst-001", "my-restore"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+		Values: []types.StorageRestoreResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeRestoreID(makeProjectCmd("proj-123"), []string{"bkp-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+// ─── completeSnapshotID ─────────────────────────────────────────────────────
+
+func TestCompleteSnapshotID(t *testing.T) {
+	id, name := "snap-001", "my-snap"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{
+		Values: []types.SnapshotResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSnapshotID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteSnapshotID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeSnapshotID(&cobra.Command{}, nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions, got %v", comps)
+	}
+}

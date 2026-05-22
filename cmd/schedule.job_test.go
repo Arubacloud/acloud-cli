@@ -294,3 +294,183 @@ func TestJobDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+func TestJobUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success --name",
+			args: []string{"schedule", "job", "update", "job-001", "--project-id", "proj-123", "--name", "new-name"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "job-001", "my-job"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "job-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "no flags error",
+			args:        []string{"schedule", "job", "update", "job-001", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"schedule", "job", "update", "job-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(404, "Not Found", "resource not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"schedule", "job", "update", "job-001", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "job-001", "my-job"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestJobCreateCmd_Recurring(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "success Recurring",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-recurring-job",
+				"--region", "IT-BG",
+				"--job-type", "Recurring",
+				"--cron", "0 * * * *",
+				"--execute-until", "2027-01-01T00:00:00Z",
+			},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "job-new", "my-recurring-job"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+		},
+		{
+			name: "Recurring missing --cron",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-job",
+				"--region", "IT-BG",
+				"--job-type", "Recurring",
+				"--execute-until", "2027-01-01T00:00:00Z",
+			},
+			wantErr:     true,
+			errContains: "cron",
+		},
+		{
+			name: "Recurring missing --execute-until",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-job",
+				"--region", "IT-BG",
+				"--job-type", "Recurring",
+				"--cron", "0 * * * *",
+			},
+			wantErr:     true,
+			errContains: "execute-until",
+		},
+		{
+			name: "invalid --job-type",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-job",
+				"--region", "IT-BG",
+				"--job-type", "Invalid",
+				"--schedule-at", "2026-06-01T10:00:00Z",
+			},
+			wantErr:     true,
+			errContains: "job-type",
+		},
+		{
+			name: "OneShot missing --schedule-at",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-job",
+				"--region", "IT-BG",
+				"--job-type", "OneShot",
+			},
+			wantErr:     true,
+			errContains: "schedule-at",
+		},
+		{
+			name: "success with step resource",
+			args: []string{
+				"schedule", "job", "create",
+				"--project-id", "proj-123",
+				"--name", "my-job",
+				"--region", "IT-BG",
+				"--job-type", "OneShot",
+				"--schedule-at", "2026-06-01T10:00:00Z",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
+				"--step-action-uri", "poweroff",
+			},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "job-new", "my-job"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			_, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+		})
+	}
+}

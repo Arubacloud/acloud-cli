@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -291,5 +292,204 @@ func TestSaveContext_MultipleContexts(t *testing.T) {
 
 	if loadedContext.CurrentContext != "context1" {
 		t.Errorf("LoadContext() CurrentContext = %v, want context1", loadedContext.CurrentContext)
+	}
+}
+
+func withTempHomeDir(t *testing.T) (cleanup func()) {
+	t.Helper()
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	return func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}
+}
+
+func TestContextSetCmd(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"context", "set", "myctx", "--project-id", "proj-abc"},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "myctx") {
+					t.Errorf("expected context name in output, got: %s", out)
+				}
+				if !strings.Contains(out, "proj-abc") {
+					t.Errorf("expected project ID in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing --project-id",
+			args:        []string{"context", "set", "myctx"},
+			wantErr:     true,
+			errContains: "project-id",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runCmdCapture(nil, tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestContextUseCmd(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	// Set up a context first
+	if _, err := runCmdCapture(nil, []string{"context", "set", "myctx", "--project-id", "proj-abc"}); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"context", "use", "myctx"},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "myctx") {
+					t.Errorf("expected context name in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "non-existent context",
+			args:        []string{"context", "use", "noexist"},
+			wantErr:     true,
+			errContains: "not found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runCmdCapture(nil, tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestContextListCmd(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	// Test list with no contexts
+	out, err := runCmdCapture(nil, []string{"context", "list"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "No contexts found") {
+		t.Errorf("expected 'No contexts found', got: %s", out)
+	}
+
+	// Add a context and list again
+	if _, err := runCmdCapture(nil, []string{"context", "set", "myctx", "--project-id", "proj-abc"}); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	out, err = runCmdCapture(nil, []string{"context", "list"})
+	if err != nil {
+		t.Fatalf("unexpected error after set: %v", err)
+	}
+	if !strings.Contains(out, "myctx") {
+		t.Errorf("expected context in list, got: %s", out)
+	}
+}
+
+func TestContextDeleteCmd(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	// Set up a context first
+	if _, err := runCmdCapture(nil, []string{"context", "set", "myctx", "--project-id", "proj-abc"}); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"context", "delete", "myctx"},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "myctx") {
+					t.Errorf("expected context name in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "non-existent context",
+			args:        []string{"context", "delete", "noexist"},
+			wantErr:     true,
+			errContains: "not found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runCmdCapture(nil, tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
+
+func TestContextCurrentCmd(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	// No current context
+	out, err := runCmdCapture(nil, []string{"context", "current"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "No current context") {
+		t.Errorf("expected 'No current context', got: %s", out)
+	}
+
+	// Set and use a context
+	if _, err := runCmdCapture(nil, []string{"context", "set", "myctx", "--project-id", "proj-abc"}); err != nil {
+		t.Fatalf("setup set failed: %v", err)
+	}
+	if _, err := runCmdCapture(nil, []string{"context", "use", "myctx"}); err != nil {
+		t.Fatalf("setup use failed: %v", err)
+	}
+
+	out, err = runCmdCapture(nil, []string{"context", "current"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "myctx") {
+		t.Errorf("expected current context name, got: %s", out)
+	}
+	if !strings.Contains(out, "proj-abc") {
+		t.Errorf("expected project ID, got: %s", out)
 	}
 }

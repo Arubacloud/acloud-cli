@@ -275,3 +275,74 @@ func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+func TestDBaaSDatabaseUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "newdb"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", jsonResponse(200, types.DatabaseResponse{
+					Name: "mydb",
+				}))
+				// SDK uses the NEW name in the PUT path for databases
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/newdb", jsonResponse(200, types.DatabaseResponse{
+					Name: "newdb",
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "mydb") {
+					t.Errorf("expected db name in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing --name",
+			args:        []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "name",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", errorResponse(404, "Not Found", "not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"database", "dbaas", "database", "update", "dbaas-001", "mydb", "--project-id", "proj-123", "--name", "x"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb", jsonResponse(200, types.DatabaseResponse{
+					Name: "mydb",
+				}))
+				// SDK uses the NEW name in the PUT path for databases
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/x", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}

@@ -281,3 +281,72 @@ func TestDBaaSUserDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+func TestDBaaSUserUpdateCmd(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		setupSrv    func(*arubaTestServer)
+		wantErr     bool
+		errContains string
+		assertOut   func(*testing.T, string)
+	}{
+		{
+			name: "success",
+			args: []string{"database", "dbaas", "user", "update", "dbaas-001", "myuser", "--project-id", "proj-123", "--password", "newpass"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users/myuser", jsonResponse(200, types.UserResponse{
+					Username: "myuser",
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users/myuser", jsonResponse(200, types.UserResponse{
+					Username: "myuser",
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "myuser") {
+					t.Errorf("expected username in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name:        "missing --password",
+			args:        []string{"database", "dbaas", "user", "update", "dbaas-001", "myuser", "--project-id", "proj-123"},
+			wantErr:     true,
+			errContains: "password",
+		},
+		{
+			name: "pre-GET error",
+			args: []string{"database", "dbaas", "user", "update", "dbaas-001", "myuser", "--project-id", "proj-123", "--password", "p"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users/myuser", errorResponse(404, "Not Found", "not found"))
+			},
+			wantErr:     true,
+			errContains: "API error (status 404): Not Found",
+		},
+		{
+			name: "update error",
+			args: []string{"database", "dbaas", "user", "update", "dbaas-001", "myuser", "--project-id", "proj-123", "--password", "p"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users/myuser", jsonResponse(200, types.UserResponse{
+					Username: "myuser",
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users/myuser", errorResponse(500, "Internal Server Error", "boom"))
+			},
+			wantErr:     true,
+			errContains: "updating",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if tc.setupSrv != nil {
+				tc.setupSrv(srv)
+			}
+			out, err := runCmdCapture(srv.Client(), tc.args)
+			checkErr(t, err, tc.wantErr, tc.errContains)
+			if tc.assertOut != nil {
+				tc.assertOut(t, out)
+			}
+		})
+	}
+}
