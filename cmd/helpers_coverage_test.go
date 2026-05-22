@@ -7,6 +7,7 @@ package cmd
 
 import (
 	"errors"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -293,8 +294,21 @@ func TestConfirmDelete_NonInteractive(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("stdin ModeCharDevice detection is unreliable on Windows in test processes")
 	}
-	// On Unix, test processes have stdin as a pipe (ModeCharDevice unset).
-	_, err := confirmDelete("vpc", "vpc-001")
+	// Replace os.Stdin with a real pipe so ModeCharDevice is unset regardless
+	// of how the test runner sets up its stdin (e.g. GitHub Actions).
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		r.Close()
+	}()
+
+	_, err = confirmDelete("vpc", "vpc-001")
 	if err == nil {
 		t.Fatal("expected error in non-interactive mode")
 	}
