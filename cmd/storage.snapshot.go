@@ -95,7 +95,7 @@ var snapshotCreateCmd = &cobra.Command{
 The volume URI is required. Snapshots can later be used to create new volumes
 or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 	Example: `  acloud storage snapshot create --name my-snap --region IT-BG \
-    --volume-uri /projects/<proj-id>/providers/Aruba.Storage/blockstorages/<vol-id>`,
+    --volume-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)

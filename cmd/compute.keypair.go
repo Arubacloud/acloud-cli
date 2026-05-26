@@ -50,7 +50,7 @@ func init() {
 // keypairRef builds the combined project+keypair Ref that v0.2.0 Get/Delete need.
 func keypairRef(projectID, name string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
-		"/providers/Aruba.Compute/keypairs/" + name)
+		"/providers/Aruba.Compute/keyPairs/" + name)
 }
 
 // completeKeyPairID provides shell completion for keypair names.
@@ -173,7 +173,7 @@ var keypairGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		kp, err := client.FromCompute().KeyPairs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/keypairs/"+keypairName))
+		kp, err := client.FromCompute().KeyPairs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/keyPairs/"+keypairName))
 		if err != nil {
 			return fmt.Errorf("getting keypair: %w", apiErrFromV2(err))
 		}
@@ -271,7 +271,7 @@ var keypairDeleteCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		keypairRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Compute/keypairs/" + keypairName)
+		keypairRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Compute/keyPairs/" + keypairName)
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {

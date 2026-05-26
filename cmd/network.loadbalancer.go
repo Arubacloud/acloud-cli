@@ -28,7 +28,7 @@ func init() {
 }
 
 func loadBalancerRef(projectID, lbID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/loadbalancers/" + lbID)
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/loadBalancers/" + lbID)
 }
 
 // Completion functions for network resources

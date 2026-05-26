@@ -10,7 +10,7 @@ import (
 )
 
 func volumeRef(projectID, volumeID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID)
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID)
 }
 
 func init() {
@@ -217,7 +217,7 @@ var blockstorageGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
+		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
 		if err != nil {
 			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 		}
@@ -299,7 +299,7 @@ var blockstorageUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
+		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
 		if err != nil {
 			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 		}
@@ -373,7 +373,7 @@ var blockstorageDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
+			_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
 			if err != nil {
 				return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -381,7 +381,7 @@ var blockstorageDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
+		err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
 		if err != nil {
 			return fmt.Errorf("deleting block storage: %w", apiErrFromV2(err))
 		}

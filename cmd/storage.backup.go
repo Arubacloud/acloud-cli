@@ -109,7 +109,7 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID
+		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID
 
 		ctx, cancel := newCtx()
 		defer cancel()

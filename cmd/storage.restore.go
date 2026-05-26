@@ -116,7 +116,7 @@ idle before starting a restore to avoid data corruption.`,
 		}
 
 		backupURI := "/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID
-		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID
+		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID
 
 		ctx, cancel := newCtx()
 		defer cancel()
