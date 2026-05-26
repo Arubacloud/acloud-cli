@@ -174,10 +174,10 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		{
 			name: "success with networking flags",
 			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
-				"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-				"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
-				"--security-group-uri", "/projects/proj-123/providers/Aruba.Network/securityGroups/sg-001",
-				"--elastic-ip-uri", "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001",
+				"--vpc-id", "vpc-001",
+				"--subnet-id", "sub-001",
+				"--security-group-id", "sg-001",
+				"--elastic-ip-id", "eip-001",
 			},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-new", "my-dbaas"

@@ -89,10 +89,10 @@ func init() {
 	vpntunnelCreateCmd.Flags().String("name", "", "Name for the VPN tunnel")
 	vpntunnelCreateCmd.Flags().String("region", "", "Region code (e.g., ITBG-Bergamo)")
 	vpntunnelCreateCmd.Flags().String("peer-ip", "", "Peer client public IP address")
-	vpntunnelCreateCmd.Flags().String("vpc-uri", "", "VPC URI (e.g., /projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id})")
+	vpntunnelCreateCmd.Flags().String("vpc-id", "", "VPC ID")
 	vpntunnelCreateCmd.Flags().String("subnet-cidr", "", "Subnet CIDR (e.g., 10.0.1.0/24)")
 	vpntunnelCreateCmd.Flags().String("subnet-name", "", "Subnet name (alternative to CIDR)")
-	vpntunnelCreateCmd.Flags().String("elastic-ip-uri", "", "Elastic IP URI (e.g., /projects/{project-id}/providers/Aruba.Network/elasticIps/{ip-id})")
+	vpntunnelCreateCmd.Flags().String("elastic-ip-id", "", "Elastic IP ID")
 	vpntunnelCreateCmd.Flags().String("vpn-type", "Site-To-Site", "VPN type (default: Site-To-Site)")
 	vpntunnelCreateCmd.Flags().String("protocol", "ikev2", "VPN protocol (default: ikev2)")
 	vpntunnelCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
@@ -117,8 +117,8 @@ func init() {
 	vpntunnelCreateCmd.MarkFlagRequired("name")
 	vpntunnelCreateCmd.MarkFlagRequired("region")
 	vpntunnelCreateCmd.MarkFlagRequired("peer-ip")
-	vpntunnelCreateCmd.MarkFlagRequired("vpc-uri")
-	vpntunnelCreateCmd.MarkFlagRequired("elastic-ip-uri")
+	vpntunnelCreateCmd.MarkFlagRequired("vpc-id")
+	vpntunnelCreateCmd.MarkFlagRequired("elastic-ip-id")
 	vpntunnelGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelUpdateCmd.Flags().String("name", "", "New name for the VPN tunnel")
@@ -360,9 +360,9 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 	Example: `  acloud network vpntunnel create \
     --name my-tunnel --region IT-BG \
     --peer-ip 203.0.113.1 \
-    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
+    --vpc-id <vpc-id> \
     --subnet-cidr 10.0.1.0/24 \
-    --elastic-ip-uri /projects/<proj-id>/providers/Aruba.Network/elasticIPs/<eip-id> \
+    --elastic-ip-id <eip-id> \
     --psk my-pre-shared-key`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -372,10 +372,10 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		vpnType, _ := cmd.Flags().GetString("vpn-type")
 		protocol, _ := cmd.Flags().GetString("protocol")
 		peerIP, _ := cmd.Flags().GetString("peer-ip")
-		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
+		vpcID, _ := cmd.Flags().GetString("vpc-id")
 		subnetCIDR, _ := cmd.Flags().GetString("subnet-cidr")
 		subnetName, _ := cmd.Flags().GetString("subnet-name")
-		publicIPURI, _ := cmd.Flags().GetString("elastic-ip-uri")
+		publicIPID, _ := cmd.Flags().GetString("elastic-ip-id")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		psk, _ := cmd.Flags().GetString("psk")
 
@@ -433,8 +433,8 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 
 		// Build IP config
 		ipConfig := aruba.NewVPNIPConfig().
-			WithVPC(aruba.URI(vpcURI)).
-			WithElasticIP(aruba.URI(publicIPURI)).
+			WithVPC(aruba.VPCRef(projectID, vpcID)).
+			WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
 			WithSubnet(subnetName, subnetCIDR)
 
 		// Build IKE settings

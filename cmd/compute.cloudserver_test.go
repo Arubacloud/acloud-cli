@@ -169,10 +169,10 @@ func TestCloudServerCreateCmd(t *testing.T) {
 		"--region", "IT-BG",
 		"--zone", "itbg1-a",
 		"--flavor", "m1.small",
-		"--boot-disk-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001",
-		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-		"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
-		"--security-group-uri", "/projects/proj-123/providers/Aruba.Network/securityGroups/sg-001",
+		"--boot-disk-id", "vol-001",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--security-group-id", "sg-001",
 	}
 	tests := []struct {
 		name        string

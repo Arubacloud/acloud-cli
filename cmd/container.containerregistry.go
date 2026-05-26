@@ -21,21 +21,21 @@ func init() {
 	containerregistryCreateCmd.Flags().String("name", "", "Name for the container registry (required)")
 	containerregistryCreateCmd.Flags().String("region", "", "Region code (required)")
 	containerregistryCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
-	containerregistryCreateCmd.Flags().String("public-ip-uri", "", "Public IP URI (required)")
-	containerregistryCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required)")
-	containerregistryCreateCmd.Flags().String("subnet-uri", "", "Subnet URI (required)")
-	containerregistryCreateCmd.Flags().String("security-group-uri", "", "Security group URI (required)")
-	containerregistryCreateCmd.Flags().String("block-storage-uri", "", "Block storage URI (required)")
+	containerregistryCreateCmd.Flags().String("public-ip-id", "", "Public IP (Elastic IP) ID (required)")
+	containerregistryCreateCmd.Flags().String("vpc-id", "", "VPC ID (required)")
+	containerregistryCreateCmd.Flags().String("subnet-id", "", "Subnet ID (required)")
+	containerregistryCreateCmd.Flags().String("security-group-id", "", "Security group ID (required)")
+	containerregistryCreateCmd.Flags().String("block-storage-id", "", "Block storage ID (required)")
 	containerregistryCreateCmd.Flags().String("billing-period", "", "Billing period: Hour, Month, Year (optional)")
 	containerregistryCreateCmd.Flags().String("admin-username", "", "Administrator username (optional)")
 	containerregistryCreateCmd.Flags().String("concurrent-users", "", "Concurrent users tier: Small, Medium, HighPerf (optional)")
 	containerregistryCreateCmd.MarkFlagRequired("name")
 	containerregistryCreateCmd.MarkFlagRequired("region")
-	containerregistryCreateCmd.MarkFlagRequired("public-ip-uri")
-	containerregistryCreateCmd.MarkFlagRequired("vpc-uri")
-	containerregistryCreateCmd.MarkFlagRequired("subnet-uri")
-	containerregistryCreateCmd.MarkFlagRequired("security-group-uri")
-	containerregistryCreateCmd.MarkFlagRequired("block-storage-uri")
+	containerregistryCreateCmd.MarkFlagRequired("public-ip-id")
+	containerregistryCreateCmd.MarkFlagRequired("vpc-id")
+	containerregistryCreateCmd.MarkFlagRequired("subnet-id")
+	containerregistryCreateCmd.MarkFlagRequired("security-group-id")
+	containerregistryCreateCmd.MarkFlagRequired("block-storage-id")
 
 	containerregistryGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -103,16 +103,16 @@ var containerregistryCreateCmd = &cobra.Command{
 	Long: `Create a new private container registry in the specified region.
 
 All network resources (VPC, subnet, security group, public IP, block storage)
-must already exist. Pass their URIs via the corresponding flags.
+must already exist. Pass their IDs via the corresponding flags.
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud container containerregistry create \
     --name my-registry --region IT-BG \
-    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
-    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
-    --security-group-uri /projects/<proj-id>/providers/Aruba.Network/securityGroups/<sg-id> \
-    --public-ip-uri /projects/<proj-id>/providers/Aruba.Network/elasticIPs/<eip-id> \
-    --block-storage-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
+    --vpc-id <vpc-id> \
+    --subnet-id <subnet-id> \
+    --security-group-id <sg-id> \
+    --public-ip-id <eip-id> \
+    --block-storage-id <vol-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -123,11 +123,11 @@ Billing period: Hour (default), Month, or Year.`,
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		publicIPURI, _ := cmd.Flags().GetString("public-ip-uri")
-		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
-		subnetURI, _ := cmd.Flags().GetString("subnet-uri")
-		securityGroupURI, _ := cmd.Flags().GetString("security-group-uri")
-		blockStorageURI, _ := cmd.Flags().GetString("block-storage-uri")
+		publicIPID, _ := cmd.Flags().GetString("public-ip-id")
+		vpcID, _ := cmd.Flags().GetString("vpc-id")
+		subnetID, _ := cmd.Flags().GetString("subnet-id")
+		sgID, _ := cmd.Flags().GetString("security-group-id")
+		blockStorageID, _ := cmd.Flags().GetString("block-storage-id")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		adminUsername, _ := cmd.Flags().GetString("admin-username")
 		concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
@@ -141,11 +141,11 @@ Billing period: Hour (default), Month, or Year.`,
 			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithElasticIP(aruba.URI(publicIPURI)).
-			WithVPC(aruba.URI(vpcURI)).
-			WithSubnet(aruba.URI(subnetURI)).
-			WithSecurityGroup(aruba.URI(securityGroupURI)).
-			WithBlockStorage(aruba.URI(blockStorageURI)).
+			WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
+			WithVPC(aruba.VPCRef(projectID, vpcID)).
+			WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
+			WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID)).
+			WithBlockStorage(volumeRef(projectID, blockStorageID)).
 			RetaggedAs(tags...)
 
 		if adminUsername != "" {

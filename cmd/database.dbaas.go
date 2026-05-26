@@ -25,10 +25,10 @@ func init() {
 	dbaasCreateCmd.Flags().String("flavor", "", "DBaaS flavor name (required, e.g. DBO4A8)")
 	dbaasCreateCmd.Flags().Int("storage-size", 0, "Storage size in GB (required)")
 	dbaasCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
-	dbaasCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required when project has a VPC)")
-	dbaasCreateCmd.Flags().String("subnet-uri", "", "Subnet URI (required when project has a VPC)")
-	dbaasCreateCmd.Flags().String("security-group-uri", "", "Security group URI (required when project has a VPC)")
-	dbaasCreateCmd.Flags().String("elastic-ip-uri", "", "Elastic IP URI (optional)")
+	dbaasCreateCmd.Flags().String("vpc-id", "", "VPC ID (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("subnet-id", "", "Subnet ID (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("security-group-id", "", "Security group ID (required when project has a VPC)")
+	dbaasCreateCmd.Flags().String("elastic-ip-id", "", "Elastic IP ID (optional)")
 	dbaasCreateCmd.MarkFlagRequired("name")
 	dbaasCreateCmd.MarkFlagRequired("region")
 	dbaasCreateCmd.MarkFlagRequired("zone")
@@ -117,8 +117,14 @@ and users with 'acloud database dbaas user create'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
+		zone, _ := cmd.Flags().GetString("zone")
 		engineID, _ := cmd.Flags().GetString("engine-id")
 		flavor, _ := cmd.Flags().GetString("flavor")
+		storageSize, _ := cmd.Flags().GetInt("storage-size")
+		vpcID, _ := cmd.Flags().GetString("vpc-id")
+		subnetID, _ := cmd.Flags().GetString("subnet-id")
+		sgID, _ := cmd.Flags().GetString("security-group-id")
+		elasticIPID, _ := cmd.Flags().GetString("elastic-ip-id")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		client, err := GetArubaClient()
@@ -130,9 +136,24 @@ and users with 'acloud database dbaas user create'.`,
 			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
+			InZone(aruba.Zone(zone)).
 			OfEngine(aruba.DatabaseEngine(engineID)).
 			OfFlavor(aruba.DBaaSFlavor(flavor)).
+			SizedGB(storageSize).
 			RetaggedAs(tags...)
+
+		if vpcID != "" {
+			dbaas.WithVPC(aruba.VPCRef(projectID, vpcID))
+		}
+		if subnetID != "" {
+			dbaas.WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID))
+		}
+		if sgID != "" {
+			dbaas.WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID))
+		}
+		if elasticIPID != "" {
+			dbaas.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
+		}
 
 		ctx, cancel := newCtx()
 		defer cancel()

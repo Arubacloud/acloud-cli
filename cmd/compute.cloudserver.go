@@ -13,11 +13,11 @@ import (
 )
 
 func init() {
-	cloudserverCreateCmd.Flags().String("boot-disk-uri", "", "Bootable block storage URI (required, e.g., /projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id})")
-	cloudserverCreateCmd.MarkFlagRequired("boot-disk-uri")
-	cloudserverCreateCmd.MarkFlagRequired("vpc-uri")
-	cloudserverCreateCmd.MarkFlagRequired("subnet-uri")
-	cloudserverCreateCmd.MarkFlagRequired("security-group-uri")
+	cloudserverCreateCmd.Flags().String("boot-disk-id", "", "Bootable block storage ID (required)")
+	cloudserverCreateCmd.MarkFlagRequired("boot-disk-id")
+	cloudserverCreateCmd.MarkFlagRequired("vpc-id")
+	cloudserverCreateCmd.MarkFlagRequired("subnet-id")
+	cloudserverCreateCmd.MarkFlagRequired("security-group-id")
 	// CloudServer commands
 	computeCmd.AddCommand(cloudserverCmd)
 	cloudserverCmd.AddCommand(cloudserverCreateCmd)
@@ -36,13 +36,13 @@ func init() {
 	cloudserverCreateCmd.Flags().String("region", "", "Region code (required)")
 	cloudserverCreateCmd.Flags().String("zone", "", "Zone code (required, e.g., itbg1-a)")
 	cloudserverCreateCmd.Flags().String("flavor", "", "Flavor name (required)")
-	cloudserverCreateCmd.Flags().String("keypair-uri", "", "Keypair URI (e.g., /projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name})")
+	cloudserverCreateCmd.Flags().String("keypair-id", "", "Keypair ID (optional)")
 	cloudserverCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	cloudserverCreateCmd.Flags().String("user-data-file", "", "Path to cloud-init YAML file (will be base64 encoded)")
-	cloudserverCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required, e.g., /projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id})")
-	cloudserverCreateCmd.Flags().StringSlice("subnet-uri", []string{}, "Subnet URI(s) (required, comma-separated)")
-	cloudserverCreateCmd.Flags().StringSlice("security-group-uri", []string{}, "Security Group URI(s) (required, comma-separated)")
-	cloudserverCreateCmd.Flags().String("elasticip-uri", "", "Elastic IP URI (optional)")
+	cloudserverCreateCmd.Flags().String("vpc-id", "", "VPC ID (required)")
+	cloudserverCreateCmd.Flags().StringSlice("subnet-id", []string{}, "Subnet ID(s) (required, comma-separated)")
+	cloudserverCreateCmd.Flags().StringSlice("security-group-id", []string{}, "Security Group ID(s) (required, comma-separated)")
+	cloudserverCreateCmd.Flags().String("elasticip-id", "", "Elastic IP ID (optional)")
 	cloudserverCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year (optional, default: Hour)")
 	cloudserverCreateCmd.MarkFlagRequired("name")
 	cloudserverCreateCmd.MarkFlagRequired("region")
@@ -140,24 +140,24 @@ var cloudserverCreateCmd = &cobra.Command{
 	Short: "Create a new cloud server",
 	Long: `Create a new cloud server in the specified region and VPC.
 
-The boot disk is specified as a URI referencing a compute template (image). Network
-resources (VPC, subnet, security group) must already exist; pass their URIs with
---vpc-uri, --subnet-uri, and --security-group-uri.
+The boot disk is specified as a block storage volume ID. Network resources (VPC,
+subnet, security group) must already exist; pass their IDs with --vpc-id,
+--subnet-id, and --security-group-id.
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud compute cloudserver create \
     --name my-server --region IT-BG --zone IT-BG-1 \
     --flavor <flavor-id> \
-    --boot-disk-uri /projects/<proj-id>/providers/Aruba.Compute/templates/<template-id> \
-    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
-    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
-    --security-group-uri /projects/<proj-id>/providers/Aruba.Network/securityGroups/<sg-id>`,
+    --boot-disk-id <volume-id> \
+    --vpc-id <vpc-id> \
+    --subnet-id <subnet-id> \
+    --security-group-id <sg-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
-		subnetURIs, _ := cmd.Flags().GetStringSlice("subnet-uri")
-		securityGroupURIs, _ := cmd.Flags().GetStringSlice("security-group-uri")
-		elasticIPURI, _ := cmd.Flags().GetString("elasticip-uri")
+		vpcID, _ := cmd.Flags().GetString("vpc-id")
+		subnetIDs, _ := cmd.Flags().GetStringSlice("subnet-id")
+		sgIDs, _ := cmd.Flags().GetStringSlice("security-group-id")
+		elasticIPID, _ := cmd.Flags().GetString("elasticip-id")
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
 			return err
@@ -167,8 +167,8 @@ Billing period: Hour (default), Month, or Year.`,
 		region, _ := cmd.Flags().GetString("region")
 		zone, _ := cmd.Flags().GetString("zone")
 		flavor, _ := cmd.Flags().GetString("flavor")
-		bootDiskURI, _ := cmd.Flags().GetString("boot-disk-uri")
-		keypairURI, _ := cmd.Flags().GetString("keypair-uri")
+		bootDiskID, _ := cmd.Flags().GetString("boot-disk-id")
+		keypairID, _ := cmd.Flags().GetString("keypair-id")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		userDataFile, _ := cmd.Flags().GetString("user-data-file")
@@ -178,13 +178,13 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		subnetRefs := make([]aruba.Ref, len(subnetURIs))
-		for i, s := range subnetURIs {
-			subnetRefs[i] = aruba.URI(s)
+		subnetRefs := make([]aruba.Ref, len(subnetIDs))
+		for i, s := range subnetIDs {
+			subnetRefs[i] = aruba.SubnetRef(projectID, vpcID, s)
 		}
-		sgRefs := make([]aruba.Ref, len(securityGroupURIs))
-		for i, sg := range securityGroupURIs {
-			sgRefs[i] = aruba.URI(sg)
+		sgRefs := make([]aruba.Ref, len(sgIDs))
+		for i, sg := range sgIDs {
+			sgRefs[i] = aruba.SecurityGroupRef(projectID, vpcID, sg)
 		}
 		server := aruba.NewCloudServer().
 			InProject(aruba.URI("/projects/" + projectID)).
@@ -192,18 +192,18 @@ Billing period: Hour (default), Month, or Year.`,
 			InRegion(aruba.Region(region)).
 			InZone(aruba.Zone(zone)).
 			OfFlavor(aruba.CloudServerFlavor(flavor)).
-			BootingFrom(aruba.URI(bootDiskURI)).
-			WithVPC(aruba.URI(vpcURI)).
+			BootingFrom(volumeRef(projectID, bootDiskID)).
+			WithVPC(aruba.VPCRef(projectID, vpcID)).
 			OnSubnets(subnetRefs...).
 			WithSecurityGroups(sgRefs...).
 			RetaggedAs(tags...).
 			BilledBy(aruba.BillingPeriod(billingPeriod))
 
-		if elasticIPURI != "" {
-			server.WithElasticIP(aruba.URI(elasticIPURI))
+		if elasticIPID != "" {
+			server.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
 		}
-		if keypairURI != "" {
-			server.UsingKeyPair(aruba.URI(keypairURI))
+		if keypairID != "" {
+			server.UsingKeyPair(keypairRef(projectID, keypairID))
 		}
 		if userDataFile != "" {
 			fileContent, err := os.ReadFile(userDataFile)

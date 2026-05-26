@@ -13,6 +13,10 @@ func volumeRef(projectID, volumeID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID)
 }
 
+func snapshotRef(projectID, snapshotID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/snapshots/" + snapshotID)
+}
+
 func init() {
 	storageCmd.AddCommand(blockstorageCmd)
 	blockstorageCmd.AddCommand(blockstorageCreateCmd)
@@ -29,7 +33,7 @@ func init() {
 	blockstorageCreateCmd.Flags().String("type", "Standard", "Type: Standard or Performance")
 	blockstorageCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	blockstorageCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
-	blockstorageCreateCmd.Flags().String("snapshot-uri", "", "URI of the snapshot to use (optional)")
+	blockstorageCreateCmd.Flags().String("snapshot-id", "", "ID of the snapshot to use (optional)")
 	blockstorageCreateCmd.Flags().Bool("set-bootable", false, "Set block storage as bootable (optional)")
 	blockstorageCreateCmd.Flags().String("image", "", "Image string to use for the block storage (optional)")
 	blockstorageCreateCmd.MarkFlagRequired("name")
@@ -100,7 +104,7 @@ var blockstorageCreateCmd = &cobra.Command{
 	Long: `Create a new block storage volume in the specified region.
 
 Volume size is specified in GB with --size. Type options: Standard or Performance.
-The volume can be initialised from a snapshot with --snapshot-uri, or from an
+The volume can be initialised from a snapshot with --snapshot-id, or from an
 image with --image. Pass --set-bootable to mark the volume as a boot disk.
 
 Billing period: Hour (default), Month, or Year.`,
@@ -110,7 +114,7 @@ Billing period: Hour (default), Month, or Year.`,
   # Create a Performance volume from a snapshot
   acloud storage blockstorage create --name fast-vol --size 100 --region IT-BG \
     --type Performance \
-    --snapshot-uri /projects/<proj-id>/providers/Aruba.Storage/snapshots/<snap-id>`,
+    --snapshot-id <snap-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -125,7 +129,7 @@ Billing period: Hour (default), Month, or Year.`,
 		volumeType, _ := cmd.Flags().GetString("type")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		snapshotURI, _ := cmd.Flags().GetString("snapshot-uri")
+		snapshotID, _ := cmd.Flags().GetString("snapshot-id")
 		setBootable, _ := cmd.Flags().GetBool("set-bootable")
 		image, _ := cmd.Flags().GetString("image")
 
@@ -150,8 +154,8 @@ Billing period: Hour (default), Month, or Year.`,
 		if zone != "" {
 			vol.InZone(aruba.Zone(zone))
 		}
-		if snapshotURI != "" {
-			vol.FromSnapshot(aruba.URI(snapshotURI))
+		if snapshotID != "" {
+			vol.FromSnapshot(snapshotRef(projectID, snapshotID))
 		}
 		if setBootable {
 			vol.AsBootable()

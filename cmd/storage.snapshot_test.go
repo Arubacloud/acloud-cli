@@ -8,7 +8,8 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
-const snapshotVolURI = "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
+const snapshotVolID = "vol-001"
+const snapshotVolURI = "/projects/proj-123/providers/Aruba.Storage/blockStorages/" + snapshotVolID
 
 func TestSnapshotListCmd(t *testing.T) {
 	tests := []struct {
@@ -21,7 +22,7 @@ func TestSnapshotListCmd(t *testing.T) {
 	}{
 		{
 			name: "success with results",
-			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-uri", snapshotVolURI},
+			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "snap-001", "my-snapshot"
 				volURI := snapshotVolURI
@@ -42,14 +43,14 @@ func TestSnapshotListCmd(t *testing.T) {
 		},
 		{
 			name: "success empty",
-			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-uri", snapshotVolURI},
+			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{}))
 			},
 		},
 		{
 			name: "--output=json emits valid JSON",
-			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-uri", snapshotVolURI, "--output", "json"},
+			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID, "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "snap-001", "my-snapshot"
 				volURI := snapshotVolURI
@@ -71,7 +72,7 @@ func TestSnapshotListCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-uri", snapshotVolURI},
+			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -79,7 +80,7 @@ func TestSnapshotListCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-uri", snapshotVolURI},
+			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -160,7 +161,7 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
 		"--region", "IT-BG",
-		"--volume-uri", snapshotVolURI,
+		"--volume-id", snapshotVolID,
 	}
 	tests := []struct {
 		name        string
@@ -187,15 +188,15 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "IT-BG", "--volume-uri", snapshotVolURI},
+			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "IT-BG", "--volume-id", snapshotVolID},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
-			name:        "missing required flag --volume-uri",
+			name:        "missing required flag --volume-id",
 			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "my-snapshot", "--region", "IT-BG"},
 			wantErr:     true,
-			errContains: "volume-uri",
+			errContains: "volume-id",
 		},
 		{
 			name: "API error propagates",
@@ -378,7 +379,7 @@ func TestSnapshotCreateCmd_Verbose(t *testing.T) {
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
 		"--region", "IT-BG",
-		"--volume-uri", snapshotVolURI,
+		"--volume-id", snapshotVolID,
 		"--verbose",
 	})
 	if err != nil {

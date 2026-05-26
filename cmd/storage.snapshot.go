@@ -20,12 +20,12 @@ func init() {
 	snapshotCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	snapshotCreateCmd.Flags().String("name", "", "Name for the snapshot (required)")
 	snapshotCreateCmd.Flags().String("region", "", "Region code (required)")
-	snapshotCreateCmd.Flags().String("volume-uri", "", "Source volume URI (required)")
+	snapshotCreateCmd.Flags().String("volume-id", "", "Source volume ID (required)")
 	snapshotCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	snapshotCreateCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	snapshotCreateCmd.MarkFlagRequired("name")
 	snapshotCreateCmd.MarkFlagRequired("region")
-	snapshotCreateCmd.MarkFlagRequired("volume-uri")
+	snapshotCreateCmd.MarkFlagRequired("volume-id")
 
 	snapshotGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -38,10 +38,10 @@ func init() {
 	snapshotDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	snapshotListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
-	snapshotListCmd.Flags().String("volume-uri", "", "Block storage volume URI (required)")
+	snapshotListCmd.Flags().String("volume-id", "", "Block storage volume ID to filter by (optional)")
 	snapshotListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	snapshotListCmd.Flags().Int32("offset", 0, "Number of results to skip")
-	snapshotListCmd.MarkFlagRequired("volume-uri")
+	snapshotListCmd.MarkFlagRequired("volume-id")
 
 	snapshotGetCmd.ValidArgsFunction = completeSnapshotID
 	snapshotUpdateCmd.ValidArgsFunction = completeSnapshotID
@@ -92,10 +92,10 @@ var snapshotCreateCmd = &cobra.Command{
 	Short: "Create a new snapshot",
 	Long: `Create a point-in-time snapshot of an existing block storage volume.
 
-The volume URI is required. Snapshots can later be used to create new volumes
-or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
+The volume ID is required. Snapshots can later be used to create new volumes
+or restore data with 'acloud storage blockstorage create --snapshot-id'.`,
 	Example: `  acloud storage snapshot create --name my-snap --region IT-BG \
-    --volume-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
+    --volume-id <vol-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -105,7 +105,7 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
-		volumeURI, _ := cmd.Flags().GetString("volume-uri")
+		volumeID, _ := cmd.Flags().GetString("volume-id")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		client, err := GetArubaClient()
@@ -117,7 +117,7 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			FromVolume(aruba.URI(volumeURI)).
+			FromVolume(volumeRef(projectID, volumeID)).
 			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
@@ -360,7 +360,7 @@ var snapshotListCmd = &cobra.Command{
 			return err
 		}
 
-		volumeURI, _ := cmd.Flags().GetString("volume-uri")
+		volumeID, _ := cmd.Flags().GetString("volume-id")
 
 		client, err := GetArubaClient()
 		if err != nil {
@@ -384,7 +384,7 @@ var snapshotListCmd = &cobra.Command{
 		var rows [][]string
 		if list != nil {
 			for _, snap := range list.Items() {
-				if snap.VolumeURI() != volumeURI {
+				if snap.VolumeURI() != volumeRef(projectID, volumeID).URI() {
 					continue
 				}
 				raw := snap.Raw()
@@ -412,7 +412,7 @@ var snapshotListCmd = &cobra.Command{
 		}
 
 		if len(rows) == 0 {
-			fmt.Printf("No snapshots found for volume: %s\n", volumeURI)
+			fmt.Printf("No snapshots found for volume: %s\n", volumeID)
 			return nil
 		}
 

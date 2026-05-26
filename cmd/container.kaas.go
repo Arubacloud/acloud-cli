@@ -26,8 +26,8 @@ func init() {
 	kaasCreateCmd.Flags().String("name", "", "Name for the KaaS cluster (required)")
 	kaasCreateCmd.Flags().String("region", "", "Region code (required)")
 	kaasCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
-	kaasCreateCmd.Flags().String("vpc-uri", "", "VPC URI (required)")
-	kaasCreateCmd.Flags().String("subnet-uri", "", "Subnet URI (required)")
+	kaasCreateCmd.Flags().String("vpc-id", "", "VPC ID (required)")
+	kaasCreateCmd.Flags().String("subnet-id", "", "Subnet ID (required)")
 	kaasCreateCmd.Flags().String("node-cidr-address", "", "Node CIDR address in CIDR notation (required, e.g., 10.0.0.0/16)")
 	kaasCreateCmd.Flags().String("node-cidr-name", "", "Node CIDR name (required)")
 	kaasCreateCmd.Flags().String("security-group-name", "", "Security group name (required)")
@@ -46,8 +46,8 @@ func init() {
 	kaasCreateCmd.Flags().Bool("api-server-enable-private-cluster", false, "Enable private cluster for API server (optional)")
 	kaasCreateCmd.MarkFlagRequired("name")
 	kaasCreateCmd.MarkFlagRequired("region")
-	kaasCreateCmd.MarkFlagRequired("vpc-uri")
-	kaasCreateCmd.MarkFlagRequired("subnet-uri")
+	kaasCreateCmd.MarkFlagRequired("vpc-id")
+	kaasCreateCmd.MarkFlagRequired("subnet-id")
 	kaasCreateCmd.MarkFlagRequired("node-cidr-address")
 	kaasCreateCmd.MarkFlagRequired("node-cidr-name")
 	kaasCreateCmd.MarkFlagRequired("security-group-name")
@@ -145,8 +145,8 @@ and --node-pool-max-count).
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud container kaas create \
     --name my-cluster --region IT-BG \
-    --vpc-uri /projects/<proj-id>/providers/Aruba.Network/vpcs/<vpc-id> \
-    --subnet-uri /projects/<proj-id>/providers/Aruba.Network/subnets/<subnet-id> \
+    --vpc-id <vpc-id> \
+    --subnet-id <subnet-id> \
     --node-cidr-address 10.0.0.0/24 --node-cidr-name my-cidr \
     --security-group-name my-sg \
     --kubernetes-version 1.32.3 \
@@ -162,8 +162,8 @@ Billing period: Hour (default), Month, or Year.`,
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
-		subnetURI, _ := cmd.Flags().GetString("subnet-uri")
+		vpcID, _ := cmd.Flags().GetString("vpc-id")
+		subnetID, _ := cmd.Flags().GetString("subnet-id")
 		nodeCIDRAddress, _ := cmd.Flags().GetString("node-cidr-address")
 		nodeCIDRName, _ := cmd.Flags().GetString("node-cidr-name")
 		securityGroupName, _ := cmd.Flags().GetString("security-group-name")
@@ -199,8 +199,8 @@ Billing period: Hour (default), Month, or Year.`,
 			InProject(aruba.URI("/projects/"+projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithVPC(aruba.URI(vpcURI)).
-			WithSubnet(aruba.URI(subnetURI)).
+			WithVPC(aruba.VPCRef(projectID, vpcID)).
+			WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
 			WithNodeCIDR(nodeCIDRAddress, nodeCIDRName).
 			WithSecurityGroupName(securityGroupName).
 			WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).

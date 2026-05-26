@@ -197,8 +197,8 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 		"--name", "my-tunnel",
 		"--region", "IT-BG",
 		"--peer-ip", "1.2.3.4",
-		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-		"--elastic-ip-uri", "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001",
+		"--vpc-id", "vpc-001",
+		"--elastic-ip-id", "eip-001",
 		"--subnet-cidr", "10.0.1.0/24",
 	}
 	tests := []struct {
@@ -238,10 +238,10 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 			errContains: "peer-ip",
 		},
 		{
-			name:        "missing required flag --vpc-uri",
-			args:        removeFlag(baseArgs, "--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"),
+			name:        "missing required flag --vpc-id",
+			args:        removeFlag(baseArgs, "--vpc-id", "vpc-001"),
 			wantErr:     true,
-			errContains: "vpc-uri",
+			errContains: "vpc-id",
 		},
 		{
 			name:        "rejects invalid --ike-encryption before API call",
