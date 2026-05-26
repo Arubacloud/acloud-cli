@@ -7,6 +7,7 @@ package cmd
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -259,4 +260,197 @@ func TestConfirmDelete_NonInteractive(t *testing.T) {
 	if !strings.Contains(err.Error(), "--yes") {
 		t.Errorf("expected --yes mention in error, got: %s", err.Error())
 	}
+}
+
+// ─── *Ref helpers ─────────────────────────────────────────────────────────────
+
+func TestRefHelpers(t *testing.T) {
+	uriStr := func(r aruba.Ref) string { return r.URI() }
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"project", uriStr(projectRef("p1")), "/projects/p1"},
+		{"cloudserver", uriStr(cloudServerRef("p1", "cs1")),
+			"/projects/p1/providers/Aruba.Compute/cloudServers/cs1"},
+		{"keypair", uriStr(keypairRef("p1", "kp1")),
+			"/projects/p1/providers/Aruba.Compute/keyPairs/kp1"},
+		{"volume", uriStr(volumeRef("p1", "v1")),
+			"/projects/p1/providers/Aruba.Storage/blockStorages/v1"},
+		{"loadbalancer", uriStr(loadBalancerRef("p1", "lb1")),
+			"/projects/p1/providers/Aruba.Network/loadBalancers/lb1"},
+		{"securitygroup", uriStr(securityGroupRef("p1", "vpc1", "sg1")),
+			"/projects/p1/providers/Aruba.Network/vpcs/vpc1/security-groups/sg1"},
+		{"database", uriStr(databaseRef("p1", "d1", "mydb")),
+			"/projects/p1/providers/Aruba.Database/dbaas/d1/databases/mydb"},
+		{"grant", uriStr(grantRef("p1", "d1", "mydb", "g1")),
+			"/projects/p1/providers/Aruba.Database/dbaas/d1/databases/mydb/grants/g1"},
+		{"kms", uriStr(kmsRef("p1", "k1")),
+			"/projects/p1/providers/Aruba.Security/kms/k1"},
+		{"job", uriStr(jobRef("p1", "j1")),
+			"/projects/p1/providers/Aruba.Schedule/jobs/j1"},
+		{"restore", uriStr(restoreRef("p1", "b1", "r1")),
+			"/projects/p1/providers/Aruba.Storage/backups/b1/restores/r1"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Fatalf("got %q, want %q", c.got, c.want)
+			}
+		})
+	}
+}
+
+// ─── extractIDFromURI ─────────────────────────────────────────────────────────
+
+func TestExtractIDFromURI(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/projects/p1/providers/Aruba.Network/elasticIps/eip-42", "eip-42"},
+		{"/projects/p1/", "p1"},  // trailing slash trimmed
+		{"plain-id", "plain-id"}, // no slash
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := extractIDFromURI(c.in); got != c.want {
+			t.Errorf("extractIDFromURI(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ─── projectWrapper ───────────────────────────────────────────────────────────
+
+func TestProjectWrapper(t *testing.T) {
+	id := "p1"
+	name := "alpha"
+	t.Run("success", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1", jsonResponse(200, types.ProjectResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		p, err := projectWrapper(ctx, srv.Client(), "p1")
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if p.ID() != "p1" {
+			t.Fatalf("ID=%q want p1", p.ID())
+		}
+	})
+
+	t.Run("api error normalised", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p404", errorResponse(404, "Not Found", "no such project"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		_, err := projectWrapper(ctx, srv.Client(), "p404")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "404") {
+			t.Errorf("err does not mention status 404: %v", err)
+		}
+	})
+}
+
+// ─── printJSON / printYAML ────────────────────────────────────────────────────
+
+type fakeRawMarshaler struct{ j, y []byte }
+
+func (f fakeRawMarshaler) RawJSON() []byte { return f.j }
+func (f fakeRawMarshaler) RawYAML() []byte { return f.y }
+
+type fakeRawHTTPer struct{ body []byte }
+
+func (f fakeRawHTTPer) RawHTTP() (*http.Response, []byte) { return nil, f.body }
+
+func TestPrintJSON(t *testing.T) {
+	t.Run("nil emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printJSON(nil) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("rawMarshaler written verbatim", func(t *testing.T) {
+		payload := []byte(`{"id":"x1"}`)
+		out := captureStdout(func() { printJSON(fakeRawMarshaler{j: payload}) })
+		if !strings.Contains(out, `"id":"x1"`) {
+			t.Fatalf("got %q", out)
+		}
+	})
+
+	t.Run("rawMarshaler empty bytes emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printJSON(fakeRawMarshaler{j: []byte{}}) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("rawHTTPer body used", func(t *testing.T) {
+		out := captureStdout(func() { printJSON(fakeRawHTTPer{body: []byte(`{"k":"v"}`)}) })
+		if !strings.Contains(out, `"k":"v"`) {
+			t.Fatalf("got %q", out)
+		}
+	})
+
+	t.Run("rawHTTPer empty body emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printJSON(fakeRawHTTPer{body: []byte{}}) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("plain struct marshalled", func(t *testing.T) {
+		out := captureStdout(func() { printJSON(map[string]any{"hello": "world"}) })
+		if !strings.Contains(out, `"hello"`) || !strings.Contains(out, `"world"`) {
+			t.Fatalf("got %q", out)
+		}
+	})
+}
+
+func TestPrintYAML(t *testing.T) {
+	t.Run("nil emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printYAML(nil) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("rawMarshaler written verbatim", func(t *testing.T) {
+		payload := []byte("id: x1\n")
+		out := captureStdout(func() { printYAML(fakeRawMarshaler{y: payload}) })
+		if !strings.Contains(out, "id: x1") {
+			t.Fatalf("got %q", out)
+		}
+	})
+
+	t.Run("rawMarshaler empty bytes emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printYAML(fakeRawMarshaler{y: []byte{}}) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("rawHTTPer JSON body converted to YAML", func(t *testing.T) {
+		out := captureStdout(func() { printYAML(fakeRawHTTPer{body: []byte(`{"k":"v"}`)}) })
+		if !strings.Contains(out, "k: v") {
+			t.Fatalf("got %q", out)
+		}
+	})
+
+	t.Run("rawHTTPer empty body emits {}", func(t *testing.T) {
+		out := captureStdout(func() { printYAML(fakeRawHTTPer{body: []byte{}}) })
+		if strings.TrimSpace(out) != "{}" {
+			t.Fatalf("got %q, want {}", out)
+		}
+	})
+
+	t.Run("plain struct converted to YAML", func(t *testing.T) {
+		out := captureStdout(func() { printYAML(map[string]any{"hello": "world"}) })
+		if !strings.Contains(out, "hello: world") {
+			t.Fatalf("got %q", out)
+		}
+	})
 }
