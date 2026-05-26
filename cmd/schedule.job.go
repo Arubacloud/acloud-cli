@@ -167,11 +167,16 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 		}
 
 		job := aruba.NewJob().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithEnabled(enabled).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
+
+		if enabled {
+			job.Enabled()
+		} else {
+			job.Disabled()
+		}
 
 		if jobType == "OneShot" {
 			t, err := time.Parse(time.RFC3339, scheduleAt)
@@ -418,10 +423,14 @@ var jobUpdateCmd = &cobra.Command{
 			job.Named(name)
 		}
 		if enabledSet {
-			job.WithEnabled(enabled)
+			if enabled {
+				job.Enabled()
+			} else {
+				job.Disabled()
+			}
 		}
 		if cmd.Flags().Changed("tags") {
-			job.ReplaceTags(tags...)
+			job.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromSchedule().Jobs().Update(ctx, job)

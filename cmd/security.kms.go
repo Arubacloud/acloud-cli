@@ -128,11 +128,11 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		kms := aruba.NewKMS().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -345,7 +345,7 @@ var kmsUpdateCmd = &cobra.Command{
 			kms.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			kms.ReplaceTags(tags...)
+			kms.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromSecurity().KMS().Update(ctx, kms)

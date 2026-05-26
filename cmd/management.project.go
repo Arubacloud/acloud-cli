@@ -139,9 +139,9 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 		}
 
 		// Build the create request
-		proj := aruba.NewProject().Named(name).ReplaceTags(tags...)
+		proj := aruba.NewProject().Named(name).RetaggedAs(tags...)
 		if description != "" {
-			proj.WithDescription(description)
+			proj.DescribedAs(description)
 		}
 		if setDefault {
 			proj.AsDefault()
@@ -297,10 +297,10 @@ var projectUpdateCmd = &cobra.Command{
 
 		// Apply updates
 		if description != "" {
-			p.WithDescription(description)
+			p.DescribedAs(description)
 		}
 		if cmd.Flags().Changed("tags") {
-			p.ReplaceTags(tags...)
+			p.RetaggedAs(tags...)
 		}
 
 		// Update the project using the SDK

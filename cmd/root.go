@@ -95,7 +95,7 @@ func projectRef(projectID string) aruba.Ref {
 }
 
 // projectWrapper fetches the *aruba.Project for projectID so callers can chain
-// IntoProject(proj) on project-scoped resources. (TD-022)
+// InProject(proj) on project-scoped resources. (TD-022)
 func projectWrapper(ctx context.Context, client aruba.Client, projectID string) (*aruba.Project, error) {
 	proj, err := client.FromProject().Get(ctx, projectRef(projectID))
 	if err != nil {
