@@ -130,7 +130,7 @@ Billing period: Hour (default), Month, or Year.`,
 		defer cancel()
 		created, err := client.FromDatabase().Backups().Create(ctx, bkp)
 		if err != nil {
-			return fmt.Errorf("creating backup: %w", err)
+			return fmt.Errorf("creating backup: %w", apiErrFromV2(err))
 		}
 
 		if created != nil && created.Raw() != nil {
@@ -339,7 +339,7 @@ var backupDeleteCmd = &cobra.Command{
 
 		err = client.FromDatabase().Backups().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("deleting backup: %w", err)
+			return fmt.Errorf("deleting backup: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

@@ -371,7 +371,7 @@ var dbaasUpdateCmd = &cobra.Command{
 		defer cancel()
 		dbaas, err := client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
 		if err != nil {
-			return fmt.Errorf("getting DBaaS instance: %w", err)
+			return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
 		}
 		if dbaas == nil || dbaas.Raw() == nil {
 			return fmt.Errorf("DBaaS instance not found")
@@ -451,7 +451,7 @@ var dbaasDeleteCmd = &cobra.Command{
 
 		err = client.FromDatabase().DBaaS().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
 		if err != nil {
-			return fmt.Errorf("deleting DBaaS instance: %w", err)
+			return fmt.Errorf("deleting DBaaS instance: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("DBaaS instance", dbaasID))

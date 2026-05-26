@@ -277,7 +277,7 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 
 		peering, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil || peering == nil || peering.Raw() == nil {
-			return fmt.Errorf("fetching current VPC peering: %w", err)
+			return fmt.Errorf("fetching current VPC peering: %w", apiErrFromV2(err))
 		}
 
 		if peering.Raw().Status.State != nil && *peering.Raw().Status.State == StateInCreation {
@@ -375,7 +375,7 @@ var vpcpeeringDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().VPCPeerings().Delete(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil {
-			return fmt.Errorf("deleting VPC peering: %w", err)
+			return fmt.Errorf("deleting VPC peering: %w", apiErrFromV2(err))
 		}
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},

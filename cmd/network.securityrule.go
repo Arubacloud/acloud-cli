@@ -515,7 +515,7 @@ var securityruleDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().SecurityGroupRules().Delete(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
 		if err != nil {
-			return fmt.Errorf("deleting security rule: %w", err)
+			return fmt.Errorf("deleting security rule: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{

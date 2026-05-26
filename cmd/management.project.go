@@ -206,7 +206,7 @@ var projectGetCmd = &cobra.Command{
 		defer cancel()
 		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("getting project: %w", err)
+			return fmt.Errorf("getting project: %w", apiErrFromV2(err))
 		}
 
 		if p != nil && p.ID() != "" {
@@ -288,7 +288,7 @@ var projectUpdateCmd = &cobra.Command{
 		defer cancel()
 		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("fetching current project: %w", err)
+			return fmt.Errorf("fetching current project: %w", apiErrFromV2(err))
 		}
 
 		if p == nil || p.ID() == "" {
@@ -373,7 +373,7 @@ var projectDeleteCmd = &cobra.Command{
 		// Delete the project using the SDK
 		err = client.FromProject().Delete(ctx, projectRef)
 		if err != nil {
-			return fmt.Errorf("deleting project: %w", err)
+			return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{

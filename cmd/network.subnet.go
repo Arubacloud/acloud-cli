@@ -347,7 +347,7 @@ var subnetUpdateCmd = &cobra.Command{
 
 		subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 		if err != nil || subnet == nil || subnet.Raw() == nil {
-			return fmt.Errorf("fetching current subnet: %w", err)
+			return fmt.Errorf("fetching current subnet: %w", apiErrFromV2(err))
 		}
 
 		if subnet.Raw().Status.State != nil && *subnet.Raw().Status.State == StateInCreation {
@@ -480,7 +480,7 @@ var subnetDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 		if err != nil {
-			return fmt.Errorf("deleting subnet: %w", err)
+			return fmt.Errorf("deleting subnet: %w", apiErrFromV2(err))
 		}
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},

@@ -270,7 +270,7 @@ var dbaasDatabaseUpdateCmd = &cobra.Command{
 		defer cancel()
 		db, err := client.FromDatabase().Databases().Get(ctx, aruba.URI(dbURI))
 		if err != nil {
-			return fmt.Errorf("getting database: %w", err)
+			return fmt.Errorf("getting database: %w", apiErrFromV2(err))
 		}
 		if db == nil || db.Raw() == nil {
 			return fmt.Errorf("database not found")
@@ -280,7 +280,7 @@ var dbaasDatabaseUpdateCmd = &cobra.Command{
 
 		updated, err := client.FromDatabase().Databases().Update(ctx, db)
 		if err != nil {
-			return fmt.Errorf("fetching current database: %w", apiErrFromV2(err))
+			return fmt.Errorf("updating database: %w", apiErrFromV2(err))
 		}
 
 		if updated != nil && updated.Raw() != nil {
@@ -339,7 +339,7 @@ var dbaasDatabaseDeleteCmd = &cobra.Command{
 
 		err = client.FromDatabase().Databases().Delete(ctx, aruba.URI(dbURI))
 		if err != nil {
-			return fmt.Errorf("deleting database: %w", err)
+			return fmt.Errorf("deleting database: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Database", databaseName))

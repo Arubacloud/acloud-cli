@@ -210,7 +210,7 @@ var vpntunnelListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromNetwork().VPNTunnels().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing VPN tunnels: %w", err)
+			return fmt.Errorf("listing VPN tunnels: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -278,7 +278,7 @@ var vpntunnelGetCmd = &cobra.Command{
 		defer cancel()
 		vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnID))
 		if err != nil {
-			return fmt.Errorf("getting VPN tunnel details: %w", err)
+			return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
 		}
 
 		if vpn != nil && vpn.Raw() != nil {
@@ -540,7 +540,7 @@ var vpntunnelUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -644,7 +644,7 @@ var vpntunnelDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 		if err != nil {
-			return fmt.Errorf("deleting VPN tunnel: %w", err)
+			return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("VPN tunnel", vpnTunnelID))

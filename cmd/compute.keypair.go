@@ -295,7 +295,7 @@ var keypairDeleteCmd = &cobra.Command{
 
 		err = client.FromCompute().KeyPairs().Delete(ctx, keypairRef)
 		if err != nil {
-			return fmt.Errorf("deleting keypair: %w", err)
+			return fmt.Errorf("deleting keypair: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Keypair", keypairName))
@@ -322,7 +322,7 @@ var keypairListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromCompute().KeyPairs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing keypairs: %w", err)
+			return fmt.Errorf("listing keypairs: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {

@@ -334,7 +334,7 @@ var kmsUpdateCmd = &cobra.Command{
 		defer cancel()
 		kms, err := client.FromSecurity().KMS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Security/kms/"+kmsID))
 		if err != nil {
-			return fmt.Errorf("getting KMS: %w", err)
+			return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 		}
 
 		if kms == nil || kms.Raw() == nil {
@@ -404,7 +404,7 @@ var kmsDeleteCmd = &cobra.Command{
 
 		err = client.FromSecurity().KMS().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Security/kms/"+kmsID))
 		if err != nil {
-			return fmt.Errorf("deleting KMS: %w", err)
+			return fmt.Errorf("deleting KMS: %w", apiErrFromV2(err))
 		}
 
 		if err := client.FromSecurity().KMS().Delete(ctx, kmsRef(projectID, kmsID)); err != nil {

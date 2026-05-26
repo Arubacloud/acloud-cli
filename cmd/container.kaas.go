@@ -355,7 +355,7 @@ var kaasListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromContainer().KaaS().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing KaaS clusters: %w", err)
+			return fmt.Errorf("listing KaaS clusters: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -425,7 +425,7 @@ var kaasUpdateCmd = &cobra.Command{
 		kaasURI := "/projects/" + projectID + "/providers/Aruba.Container/kaas/" + kaasID
 		kaas, err := client.FromContainer().KaaS().Get(ctx, aruba.URI(kaasURI))
 		if err != nil {
-			return fmt.Errorf("getting KaaS cluster: %w", err)
+			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 		}
 		if kaas == nil || kaas.Raw() == nil {
 			return fmt.Errorf("KaaS cluster not found")
@@ -543,7 +543,7 @@ var kaasDeleteCmd = &cobra.Command{
 
 		err = client.FromContainer().KaaS().Delete(ctx, aruba.URI(kaasURI))
 		if err != nil {
-			return fmt.Errorf("deleting KaaS cluster: %w", err)
+			return fmt.Errorf("deleting KaaS cluster: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("KaaS cluster", kaasID))
@@ -573,7 +573,7 @@ var kaasConnectCmd = &cobra.Command{
 		kaasURI := "/projects/" + projectID + "/providers/Aruba.Container/kaas/" + kaasID
 		kaas, err := client.FromContainer().KaaS().Get(ctx, aruba.URI(kaasURI))
 		if err != nil {
-			return fmt.Errorf("getting KaaS cluster: %w", err)
+			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 		}
 		if kaas == nil || kaas.Raw() == nil {
 			return fmt.Errorf("KaaS cluster not found")
@@ -581,7 +581,7 @@ var kaasConnectCmd = &cobra.Command{
 
 		kubeconfigBytes, err := kaas.DownloadKubeconfig(ctx)
 		if err != nil {
-			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
+			return fmt.Errorf("downloading kubeconfig: %w", apiErrFromV2(err))
 		}
 		if kubeconfigBytes == nil {
 			return fmt.Errorf("no kubeconfig data returned")
@@ -589,12 +589,12 @@ var kaasConnectCmd = &cobra.Command{
 
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("getting home directory: %w", err)
+			return fmt.Errorf("getting home directory: %w", apiErrFromV2(err))
 		}
 
 		kubeDir := filepath.Join(homeDir, ".kube")
 		if err = os.MkdirAll(kubeDir, 0755); err != nil {
-			return fmt.Errorf("creating .kube directory: %w", err)
+			return fmt.Errorf("creating .kube directory: %w", apiErrFromV2(err))
 		}
 
 		clusterName := kaasID

@@ -260,7 +260,7 @@ var securitygroupUpdateCmd = &cobra.Command{
 
 		sg, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
 		if err != nil || sg == nil || sg.Raw() == nil {
-			return fmt.Errorf("fetching current security group: %w", err)
+			return fmt.Errorf("fetching current security group: %w", apiErrFromV2(err))
 		}
 
 		if sg.Raw().Status.State != nil && *sg.Raw().Status.State == StateInCreation {
@@ -353,7 +353,7 @@ var securitygroupDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().SecurityGroups().Delete(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
 		if err != nil {
-			return fmt.Errorf("deleting security group: %w", err)
+			return fmt.Errorf("deleting security group: %w", apiErrFromV2(err))
 		}
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},

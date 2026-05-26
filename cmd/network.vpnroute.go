@@ -336,7 +336,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 		// Fetch current VPN route details
 		route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 		if err != nil || route == nil || route.Raw() == nil {
-			return fmt.Errorf("fetching current VPN route: %w", err)
+			return fmt.Errorf("fetching current VPN route: %w", apiErrFromV2(err))
 		}
 
 		// Block update if VPN route is in 'InCreation' state
@@ -437,7 +437,7 @@ var vpnrouteDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 		if err != nil {
-			return fmt.Errorf("deleting VPN route: %w", err)
+			return fmt.Errorf("deleting VPN route: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{

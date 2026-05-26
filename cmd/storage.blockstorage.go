@@ -234,7 +234,7 @@ var blockstorageGetCmd = &cobra.Command{
 		defer cancel()
 		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
 		if err != nil {
-			return fmt.Errorf("getting block storage: %w", err)
+			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 		}
 
 		if vol != nil && vol.Raw() != nil {
@@ -316,7 +316,7 @@ var blockstorageUpdateCmd = &cobra.Command{
 		defer cancel()
 		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
 		if err != nil {
-			return fmt.Errorf("getting block storage: %w", err)
+			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 		}
 		if vol == nil || vol.Raw() == nil {
 			return fmt.Errorf("block storage not found")
@@ -398,7 +398,7 @@ var blockstorageDeleteCmd = &cobra.Command{
 
 		err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockstorages/"+volumeID))
 		if err != nil {
-			return fmt.Errorf("deleting block storage: %w", err)
+			return fmt.Errorf("deleting block storage: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Block storage", volumeID))
@@ -425,7 +425,7 @@ var blockstorageListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromStorage().Volumes().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing block storage: %w", err)
+			return fmt.Errorf("listing block storage: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {

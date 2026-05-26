@@ -147,8 +147,9 @@ type Response[T any] struct {
 	// Error contains the parsed error response (for 4xx/5xx responses)
 	Error *ErrorResponse
 
-	// HTTPResponse is the underlying HTTP response
-	HTTPResponse *http.Response
+	// HTTPResponse is the underlying HTTP response (excluded from JSON to avoid
+	// marshaling failure — GetBody is a func field; vendor patch for sdk-go #298).
+	HTTPResponse *http.Response `json:"-"`
 
 	// StatusCode is the HTTP status code
 	StatusCode int

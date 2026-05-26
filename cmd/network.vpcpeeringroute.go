@@ -370,7 +370,7 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 		// Fetch current VPC peering route details
 		route, err := client.FromNetwork().VPCPeeringRoutes().Get(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
 		if err != nil || route == nil || route.Raw() == nil {
-			return fmt.Errorf("fetching current VPC peering route: %w", err)
+			return fmt.Errorf("fetching current VPC peering route: %w", apiErrFromV2(err))
 		}
 
 		// Block update if VPC peering route is in 'InCreation' state
@@ -476,7 +476,7 @@ var vpcpeeringrouteDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().VPCPeeringRoutes().Delete(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
 		if err != nil {
-			return fmt.Errorf("deleting VPC peering route: %w", err)
+			return fmt.Errorf("deleting VPC peering route: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{

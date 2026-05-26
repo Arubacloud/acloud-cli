@@ -166,7 +166,7 @@ var elasticipListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromNetwork().ElasticIPs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing Elastic IPs: %w", err)
+			return fmt.Errorf("listing Elastic IPs: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -236,7 +236,7 @@ var elasticipGetCmd = &cobra.Command{
 		defer cancel()
 		eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
-			return fmt.Errorf("getting Elastic IP details: %w", err)
+			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
 
 		if eip != nil && eip.Raw() != nil {
@@ -293,7 +293,7 @@ var elasticipUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -397,7 +397,7 @@ var elasticipDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().ElasticIPs().Delete(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
-			return fmt.Errorf("deleting Elastic IP: %w", err)
+			return fmt.Errorf("deleting Elastic IP: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Elastic IP", eipID))

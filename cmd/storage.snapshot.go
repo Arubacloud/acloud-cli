@@ -6,8 +6,16 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+func snapshotListPayload(l *aruba.List[*aruba.Snapshot]) any {
+	if r, ok := l.Raw().(*types.Response[types.SnapshotList]); ok && r != nil {
+		return r.Data
+	}
+	return nil
+}
 
 func init() {
 	storageCmd.AddCommand(snapshotCmd)
@@ -22,6 +30,7 @@ func init() {
 	snapshotCreateCmd.Flags().String("region", "", "Region code (required)")
 	snapshotCreateCmd.Flags().String("volume-uri", "", "Source volume URI (required)")
 	snapshotCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	snapshotCreateCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	snapshotCreateCmd.MarkFlagRequired("name")
 	snapshotCreateCmd.MarkFlagRequired("region")
 	snapshotCreateCmd.MarkFlagRequired("volume-uri")
@@ -179,7 +188,7 @@ var snapshotGetCmd = &cobra.Command{
 		defer cancel()
 		snap, err := client.FromStorage().Snapshots().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 		if err != nil {
-			return fmt.Errorf("getting snapshot: %w", err)
+			return fmt.Errorf("getting snapshot: %w", apiErrFromV2(err))
 		}
 
 		if snap != nil && snap.Raw() != nil {
@@ -261,7 +270,7 @@ var snapshotUpdateCmd = &cobra.Command{
 		defer cancel()
 		snap, err := client.FromStorage().Snapshots().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 		if err != nil {
-			return fmt.Errorf("getting snapshot: %w", err)
+			return fmt.Errorf("getting snapshot: %w", apiErrFromV2(err))
 		}
 		if snap == nil || snap.Raw() == nil {
 			return fmt.Errorf("snapshot not found")
@@ -341,7 +350,7 @@ var snapshotDeleteCmd = &cobra.Command{
 
 		err = client.FromStorage().Snapshots().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 		if err != nil {
-			return fmt.Errorf("deleting snapshot: %w", err)
+			return fmt.Errorf("deleting snapshot: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Snapshot", snapshotID))
@@ -370,7 +379,7 @@ var snapshotListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromStorage().Snapshots().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing snapshots: %w", err)
+			return fmt.Errorf("listing snapshots: %w", apiErrFromV2(err))
 		}
 
 		headers := []TableColumn{
@@ -415,7 +424,7 @@ var snapshotListCmd = &cobra.Command{
 			return nil
 		}
 
-		PrintOutput(list.Raw(), headers, rows)
+		PrintOutput(snapshotListPayload(list), headers, rows)
 		return nil
 	},
 }

@@ -310,7 +310,7 @@ var containerregistryListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromContainer().ContainerRegistry().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing container registries: %w", err)
+			return fmt.Errorf("listing container registries: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -471,7 +471,7 @@ var containerregistryDeleteCmd = &cobra.Command{
 
 		err = client.FromContainer().ContainerRegistry().Delete(ctx, aruba.URI(registryURI))
 		if err != nil {
-			return fmt.Errorf("deleting container registry: %w", err)
+			return fmt.Errorf("deleting container registry: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Container registry", registryID))

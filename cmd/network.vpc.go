@@ -229,7 +229,7 @@ var vpcUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && len(tags) == 0 {
+		if name == "" && !cmd.Flags().Changed("tags") {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -333,7 +333,7 @@ var vpcDeleteCmd = &cobra.Command{
 
 		err = client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
-			return fmt.Errorf("deleting VPC: %w", err)
+			return fmt.Errorf("deleting VPC: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("VPC", vpcID))
@@ -360,7 +360,7 @@ var vpcListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromNetwork().VPCs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing VPCs: %w", err)
+			return fmt.Errorf("listing VPCs: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {

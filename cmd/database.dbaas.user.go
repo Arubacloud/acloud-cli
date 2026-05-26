@@ -273,7 +273,7 @@ var dbaasUserUpdateCmd = &cobra.Command{
 		defer cancel()
 		u, err := client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
 		if err != nil {
-			return fmt.Errorf("getting user: %w", err)
+			return fmt.Errorf("getting user: %w", apiErrFromV2(err))
 		}
 		if u == nil || u.Raw() == nil {
 			return fmt.Errorf("user not found")
@@ -283,7 +283,7 @@ var dbaasUserUpdateCmd = &cobra.Command{
 
 		updated, err := client.FromDatabase().Users().Update(ctx, u)
 		if err != nil {
-			return fmt.Errorf("fetching current user: %w", apiErrFromV2(err))
+			return fmt.Errorf("updating user: %w", apiErrFromV2(err))
 		}
 
 		if updated != nil && updated.Raw() != nil {
@@ -342,7 +342,7 @@ var dbaasUserDeleteCmd = &cobra.Command{
 
 		err = client.FromDatabase().Users().Delete(ctx, aruba.URI(userURI))
 		if err != nil {
-			return fmt.Errorf("deleting user: %w", err)
+			return fmt.Errorf("deleting user: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("User", username))

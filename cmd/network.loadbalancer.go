@@ -99,7 +99,7 @@ var loadbalancerListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromNetwork().LoadBalancers().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing Load Balancers: %w", err)
+			return fmt.Errorf("listing Load Balancers: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -169,7 +169,7 @@ var loadbalancerGetCmd = &cobra.Command{
 		defer cancel()
 		lb, err := client.FromNetwork().LoadBalancers().Get(ctx, aruba.LoadBalancerRef(projectID, lbID))
 		if err != nil {
-			return fmt.Errorf("getting Load Balancer details: %w", err)
+			return fmt.Errorf("getting Load Balancer details: %w", apiErrFromV2(err))
 		}
 
 		if lb != nil && lb.Raw() != nil {

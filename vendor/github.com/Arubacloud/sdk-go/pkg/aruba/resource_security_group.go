@@ -411,7 +411,7 @@ func securityGroupIDsFromRef(ref Ref) (projectID, vpcID, securityGroupID string,
 			return w.SecurityGroupID(), true
 		}
 		return "", false
-	}, "security-groups")
+	}, "securitygroups")
 	if !ok || sgid == "" {
 		return "", "", "", fmt.Errorf("cannot determine security group ID from Ref %q", ref.URI())
 	}

@@ -400,7 +400,7 @@ var cloudserverUpdateCmd = &cobra.Command{
 
 		updated, err := client.FromCompute().CloudServers().Update(ctx, server)
 		if err != nil {
-			return fmt.Errorf("updating cloud server: %w", err)
+			return fmt.Errorf("updating cloud server: %w", apiErrFromV2(err))
 		}
 
 		if updated != nil && updated.Raw() != nil {
@@ -462,7 +462,7 @@ var cloudserverDeleteCmd = &cobra.Command{
 
 		err = client.FromCompute().CloudServers().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
 		if err != nil {
-			return fmt.Errorf("deleting cloud server: %w", err)
+			return fmt.Errorf("deleting cloud server: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Cloud server", serverID))
@@ -489,7 +489,7 @@ var cloudserverListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromCompute().CloudServers().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing cloud servers: %w", err)
+			return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -564,7 +564,7 @@ var cloudserverPowerOnCmd = &cobra.Command{
 		// GET the server wrapper first (enables action methods)
 		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", err)
+			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 		}
 
 		err = server.PowerOn(ctx)
@@ -607,7 +607,7 @@ var cloudserverPowerOffCmd = &cobra.Command{
 		// GET the server wrapper first (enables action methods)
 		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", err)
+			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 		}
 
 		err = server.PowerOff(ctx)
@@ -655,7 +655,7 @@ var cloudserverSetPasswordCmd = &cobra.Command{
 		// GET the server wrapper first (enables action methods)
 		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
 		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", err)
+			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 		}
 
 		err = server.SetPassword(ctx, password)

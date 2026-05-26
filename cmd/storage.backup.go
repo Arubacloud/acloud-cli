@@ -111,6 +111,14 @@ Billing period: Hour (default), Month, or Year.`,
 
 		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID
 
+		ctx, cancel := newCtx()
+		defer cancel()
+
+		_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI(volumeURI))
+		if err != nil {
+			return fmt.Errorf("getting volume: %w", apiErrFromV2(err))
+		}
+
 		bkp := aruba.NewStorageBackup().
 			IntoProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
@@ -126,8 +134,6 @@ Billing period: Hour (default), Month, or Year.`,
 			bkp.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
 		}
 
-		ctx, cancel := newCtx()
-		defer cancel()
 		created, err := client.FromStorage().Backups().Create(ctx, bkp)
 		if err != nil {
 			return fmt.Errorf("creating backup: %w", apiErrFromV2(err))
@@ -181,7 +187,7 @@ var storageBackupListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromStorage().Backups().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing backups: %w", err)
+			return fmt.Errorf("listing backups: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -243,7 +249,7 @@ var storageBackupGetCmd = &cobra.Command{
 		defer cancel()
 		bkp, err := client.FromStorage().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("getting backup: %w", err)
+			return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 		}
 
 		if bkp != nil && bkp.Raw() != nil {
@@ -328,7 +334,7 @@ var storageBackupUpdateCmd = &cobra.Command{
 		defer cancel()
 		bkp, err := client.FromStorage().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("getting backup: %w", err)
+			return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 		}
 		if bkp == nil || bkp.Raw() == nil {
 			return fmt.Errorf("backup not found")
@@ -408,7 +414,7 @@ var storageBackupDeleteCmd = &cobra.Command{
 
 		err = client.FromStorage().Backups().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("deleting backup: %w", err)
+			return fmt.Errorf("deleting backup: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))

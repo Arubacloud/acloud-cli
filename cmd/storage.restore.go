@@ -133,6 +133,19 @@ idle before starting a restore to avoid data corruption.`,
 		backupURI := "/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID
 		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID
 
+		ctx, cancel := newCtx()
+		defer cancel()
+
+		_, err = client.FromStorage().Backups().Get(ctx, aruba.URI(backupURI))
+		if err != nil {
+			return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
+		}
+
+		_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI(volumeURI))
+		if err != nil {
+			return fmt.Errorf("getting volume: %w", apiErrFromV2(err))
+		}
+
 		restore := aruba.NewStorageRestore().
 			IntoBackup(aruba.URI(backupURI)).
 			Named(name).
@@ -140,8 +153,6 @@ idle before starting a restore to avoid data corruption.`,
 			ToVolume(aruba.URI(volumeURI)).
 			ReplaceTags(tags...)
 
-		ctx, cancel := newCtx()
-		defer cancel()
 		created, err := client.FromStorage().Restores().Create(ctx, restore)
 		if err != nil {
 			return fmt.Errorf("creating restore: %w", apiErrFromV2(err))
@@ -195,7 +206,7 @@ var storageRestoreListCmd = &cobra.Command{
 		defer cancel()
 		list, err := client.FromStorage().Restores().List(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("listing restores: %w", err)
+			return fmt.Errorf("listing restores: %w", apiErrFromV2(err))
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -256,7 +267,7 @@ var storageRestoreGetCmd = &cobra.Command{
 		defer cancel()
 		restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 		if err != nil {
-			return fmt.Errorf("getting restore: %w", err)
+			return fmt.Errorf("getting restore: %w", apiErrFromV2(err))
 		}
 
 		if restore != nil && restore.Raw() != nil {
@@ -336,7 +347,7 @@ var storageRestoreUpdateCmd = &cobra.Command{
 		defer cancel()
 		restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 		if err != nil {
-			return fmt.Errorf("getting restore: %w", err)
+			return fmt.Errorf("getting restore: %w", apiErrFromV2(err))
 		}
 		if restore == nil || restore.Raw() == nil {
 			return fmt.Errorf("restore operation not found")
@@ -417,7 +428,7 @@ var storageRestoreDeleteCmd = &cobra.Command{
 
 		err = client.FromStorage().Restores().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 		if err != nil {
-			return fmt.Errorf("deleting restore: %w", err)
+			return fmt.Errorf("deleting restore: %w", apiErrFromV2(err))
 		}
 
 		fmt.Println(msgDeleted("Restore operation", restoreID))
