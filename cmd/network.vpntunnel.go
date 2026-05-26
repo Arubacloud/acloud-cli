@@ -573,8 +573,60 @@ var vpntunnelUpdateCmd = &cobra.Command{
 		if name != "" {
 			vpn.Named(name)
 		}
-		if len(tags) > 0 {
+		if cmd.Flags().Changed("tags") {
 			vpn.RetaggedAs(tags...)
+		}
+
+		// Re-attach VPN client settings from the GET response so toRequest() includes
+		// them in the PUT body. The SDK's fromResponse does not restore IKE/ESP/PSK.
+		if raw := vpn.Raw(); raw != nil && raw.Properties.VPNClientSettings != nil {
+			cs := raw.Properties.VPNClientSettings
+			if cs.IKE != nil {
+				ike := aruba.NewVPNIKE().
+					WithDPDIntervalSeconds(int(cs.IKE.DPDInterval)).
+					WithDPDTimeoutSeconds(int(cs.IKE.DPDTimeout)).
+					WithLifetimeSeconds(int(cs.IKE.Lifetime))
+				if cs.IKE.Encryption != nil {
+					ike.WithEncryption(*cs.IKE.Encryption)
+				}
+				if cs.IKE.Hash != nil {
+					ike.WithHash(*cs.IKE.Hash)
+				}
+				if cs.IKE.DHGroup != nil {
+					ike.WithDHGroup(*cs.IKE.DHGroup)
+				}
+				if cs.IKE.DPDAction != nil {
+					ike.WithDPDAction(*cs.IKE.DPDAction)
+				}
+				vpn.WithIKESettings(ike)
+			}
+			if cs.ESP != nil {
+				esp := aruba.NewVPNESP().
+					WithLifetimeSeconds(int(cs.ESP.Lifetime))
+				if cs.ESP.Encryption != nil {
+					esp.WithEncryption(*cs.ESP.Encryption)
+				}
+				if cs.ESP.Hash != nil {
+					esp.WithHash(*cs.ESP.Hash)
+				}
+				if cs.ESP.PFS != nil {
+					esp.WithPFS(*cs.ESP.PFS)
+				}
+				vpn.WithESPSettings(esp)
+			}
+			if cs.PSK != nil {
+				psk := aruba.NewVPNPSK()
+				if cs.PSK.CloudSite != nil {
+					psk.WithCloudSite(*cs.PSK.CloudSite)
+				}
+				if cs.PSK.OnPremSite != nil {
+					psk.WithOnPremSite(*cs.PSK.OnPremSite)
+				}
+				if cs.PSK.Secret != nil {
+					psk.WithKey(*cs.PSK.Secret)
+				}
+				vpn.WithPSKSettings(psk)
+			}
 		}
 
 		updated, err := client.FromNetwork().VPNTunnels().Update(ctx, vpn)
