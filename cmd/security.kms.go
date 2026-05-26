@@ -26,7 +26,7 @@ func init() {
 	kmsCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kmsCreateCmd.Flags().String("name", "", "KMS name (required)")
 	kmsCreateCmd.Flags().String("region", "", "Region code (required)")
-	kmsCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	kmsCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	kmsCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	kmsCreateCmd.MarkFlagRequired("name")
 	kmsCreateCmd.MarkFlagRequired("region")

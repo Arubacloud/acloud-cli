@@ -22,7 +22,7 @@ func init() {
 	backupCreateCmd.Flags().String("dbaas-id", "", "DBaaS instance ID (required)")
 	backupCreateCmd.Flags().String("database-name", "", "Database name (required)")
 	backupCreateCmd.Flags().String("zone", "", "Availability zone (e.g. ITBG-1); defaults to region if unset")
-	backupCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	backupCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	backupCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	backupCreateCmd.MarkFlagRequired("name")
 	backupCreateCmd.MarkFlagRequired("region")

@@ -23,7 +23,7 @@ func init() {
 	elasticipCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipCreateCmd.Flags().String("name", "", "Name for the Elastic IP")
 	elasticipCreateCmd.Flags().String("region", "", "Region code (e.g., IT-BG)")
-	elasticipCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	elasticipCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	elasticipCreateCmd.MarkFlagRequired("name")
 	elasticipCreateCmd.MarkFlagRequired("region")
 	elasticipCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")

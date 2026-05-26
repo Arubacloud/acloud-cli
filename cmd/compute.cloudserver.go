@@ -43,7 +43,7 @@ func init() {
 	cloudserverCreateCmd.Flags().StringSlice("subnet-uri", []string{}, "Subnet URI(s) (required, comma-separated)")
 	cloudserverCreateCmd.Flags().StringSlice("security-group-uri", []string{}, "Security Group URI(s) (required, comma-separated)")
 	cloudserverCreateCmd.Flags().String("elasticip-uri", "", "Elastic IP URI (optional)")
-	cloudserverCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year (optional, default: Hour)")
+	cloudserverCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year (optional, default: Hour)")
 	cloudserverCreateCmd.MarkFlagRequired("name")
 	cloudserverCreateCmd.MarkFlagRequired("region")
 	cloudserverCreateCmd.MarkFlagRequired("flavor")

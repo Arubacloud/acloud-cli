@@ -27,7 +27,7 @@ func init() {
 	blockstorageCreateCmd.Flags().String("zone", "", "Zone/datacenter (optional, only for zonal block storage)")
 	blockstorageCreateCmd.Flags().Int("size", 0, "Size in GB (required)")
 	blockstorageCreateCmd.Flags().String("type", "Standard", "Type: Standard or Performance")
-	blockstorageCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	blockstorageCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	blockstorageCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	blockstorageCreateCmd.Flags().String("snapshot-uri", "", "URI of the snapshot to use (optional)")
 	blockstorageCreateCmd.Flags().Bool("set-bootable", false, "Set block storage as bootable (optional)")

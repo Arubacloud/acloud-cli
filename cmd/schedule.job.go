@@ -33,7 +33,7 @@ func init() {
 	jobCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	jobCreateCmd.Flags().String("step-resource-uri", "", "Resource URI targeted by the step (required by the API)")
 	jobCreateCmd.Flags().String("step-action-uri", "", "Action URI to invoke on the resource (e.g. poweroff, start)")
-	jobCreateCmd.Flags().String("step-http-verb", "POST", "HTTP verb for the step action")
+	jobCreateCmd.Flags().String("step-http-verb", string(aruba.HTTPVerbPOST), "HTTP verb for the step action")
 	jobCreateCmd.Flags().String("step-name", "", "Optional display name for the step")
 	jobCreateCmd.MarkFlagRequired("name")
 	jobCreateCmd.MarkFlagRequired("region")
@@ -135,6 +135,10 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 		executeUntil, _ := cmd.Flags().GetString("execute-until")
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
+		stepResourceURI, _ := cmd.Flags().GetString("step-resource-uri")
+		stepActionURI, _ := cmd.Flags().GetString("step-action-uri")
+		stepHTTPVerb, _ := cmd.Flags().GetString("step-http-verb")
+		stepName, _ := cmd.Flags().GetString("step-name")
 
 		if jobType != "OneShot" && jobType != "Recurring" {
 			return fmt.Errorf("--job-type must be either 'OneShot' or 'Recurring'")
@@ -181,6 +185,19 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 			}
 			job.WithCron(cron)
 			job.RecurringUntil(t)
+		}
+
+		if stepResourceURI != "" {
+			step := aruba.NewJobStep().
+				Targeting(aruba.URI(stepResourceURI)).
+				WithVerb(aruba.HTTPVerb(stepHTTPVerb))
+			if stepActionURI != "" {
+				step.WithAction(stepActionURI)
+			}
+			if stepName != "" {
+				step.Named(stepName)
+			}
+			job.WithSteps(step)
 		}
 
 		ctx, cancel := newCtx()
