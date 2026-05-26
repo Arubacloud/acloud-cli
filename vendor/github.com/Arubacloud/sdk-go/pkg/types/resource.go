@@ -139,6 +139,11 @@ type ListResponse struct {
 	Last string `json:"last"`
 }
 
+// BaseList returns the embedded pagination/total metadata. Promoted onto every
+// per-resource list payload (VPCList, AlertsListResponse, …) via Go's method-
+// promotion rules, so a generic helper can extract pagination fields uniformly.
+func (lr ListResponse) BaseList() ListResponse { return lr }
+
 // Response wraps an HTTP response with parsed data
 type Response[T any] struct {
 	// Data contains the parsed response body (for 2xx responses)
@@ -147,9 +152,8 @@ type Response[T any] struct {
 	// Error contains the parsed error response (for 4xx/5xx responses)
 	Error *ErrorResponse
 
-	// HTTPResponse is the underlying HTTP response (excluded from JSON to avoid
-	// marshaling failure — GetBody is a func field; vendor patch for sdk-go #298).
-	HTTPResponse *http.Response `json:"-"`
+	// HTTPResponse is the underlying HTTP response
+	HTTPResponse *http.Response
 
 	// StatusCode is the HTTP status code
 	StatusCode int

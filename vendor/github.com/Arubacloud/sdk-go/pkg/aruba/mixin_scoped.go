@@ -97,7 +97,7 @@ func (m *securityGroupScopedMixin) intoSecurityGroup(parent Ref) {
 			return p.SecurityGroupID(), true
 		}
 		return "", false
-	}, "securitygroups")
+	}, "securityGroups")
 	if !ok {
 		m.errSink.addErr(fmt.Errorf("IntoSecurityGroup: cannot determine security group ID from Ref %q", parent.URI()))
 	}
@@ -346,14 +346,7 @@ func (m *vpnTunnelScopedMixin) intoVPNTunnel(parent Ref) {
 			return p.VPNTunnelID(), true
 		}
 		return "", false
-	}, "vpn-tunnels")
-	if !ok {
-		// Production URI uses "vpnTunnels" (camelCase); mixin/test form uses "vpn-tunnels".
-		if v := parseURIIDs(parent.URI())["vpnTunnels"]; v != "" {
-			tunnelID = v
-			ok = true
-		}
-	}
+	}, "vpnTunnels")
 	if !ok {
 		m.errSink.addErr(fmt.Errorf("IntoVPNTunnel: cannot determine VPN tunnel ID from Ref %q", parent.URI()))
 	}
@@ -398,14 +391,7 @@ func (m *vpcPeeringScopedMixin) intoVPCPeering(parent Ref) {
 			return p.VPCPeeringID(), true
 		}
 		return "", false
-	}, "peerings")
-	if !ok {
-		// Production URI uses "vpcPeerings" (camelCase); mixin/test form uses "peerings".
-		if v := parseURIIDs(parent.URI())["vpcPeerings"]; v != "" {
-			peeringID = v
-			ok = true
-		}
-	}
+	}, "vpcPeerings")
 	if !ok {
 		m.errSink.addErr(fmt.Errorf("IntoVPCPeering: cannot determine VPC peering ID from Ref %q", parent.URI()))
 	}

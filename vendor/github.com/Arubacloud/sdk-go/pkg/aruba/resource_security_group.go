@@ -12,7 +12,7 @@ import (
 
 // SecurityGroupRef returns a Ref that points to the SecurityGroup nested under a VPC.
 func SecurityGroupRef(projectID, vpcID, sgID string) Ref {
-	return URI(fmt.Sprintf("/projects/%s/providers/Aruba.Network/vpcs/%s/securitygroups/%s", projectID, vpcID, sgID))
+	return URI(fmt.Sprintf("/projects/%s/providers/Aruba.Network/vpcs/%s/securityGroups/%s", projectID, vpcID, sgID))
 }
 
 // ---- Wrapper ----
@@ -46,20 +46,30 @@ func NewSecurityGroup() *SecurityGroup {
 
 // Setters — chainable, general → specific
 
-// IntoVPC binds this SecurityGroup to its parent VPC. Required before Create.
-func (sg *SecurityGroup) IntoVPC(v Ref) *SecurityGroup { sg.intoVPC(v); return sg }
+// InVPC binds this SecurityGroup to its parent VPC. Required before Create.
+func (sg *SecurityGroup) InVPC(v Ref) *SecurityGroup { sg.intoVPC(v); return sg }
 
 // Named sets the resource name. Required by the API.
 func (sg *SecurityGroup) Named(n string) *SecurityGroup { sg.named(n); return sg }
 
-// AddTag appends a tag for filtering and accounting.
-func (sg *SecurityGroup) AddTag(t string) *SecurityGroup { sg.addTag(t); return sg }
+// Tagged appends tags for filtering and accounting. Repeated calls append.
+func (sg *SecurityGroup) Tagged(ts ...string) *SecurityGroup {
+	for _, t := range ts {
+		sg.addTag(t)
+	}
+	return sg
+}
 
-// RemoveTag removes a previously-added tag. No-op if absent.
-func (sg *SecurityGroup) RemoveTag(t string) *SecurityGroup { sg.removeTag(t); return sg }
+// Untagged removes each listed tag. No-op for tags not present.
+func (sg *SecurityGroup) Untagged(ts ...string) *SecurityGroup {
+	for _, t := range ts {
+		sg.removeTag(t)
+	}
+	return sg
+}
 
-// ReplaceTags replaces the entire tag set with the given values.
-func (sg *SecurityGroup) ReplaceTags(ts ...string) *SecurityGroup { sg.replaceTags(ts...); return sg }
+// RetaggedAs replaces the entire tag set with the given values.
+func (sg *SecurityGroup) RetaggedAs(ts ...string) *SecurityGroup { sg.replaceTags(ts...); return sg }
 
 // AsDefault marks this security group as the VPC default.
 func (sg *SecurityGroup) AsDefault() *SecurityGroup { t := true; sg.defaultSG = &t; return sg }
@@ -78,6 +88,8 @@ func (sg *SecurityGroup) SecurityGroupID() string { return sg.ID() }
 
 // Raw shadows responseMetadataMixin.Raw() with the full SecurityGroup response.
 func (sg *SecurityGroup) Raw() *types.SecurityGroupResponse { return sg.response }
+func (sg *SecurityGroup) RawJSON() []byte                   { return marshalRawJSON(sg.response) }
+func (sg *SecurityGroup) RawYAML() []byte                   { return marshalRawYAML(sg.response) }
 
 // RawRequest returns what toRequest() would emit right now.
 func (sg *SecurityGroup) RawRequest() types.SecurityGroupRequest { return sg.toRequest() }
@@ -185,7 +197,7 @@ func (a *securityGroupsClientAdapter) Create(ctx context.Context, sg *SecurityGr
 		return sg, err
 	}
 	if sg.VPCID() == "" || sg.ProjectID() == "" {
-		return sg, fmt.Errorf("Create: security group has no VPC — call IntoVPC first")
+		return sg, fmt.Errorf("Create: security group has no VPC — call InVPC first")
 	}
 	co := applyCallOptions(opts)
 	rp := co.toRequestParameters()
@@ -257,7 +269,7 @@ func (a *securityGroupsClientAdapter) Update(ctx context.Context, sg *SecurityGr
 		return sg, fmt.Errorf("Update: security group has no ID — call Get first or seed from response metadata")
 	}
 	if sg.VPCID() == "" || sg.ProjectID() == "" {
-		return sg, fmt.Errorf("Update: security group has no VPC — call IntoVPC first")
+		return sg, fmt.Errorf("Update: security group has no VPC — call InVPC first")
 	}
 	co := applyCallOptions(opts)
 	rp := co.toRequestParameters()
@@ -378,29 +390,9 @@ func (a *securityGroupsClientAdapter) List(ctx context.Context, vpc Ref, opts ..
 				pageItems = append(pageItems, item)
 			}
 		}
-		var total2 int64
-		var self2, prev2, next2, first2, last2 string
-		if pageResp != nil && pageResp.Data != nil {
-			total2 = pageResp.Data.Total
-			self2 = pageResp.Data.Self
-			prev2 = pageResp.Data.Prev
-			next2 = pageResp.Data.Next
-			first2 = pageResp.Data.First
-			last2 = pageResp.Data.Last
-		}
-		return newList(pageItems, total2, self2, prev2, next2, first2, last2, pageResp, opts, refetch), nil
+		return newListFromResponse(pageItems, pageResp, opts, refetch), nil
 	}
-	var total int64
-	var self, prev, next, first, last string
-	if resp != nil && resp.Data != nil {
-		total = resp.Data.Total
-		self = resp.Data.Self
-		prev = resp.Data.Prev
-		next = resp.Data.Next
-		first = resp.Data.First
-		last = resp.Data.Last
-	}
-	return newList(items, total, self, prev, next, first, last, resp, opts, refetch), nil
+	return newListFromResponse(items, resp, opts, refetch), nil
 }
 
 // securityGroupIDsFromRef extracts (projectID, vpcID, securityGroupID) from a Ref.
@@ -411,7 +403,7 @@ func securityGroupIDsFromRef(ref Ref) (projectID, vpcID, securityGroupID string,
 			return w.SecurityGroupID(), true
 		}
 		return "", false
-	}, "securitygroups")
+	}, "securityGroups")
 	if !ok || sgid == "" {
 		return "", "", "", fmt.Errorf("cannot determine security group ID from Ref %q", ref.URI())
 	}
