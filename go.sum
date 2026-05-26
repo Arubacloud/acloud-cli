@@ -1,5 +1,3 @@
-github.com/Arubacloud/sdk-go v0.2.3 h1:+cPS0rZte7FF+gaqXyu6/99LMbNfZ2wiQznACGliMWs=
-github.com/Arubacloud/sdk-go v0.2.3/go.mod h1:vmQ/mBo70hQgc+A7DOCn849DP2D11ov9guuwQOUwqCM=
 github.com/Arubacloud/sdk-go v0.3.0 h1:xZmAJuTiqeWU/oTJoThYnTmkwkjoUr7io/ImdIood5M=
 github.com/Arubacloud/sdk-go v0.3.0/go.mod h1:OD2PSOa9uAxrhFwDcYcw+LE7eyZ+OQVaTA2tlHxVE4U=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
