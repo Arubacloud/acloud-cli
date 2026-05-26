@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -39,16 +38,18 @@ func init() {
 	storageRestoreCmd.Flags().String("name", "", "Name for the restore operation (required)")
 	storageRestoreCmd.Flags().String("region", "ITBG-Bergamo", "Region code")
 	storageRestoreCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
-	storageRestoreCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	storageRestoreCmd.MarkFlagRequired("name")
 
 	storageRestoreListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageRestoreListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	storageRestoreListCmd.Flags().Int32("offset", 0, "Number of results to skip")
+
 	storageRestoreGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
+
 	storageRestoreUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageRestoreUpdateCmd.Flags().String("name", "", "New name for the restore operation")
 	storageRestoreUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+
 	storageRestoreDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageRestoreDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	storageRestoreDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -79,7 +80,7 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 	}
 
 	ctx := context.Background()
-	list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID))
+	list, err := client.FromStorage().Restores().List(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -87,9 +88,12 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 	var completions []string
 	if list != nil {
 		for _, r := range list.Items() {
-			id := r.ID()
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, r.Name()))
+			raw := r.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -126,60 +130,43 @@ idle before starting a restore to avoid data corruption.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		ctx, cancel := newCtx()
-		defer cancel()
+		backupURI := "/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID
+		volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID
 
-		bk, err := client.FromStorage().Backups().Get(ctx, backupRef(projectID, backupID))
-		if err != nil {
-			return fmt.Errorf("getting backup details: %w", apiErrFromV2(err))
-		}
-
-		target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
-		if err != nil {
-			return fmt.Errorf("getting volume details: %w", apiErrFromV2(err))
-		}
-
-		if verbose {
-			fmt.Println("Creating restore operation with the following parameters:")
-			fmt.Printf("  Name:      %s\n", name)
-			fmt.Printf("  Region:    %s\n", region)
-			fmt.Printf("  Backup ID: %s\n", backupID)
-			fmt.Printf("  Volume ID: %s\n", volumeID)
-			if len(tags) > 0 {
-				fmt.Printf("  Tags:      %v\n", tags)
-			}
-			fmt.Println()
-		}
-
-		rs := aruba.NewStorageRestore().
-			IntoBackup(bk).
+		restore := aruba.NewStorageRestore().
+			IntoBackup(aruba.URI(backupURI)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			ToVolume(target)
-		if len(tags) > 0 {
-			rs.ReplaceTags(tags...)
-		}
+			ToVolume(aruba.URI(volumeURI)).
+			ReplaceTags(tags...)
 
-		created, err := client.FromStorage().Restores().Create(ctx, rs)
+		ctx, cancel := newCtx()
+		defer cancel()
+		created, err := client.FromStorage().Restores().Create(ctx, restore)
 		if err != nil {
 			return fmt.Errorf("creating restore: %w", apiErrFromV2(err))
 		}
 
-		resource := restoreFromRaw(created)
-		if resource != nil {
-			fmt.Println(msgCreated("Restore operation", name))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
+			headers := []TableColumn{
+				{Header: "ID", Width: 30},
+				{Header: "NAME", Width: 40},
+				{Header: "STATUS", Width: 15},
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			if resource.Metadata.CreationDate != nil && !resource.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", resource.Metadata.CreationDate.Format(DateLayout))
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			if resource.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *resource.Status.State)
+			statusVal := ""
+			if raw.Status.State != nil {
+				statusVal = string(*raw.Status.State)
 			}
+			PrintOutput(raw, headers, [][]string{{id, nameVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Restore operation", name))
 		}
@@ -206,9 +193,9 @@ var storageRestoreListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
+		list, err := client.FromStorage().Restores().List(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
 		if err != nil {
-			return fmt.Errorf("listing restores: %w", apiErrFromV2(err))
+			return fmt.Errorf("listing restores: %w", err)
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -220,10 +207,26 @@ var storageRestoreListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, r := range list.Items() {
-				rows = append(rows, []string{r.Name(), r.ID(), r.State()})
+				raw := r.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
+				rows = append(rows, []string{name, id, status})
 			}
 
-			PrintOutput(restoreListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No restores found for this backup")
 		}
@@ -251,48 +254,48 @@ var storageRestoreGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromStorage().Restores().Get(ctx, restoreRef(projectID, backupID, restoreID))
+		restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 		if err != nil {
-			return fmt.Errorf("getting restore details: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting restore: %w", err)
 		}
 
-		restore := restoreFromRaw(got)
-		if restore != nil {
+		if restore != nil && restore.Raw() != nil {
+			raw := restore.Raw()
+
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(restore, nil, nil)
+				PrintOutput(raw, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nRestore Operation Details:")
 			fmt.Println("==========================")
-
-			if restore.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *restore.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if restore.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *restore.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if restore.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *restore.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if restore.Properties.Destination.URI != "" {
-				fmt.Printf("Target Volume:   %s\n", restore.Properties.Destination.URI)
+			if raw.Properties.Destination.URI != "" {
+				fmt.Printf("Target Volume:   %s\n", raw.Properties.Destination.URI)
 			}
-			if restore.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", restore.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			if restore.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *restore.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
 			}
-			if restore.Metadata.CreationDate != nil && !restore.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", restore.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if restore.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *restore.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(restore.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", restore.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -331,38 +334,37 @@ var storageRestoreUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		current, err := client.FromStorage().Restores().Get(ctx, restoreRef(projectID, backupID, restoreID))
+		restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 		if err != nil {
-			return fmt.Errorf("getting restore details: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting restore: %w", err)
 		}
-
-		if current.Raw() == nil {
+		if restore == nil || restore.Raw() == nil {
 			return fmt.Errorf("restore operation not found")
 		}
 
 		if name != "" {
-			current.Named(name)
+			restore.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			current.ReplaceTags(tags...)
+			restore.ReplaceTags(tags...)
 		}
 
-		updated, err := client.FromStorage().Restores().Update(ctx, current)
+		updated, err := client.FromStorage().Restores().Update(ctx, restore)
 		if err != nil {
 			return fmt.Errorf("updating restore: %w", apiErrFromV2(err))
 		}
 
-		resource := restoreFromRaw(updated)
-		if resource != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			fmt.Printf("\n%s\n", msgUpdated("Restore operation", restoreID))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if len(resource.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("Restore operation", restoreID))
@@ -379,8 +381,8 @@ var storageRestoreDeleteCmd = &cobra.Command{
 		backupID := args[0]
 		restoreID := args[1]
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
+		confirm, _ := cmd.Flags().GetBool("yes")
+		if !confirm {
 			ok, err := confirmDelete("restore operation", restoreID)
 			if err != nil {
 				return err
@@ -405,7 +407,7 @@ var storageRestoreDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromStorage().Restores().Get(ctx, restoreRef(projectID, backupID, restoreID))
+			_, err = client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
 			if err != nil {
 				return fmt.Errorf("dry-run: restore operation not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -413,8 +415,9 @@ var storageRestoreDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromStorage().Restores().Delete(ctx, restoreRef(projectID, backupID, restoreID)); err != nil {
-			return fmt.Errorf("deleting restore: %w", apiErrFromV2(err))
+		err = client.FromStorage().Restores().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
+		if err != nil {
+			return fmt.Errorf("deleting restore: %w", err)
 		}
 
 		fmt.Println(msgDeleted("Restore operation", restoreID))

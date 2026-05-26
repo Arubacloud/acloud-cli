@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +51,7 @@ func completeLoadBalancerID(cmd *cobra.Command, args []string, toComplete string
 	}
 
 	ctx := context.Background()
-	list, err := client.FromNetwork().LoadBalancers().List(ctx, projectRef(projectID))
+	list, err := client.FromNetwork().LoadBalancers().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -60,13 +59,12 @@ func completeLoadBalancerID(cmd *cobra.Command, args []string, toComplete string
 	var completions []string
 	if list != nil {
 		for _, lb := range list.Items() {
-			id := lb.LoadBalancerID()
-			name := lb.Name()
-			if id == "" {
-				continue
-			}
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+			raw := lb.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -98,9 +96,9 @@ var loadbalancerListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().LoadBalancers().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromNetwork().LoadBalancers().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing Load Balancers: %w", apiErrFromV2(err))
+			return fmt.Errorf("listing Load Balancers: %w", err)
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -114,29 +112,34 @@ var loadbalancerListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, lb := range list.Items() {
-				r := lb.Raw()
-				name := lb.Name()
-				id := lb.LoadBalancerID()
-
-				region := ""
-				address := ""
-				status := ""
-				if r != nil {
-					if r.Metadata.LocationResponse != nil {
-						region = string(r.Metadata.LocationResponse.Value)
-					}
-					if r.Properties.Address != nil {
-						address = *r.Properties.Address
-					}
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				raw := lb.Raw()
+				if raw == nil {
+					continue
 				}
-
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				address := ""
+				if raw.Properties.Address != nil {
+					address = *raw.Properties.Address
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
 				rows = append(rows, []string{name, id, region, address, status})
 			}
 
-			PrintOutput(loadBalancerListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No Load Balancers found")
 		}
@@ -163,49 +166,50 @@ var loadbalancerGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().LoadBalancers().Get(ctx, loadBalancerRef(projectID, lbID))
+		lb, err := client.FromNetwork().LoadBalancers().Get(ctx, aruba.LoadBalancerRef(projectID, lbID))
 		if err != nil {
-			return fmt.Errorf("getting Load Balancer details: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting Load Balancer details: %w", err)
 		}
 
-		lb := got.Raw()
-		if lb != nil {
+		if lb != nil && lb.Raw() != nil {
+			raw := lb.Raw()
+
 			fmt.Println("\nLoad Balancer Details:")
 			fmt.Println("======================")
 
-			if lb.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *lb.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if lb.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *lb.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if lb.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *lb.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if lb.Properties.Address != nil {
-				fmt.Printf("Address:         %s\n", *lb.Properties.Address)
+			if raw.Properties.Address != nil {
+				fmt.Printf("Address:         %s\n", *raw.Properties.Address)
 			}
-			if lb.Properties.VPC != nil && lb.Properties.VPC.URI != "" {
-				fmt.Printf("VPC:             %s\n", lb.Properties.VPC.URI)
-			}
-
-			fmt.Printf("Linked Resources: %d\n", len(lb.Properties.LinkedResources))
-
-			if lb.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", lb.Metadata.CreationDate.Format(DateLayout))
-			}
-			if lb.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *lb.Metadata.CreatedBy)
+			if raw.Properties.VPC != nil && raw.Properties.VPC.URI != "" {
+				fmt.Printf("VPC:             %s\n", raw.Properties.VPC.URI)
 			}
 
-			if len(lb.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", lb.Metadata.Tags)
+			fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
+
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+			}
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+			}
+
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
 
-			if lb.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *lb.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		}
 		return nil

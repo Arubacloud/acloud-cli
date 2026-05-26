@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -94,15 +93,13 @@ func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]
 
 	var completions []string
 	if list != nil {
-		for _, project := range list.Items() {
-			id := project.ID()
-			if id == "" {
-				continue
-			}
+		for _, p := range list.Items() {
+			id := p.ID()
+			name := p.Name()
 			// Filter by partial input - use HasPrefix for more reliable matching
 			if toComplete == "" || strings.HasPrefix(id, toComplete) {
 				// Format: "id\tname" - the tab separates the completion from the description
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, project.Name()))
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -141,8 +138,7 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 		}
 
 		// Build the create request
-		proj := aruba.NewProject().Named(name)
-		proj.ReplaceTags(tags...)
+		proj := aruba.NewProject().Named(name).ReplaceTags(tags...)
 		if description != "" {
 			proj.WithDescription(description)
 		}
@@ -172,36 +168,18 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 			return fmt.Errorf("creating project: %w", apiErrFromV2(err))
 		}
 
-		pr := projectFromRaw(created)
-		if pr != nil {
+		if created != nil && created.ID() != "" {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
 				{Header: "DEFAULT", Width: 10},
-				{Header: "RESOURCES", Width: 12},
 			}
-			row := []string{
-				func() string {
-					if pr.Metadata.ID != nil {
-						return *pr.Metadata.ID
-					}
-					return ""
-				}(),
-				func() string {
-					if pr.Metadata.Name != nil {
-						return *pr.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if pr.Properties.Default {
-						return "Yes"
-					}
-					return "No"
-				}(),
-				fmt.Sprintf("%d", pr.Properties.ResourcesNumber),
+			defaultVal := "No"
+			if created.IsDefault() {
+				defaultVal = "Yes"
 			}
-			PrintOutput(pr, headers, [][]string{row})
+			row := []string{created.ID(), created.Name(), defaultVal}
+			PrintOutput(created.Raw(), headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Project", name))
 		}
@@ -225,16 +203,15 @@ var projectGetCmd = &cobra.Command{
 		// Get project details using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := projectWrapper(ctx, client, projectID)
+		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("getting project: %w", err)
 		}
 
-		project := projectFromRaw(got)
-		if project != nil {
+		if p != nil && p.ID() != "" {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(project, nil, nil)
+				PrintOutput(p.Raw(), nil, nil)
 				return nil
 			}
 
@@ -242,39 +219,34 @@ var projectGetCmd = &cobra.Command{
 			fmt.Println("\nProject Details:")
 			fmt.Println("================")
 
-			if project.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *project.Metadata.ID)
+			fmt.Printf("ID:              %s\n", p.ID())
+			fmt.Printf("Name:            %s\n", p.Name())
+
+			if p.Description() != "" {
+				fmt.Printf("Description:     %s\n", p.Description())
 			}
 
-			if project.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *project.Metadata.Name)
+			fmt.Printf("Default:         %t\n", p.IsDefault())
+
+			raw := p.Raw()
+			if raw != nil {
+				if raw.CreationDate != nil && !raw.CreationDate.IsZero() {
+					fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
+				}
+				if raw.CreatedBy != nil {
+					fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
+				}
+				if raw.UpdateDate != nil && !raw.UpdateDate.IsZero() {
+					fmt.Printf("Update Date:     %s\n", raw.UpdateDate.Format(DateLayout))
+				}
+				if raw.UpdatedBy != nil {
+					fmt.Printf("Updated By:      %s\n", *raw.UpdatedBy)
+				}
 			}
 
-			if project.Properties.Description != nil {
-				fmt.Printf("Description:     %s\n", *project.Properties.Description)
-			}
-
-			fmt.Printf("Default:         %t\n", project.Properties.Default)
-			fmt.Printf("Resources:       %d\n", project.Properties.ResourcesNumber)
-
-			if project.Metadata.CreationDate != nil && !project.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", project.Metadata.CreationDate.Format(DateLayout))
-			}
-
-			if project.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *project.Metadata.CreatedBy)
-			}
-
-			if project.Metadata.UpdateDate != nil && !project.Metadata.UpdateDate.IsZero() {
-				fmt.Printf("Update Date:     %s\n", project.Metadata.UpdateDate.Format(DateLayout))
-			}
-
-			if project.Metadata.UpdatedBy != nil {
-				fmt.Printf("Updated By:      %s\n", *project.Metadata.UpdatedBy)
-			}
-
-			if len(project.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", project.Metadata.Tags)
+			tags := p.Tags()
+			if len(tags) > 0 {
+				fmt.Printf("Tags:            %v\n", tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -313,61 +285,41 @@ var projectUpdateCmd = &cobra.Command{
 		// projectWrapper calls Get and normalises any API error via apiErrFromV2.
 		ctx, cancel := newCtx()
 		defer cancel()
-		current, err := projectWrapper(ctx, client, projectID)
+		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("fetching current project: %w", err)
 		}
 
-		if current.ID() == "" {
+		if p == nil || p.ID() == "" {
 			return fmt.Errorf("project not found or no data returned")
 		}
 
-		// Apply overrides on the hydrated wrapper — current already carries the
-		// fetched name/tags/description/default, so only changed flags need setting.
-		// This also fixes the v0.1.x nil-panic on *currentProject.Metadata.Name.
+		// Apply updates
 		if description != "" {
-			current.WithDescription(description)
+			p.WithDescription(description)
 		}
 		if cmd.Flags().Changed("tags") {
-			current.ReplaceTags(tags...)
+			p.ReplaceTags(tags...)
 		}
 
 		// Update the project using the SDK
-		updated, err := client.FromProject().Update(ctx, current)
+		updated, err := client.FromProject().Update(ctx, p)
 		if err != nil {
 			return fmt.Errorf("updating project: %w", apiErrFromV2(err))
 		}
 
-		pr := projectFromRaw(updated)
-		if pr != nil {
+		if updated != nil && updated.ID() != "" {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
 				{Header: "DEFAULT", Width: 10},
-				{Header: "RESOURCES", Width: 12},
 			}
-			row := []string{
-				func() string {
-					if pr.Metadata.ID != nil {
-						return *pr.Metadata.ID
-					}
-					return ""
-				}(),
-				func() string {
-					if pr.Metadata.Name != nil {
-						return *pr.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if pr.Properties.Default {
-						return "Yes"
-					}
-					return "No"
-				}(),
-				fmt.Sprintf("%d", pr.Properties.ResourcesNumber),
+			defaultVal := "No"
+			if updated.IsDefault() {
+				defaultVal = "Yes"
 			}
-			PrintOutput(pr, headers, [][]string{row})
+			row := []string{updated.ID(), updated.Name(), defaultVal}
+			PrintOutput(updated.Raw(), headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Project", projectID))
 		}
@@ -405,9 +357,11 @@ var projectDeleteCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
+		projectRef := aruba.URI("/projects/" + projectID)
+
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = projectWrapper(ctx, client, projectID)
+			_, err = client.FromProject().Get(ctx, projectRef)
 			if err != nil {
 				return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
 			}
@@ -416,8 +370,9 @@ var projectDeleteCmd = &cobra.Command{
 		}
 
 		// Delete the project using the SDK
-		if err := client.FromProject().Delete(ctx, projectRef(projectID)); err != nil {
-			return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
+		err = client.FromProject().Delete(ctx, projectRef)
+		if err != nil {
+			return fmt.Errorf("deleting project: %w", err)
 		}
 
 		headers := []TableColumn{
@@ -448,7 +403,7 @@ var projectListCmd = &cobra.Command{
 		// List projects using the SDK
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromProject().List(ctx, listOpts(cmd)...)
+		list, err := client.FromProject().List(ctx)
 		if err != nil {
 			return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
 		}
@@ -463,21 +418,21 @@ var projectListCmd = &cobra.Command{
 
 			// Build rows
 			var rows [][]string
-			for _, project := range list.Items() {
-				name := project.Name()
-				id := project.ID()
+			for _, p := range list.Items() {
+				name := p.Name()
+				id := p.ID()
 
 				// Format creation date as dd-mm-yyyy
 				creationDate := "N/A"
-				if ca := project.CreatedAt(); !ca.IsZero() {
-					creationDate = ca.Format("02-01-2006")
+				if !p.CreatedAt().IsZero() {
+					creationDate = p.CreatedAt().Format("02-01-2006")
 				}
 
 				rows = append(rows, []string{name, id, creationDate})
 			}
 
 			// Print the table
-			PrintOutput(projectListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No projects found")
 		}

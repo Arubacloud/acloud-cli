@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -65,7 +64,7 @@ func completeVPCID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	}
 
 	ctx := context.Background()
-	list, err := client.FromNetwork().VPCs().List(ctx, projectRef(projectID))
+	list, err := client.FromNetwork().VPCs().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -73,13 +72,12 @@ func completeVPCID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	var completions []string
 	if list != nil {
 		for _, vpc := range list.Items() {
-			id := vpc.VPCID()
-			name := vpc.Name()
-			if id == "" {
-				continue
-			}
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+			raw := vpc.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -120,14 +118,10 @@ network resources are created within a VPC.`,
 		}
 
 		vpc := aruba.NewVPC().
-			IntoProject(projectRef(projectID)).
+			IntoProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			NotDefault().
-			WithPreset(false)
-		if len(tags) > 0 {
-			vpc.ReplaceTags(tags...)
-		}
+			ReplaceTags(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -136,18 +130,18 @@ network resources are created within a VPC.`,
 			return fmt.Errorf("creating VPC: %w", apiErrFromV2(err))
 		}
 
-		r := created.Raw()
-		if r != nil {
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
 			fmt.Printf("\n%s\n", msgCreated("VPC", name))
-			if r.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *r.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 			}
-			if r.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *r.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
 			}
-			fmt.Printf("Default: %t\n", r.Properties.Default)
-			if len(r.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", r.Metadata.Tags)
+			fmt.Printf("Default: %t\n", raw.Properties.Default)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgCreatedAsync("VPC", name))
@@ -175,46 +169,47 @@ var vpcGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
+		vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
 
-		vpc := got.Raw()
-		if vpc != nil {
+		if vpc != nil && vpc.Raw() != nil {
+			raw := vpc.Raw()
+
 			fmt.Println("\nVPC Details:")
 			fmt.Println("============")
 
-			if vpc.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *vpc.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if vpc.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *vpc.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if vpc.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *vpc.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if vpc.Metadata.LocationResponse != nil && vpc.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", vpc.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
+				fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
 			}
-			fmt.Printf("Default:         %t\n", vpc.Properties.Default)
-			fmt.Printf("Linked Resources: %d\n", len(vpc.Properties.LinkedResources))
+			fmt.Printf("Default:         %t\n", raw.Properties.Default)
+			fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
 
-			if vpc.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", vpc.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if vpc.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *vpc.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
 
-			if len(vpc.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", vpc.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
 
-			if vpc.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *vpc.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		} else {
 			fmt.Println("VPC not found or no data returned.")
@@ -233,7 +228,7 @@ var vpcUpdateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
-		if name == "" && !cmd.Flags().Changed("tags") {
+		if name == "" && len(tags) == 0 {
 			return fmt.Errorf("at least one of --name or --tags must be provided")
 		}
 
@@ -249,47 +244,42 @@ var vpcUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		cur, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
+		vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 		}
 
-		r := cur.Raw()
-		if r == nil {
+		if vpc == nil || vpc.Raw() == nil {
 			return fmt.Errorf("VPC not found")
 		}
 
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+		if vpc.Raw().Status.State != nil && *vpc.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update VPC while it is in 'InCreation' state. Please wait until the VPC is fully created")
 		}
 
-		if cur.Region() == "" {
-			return fmt.Errorf("unable to determine region value for VPC")
-		}
-
 		if name != "" {
-			cur.Named(name)
+			vpc.Named(name)
 		}
-		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+		if len(tags) > 0 {
+			vpc.ReplaceTags(tags...)
 		}
 
-		updated, err := client.FromNetwork().VPCs().Update(ctx, cur)
+		updated, err := client.FromNetwork().VPCs().Update(ctx, vpc)
 		if err != nil {
 			return fmt.Errorf("updating VPC: %w", apiErrFromV2(err))
 		}
 
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			fmt.Printf("\n%s\n", msgUpdated("VPC", vpcID))
-			if ur.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *ur.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 			}
-			if ur.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *ur.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
 			}
-			if len(ur.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", ur.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC", vpcID))
@@ -340,8 +330,9 @@ var vpcDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(projectID, vpcID)); err != nil {
-			return fmt.Errorf("deleting VPC: %w", apiErrFromV2(err))
+		err = client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(projectID, vpcID))
+		if err != nil {
+			return fmt.Errorf("deleting VPC: %w", err)
 		}
 
 		fmt.Println(msgDeleted("VPC", vpcID))
@@ -366,9 +357,9 @@ var vpcListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().VPCs().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromNetwork().VPCs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
-			return fmt.Errorf("listing VPCs: %w", apiErrFromV2(err))
+			return fmt.Errorf("listing VPCs: %w", err)
 		}
 
 		if list != nil && len(list.Items()) > 0 {
@@ -382,27 +373,31 @@ var vpcListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, vpc := range list.Items() {
-				r := vpc.Raw()
-				name := vpc.Name()
-				id := vpc.VPCID()
-
-				region := ""
-				subnets := "0"
-				status := ""
-				if r != nil {
-					if r.Metadata.LocationResponse != nil {
-						region = string(r.Metadata.LocationResponse.Value)
-					}
-					subnets = fmt.Sprintf("%d", len(r.Properties.LinkedResources))
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				raw := vpc.Raw()
+				if raw == nil {
+					continue
 				}
-
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				subnets := fmt.Sprintf("%d", len(raw.Properties.LinkedResources))
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
 				rows = append(rows, []string{name, id, region, subnets, status})
 			}
 
-			PrintOutput(vpcListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No VPCs found")
 		}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +24,6 @@ func jobListPayload(l *aruba.List[*aruba.Job]) any {
 }
 
 func init() {
-	// Job commands
 	scheduleCmd.AddCommand(jobCmd)
 	jobCmd.AddCommand(jobCreateCmd)
 	jobCmd.AddCommand(jobGetCmd)
@@ -33,14 +31,13 @@ func init() {
 	jobCmd.AddCommand(jobDeleteCmd)
 	jobCmd.AddCommand(jobListCmd)
 
-	// Add flags for job commands
 	jobCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	jobCreateCmd.Flags().String("name", "", "Job name (required)")
 	jobCreateCmd.Flags().String("region", "", "Region code (required)")
 	jobCreateCmd.Flags().String("job-type", "", "Job type: OneShot or Recurring (required)")
-	jobCreateCmd.Flags().String("schedule-at", "", "Date and time when the job should run (required for OneShot)")
+	jobCreateCmd.Flags().String("schedule-at", "", "Date and time when the job should run (RFC3339, required for OneShot)")
 	jobCreateCmd.Flags().String("cron", "", "CRON expression (required for Recurring)")
-	jobCreateCmd.Flags().String("execute-until", "", "End date until which the job can run (required for Recurring)")
+	jobCreateCmd.Flags().String("execute-until", "", "End date until which the job can run (RFC3339, required for Recurring)")
 	jobCreateCmd.Flags().Bool("enabled", true, "Enable the job (default: true)")
 	jobCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	jobCreateCmd.Flags().String("step-resource-uri", "", "Resource URI targeted by the step (required by the API)")
@@ -66,13 +63,11 @@ func init() {
 	jobListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	jobListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
-	// Set up auto-completion for resource IDs
 	jobGetCmd.ValidArgsFunction = completeJobID
 	jobUpdateCmd.ValidArgsFunction = completeJobID
 	jobDeleteCmd.ValidArgsFunction = completeJobID
 }
 
-// Completion functions for schedule resources
 func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
@@ -85,17 +80,20 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	}
 
 	ctx := context.Background()
-	list, err := client.FromSchedule().Jobs().List(ctx, projectRef(projectID))
+	list, err := client.FromSchedule().Jobs().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
 	if list != nil {
-		for _, j := range list.Items() {
-			id := j.JobID()
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, j.Name()))
+		for _, job := range list.Items() {
+			raw := job.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -103,7 +101,6 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-// Job subcommands
 var jobCmd = &cobra.Command{
 	Use:   "job",
 	Short: "Manage scheduled jobs",
@@ -172,53 +169,37 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		j := aruba.NewJob().
-			IntoProject(projectRef(projectID)).
+		job := aruba.NewJob().
+			IntoProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithEnabled(enabled)
-		if len(tags) > 0 {
-			j.ReplaceTags(tags...)
-		}
+			WithEnabled(enabled).
+			ReplaceTags(tags...)
 
 		if jobType == "OneShot" {
 			t, err := time.Parse(time.RFC3339, scheduleAt)
 			if err != nil {
-				return fmt.Errorf("parsing --schedule-at: %w", err)
+				return fmt.Errorf("invalid --schedule-at (use RFC3339, e.g. 2026-06-01T10:00:00Z): %w", err)
 			}
-			j.OneShotAt(t)
+			job.OneShotAt(t)
 		} else {
-			j.WithCron(cron)
 			t, err := time.Parse(time.RFC3339, executeUntil)
 			if err != nil {
-				return fmt.Errorf("parsing --execute-until: %w", err)
+				return fmt.Errorf("invalid --execute-until (use RFC3339, e.g. 2026-12-31T23:59:59Z): %w", err)
 			}
-			j.RecurringUntil(t)
-		}
-
-		if stepResourceURI != "" {
-			step := aruba.NewJobStep().
-				OfResource(aruba.URI(stepResourceURI)).
-				WithAction(stepActionURI).
-				WithVerb(aruba.HTTPVerb(stepHTTPVerb))
-			if stepName != "" {
-				step.Named(stepName)
-			}
-			j.AddStep(step)
-		}
-
-		if err := j.Err(); err != nil {
-			return fmt.Errorf("building job: %w", err)
+			job.WithCron(cron)
+			job.RecurringUntil(t)
 		}
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		created, err := client.FromSchedule().Jobs().Create(ctx, j)
+		created, err := client.FromSchedule().Jobs().Create(ctx, job)
 		if err != nil {
 			return fmt.Errorf("creating job: %w", apiErrFromV2(err))
 		}
 
-		if created.Raw() != nil {
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -226,19 +207,24 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 				{Header: "ENABLED", Width: 10},
 				{Header: "REGION", Width: 20},
 			}
-			row := []string{
-				created.JobID(),
-				created.Name(),
-				string(created.JobType()),
-				func() string {
-					if created.Enabled() {
-						return "Yes"
-					}
-					return "No"
-				}(),
-				string(created.Region()),
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			PrintOutput(jobFromRaw(created), headers, [][]string{row})
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
+			}
+			jobTypeVal := string(raw.Properties.JobType)
+			enabledVal := "No"
+			if raw.Properties.Enabled {
+				enabledVal = "Yes"
+			}
+			regionVal := ""
+			if raw.Metadata.LocationResponse != nil {
+				regionVal = string(raw.Metadata.LocationResponse.Value)
+			}
+			PrintOutput(raw, headers, [][]string{{id, nameVal, jobTypeVal, enabledVal, regionVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Job", name))
 		}
@@ -265,19 +251,61 @@ var jobGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
+		job, err := client.FromSchedule().Jobs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Schedule/jobs/"+jobID))
 		if err != nil {
 			return fmt.Errorf("getting job: %w", apiErrFromV2(err))
 		}
 
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(jobFromRaw(got), nil, nil)
-			return nil
-		}
+		if job != nil && job.Raw() != nil {
+			raw := job.Raw()
 
-		raw := got.Raw()
-		if raw == nil {
+			format := resolveOutputFormat()
+			if format == OutputFormatJSON || format == OutputFormatYAML {
+				PrintOutput(raw, nil, nil)
+				return nil
+			}
+
+			fmt.Println("\nJob Details:")
+			fmt.Println("============")
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+			}
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+			}
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+			}
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+			}
+			fmt.Printf("Job Type:        %s\n", string(raw.Properties.JobType))
+			fmt.Printf("Enabled:         %t\n", raw.Properties.Enabled)
+			if raw.Properties.ScheduleAt != nil {
+				fmt.Printf("Schedule At:     %s\n", *raw.Properties.ScheduleAt)
+			}
+			if raw.Properties.Cron != nil {
+				fmt.Printf("CRON:            %s\n", *raw.Properties.Cron)
+			}
+			if raw.Properties.ExecuteUntil != nil {
+				fmt.Printf("Execute Until:   %s\n", *raw.Properties.ExecuteUntil)
+			}
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
+			}
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+			}
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+			}
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+			} else {
+				fmt.Printf("Tags:            []\n")
+			}
+			fmt.Println()
+		} else {
 			fmt.Println("Job not found")
 			return nil
 		}
@@ -339,7 +367,7 @@ var jobListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromSchedule().Jobs().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromSchedule().Jobs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing jobs: %w", apiErrFromV2(err))
 		}
@@ -355,22 +383,35 @@ var jobListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, j := range list.Items() {
-				rows = append(rows, []string{
-					j.Name(),
-					j.JobID(),
-					string(j.JobType()),
-					func() string {
-						if j.Enabled() {
-							return "Yes"
-						}
-						return "No"
-					}(),
-					string(j.Region()),
-					j.State(),
-				})
+			for _, job := range list.Items() {
+				raw := job.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				jobType := string(raw.Properties.JobType)
+				enabledVal := "No"
+				if raw.Properties.Enabled {
+					enabledVal = "Yes"
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
+				rows = append(rows, []string{name, id, jobType, enabledVal, region, status})
 			}
-			PrintOutput(jobListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No jobs found")
 		}
@@ -406,32 +447,44 @@ var jobUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		current, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
+		job, err := client.FromSchedule().Jobs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Schedule/jobs/"+jobID))
 		if err != nil {
-			return fmt.Errorf("getting job: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting job: %w", err)
+		}
+		if job == nil || job.Raw() == nil {
+			return fmt.Errorf("job not found")
 		}
 
 		if name != "" {
-			current.Named(name)
+			job.Named(name)
 		}
 		if enabledSet {
-			current.WithEnabled(enabled)
+			job.WithEnabled(enabled)
 		}
 		if cmd.Flags().Changed("tags") {
-			current.ReplaceTags(tags...)
+			job.ReplaceTags(tags...)
 		}
 
-		updated, err := client.FromSchedule().Jobs().Update(ctx, current)
+		updated, err := client.FromSchedule().Jobs().Update(ctx, job)
 		if err != nil {
 			return fmt.Errorf("updating job: %w", apiErrFromV2(err))
 		}
 
-		fmt.Printf("\n%s\n", msgUpdated("Job", jobID))
-		fmt.Printf("ID:              %s\n", updated.JobID())
-		fmt.Printf("Name:            %s\n", updated.Name())
-		fmt.Printf("Enabled:         %t\n", updated.Enabled())
-		if raw := updated.Raw(); raw != nil && len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
+			fmt.Printf("\n%s\n", msgUpdated("Job", jobID))
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+			}
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+			}
+			fmt.Printf("Enabled:         %t\n", raw.Properties.Enabled)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+			}
+		} else {
+			fmt.Println(msgUpdatedAsync("Job", jobID))
 		}
 		return nil
 	},
@@ -443,6 +496,17 @@ var jobDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		jobID := args[0]
+
+		confirm, _ := cmd.Flags().GetBool("yes")
+		if !confirm {
+			ok, err := confirmDelete("job", jobID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+		}
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -459,22 +523,17 @@ var jobDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			if _, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID)); err != nil {
-				return fmt.Errorf("dry-run: schedule job not found or inaccessible: %w", apiErrFromV2(err))
+			_, err = client.FromSchedule().Jobs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Schedule/jobs/"+jobID))
+			if err != nil {
+				return fmt.Errorf("dry-run: schedule job not found or inaccessible: %w", err)
 			}
 			fmt.Println(msgDryRun("schedule job", jobID))
 			return nil
 		}
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
-			ok, err := confirmDelete("job", jobID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
+		err = client.FromSchedule().Jobs().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Schedule/jobs/"+jobID))
+		if err != nil {
+			return fmt.Errorf("deleting job: %w", err)
 		}
 
 		if err := client.FromSchedule().Jobs().Delete(ctx, jobRef(projectID, jobID)); err != nil {

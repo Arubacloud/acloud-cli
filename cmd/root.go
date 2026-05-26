@@ -343,7 +343,17 @@ func msgDryRun(kind, id string) string {
 	return fmt.Sprintf("[dry-run] Would delete %s '%s'. Resource exists and is accessible.", kind, id)
 }
 
-// listOpts builds v0.2.0 CallOptions from --limit and --offset flags (TD-017, TD-022).
+// billingPeriodPtr converts a non-empty string flag value to a *types.BillingPeriod pointer.
+// Returns nil when s is empty so the field is omitted from the JSON payload.
+func billingPeriodPtr(s string) *types.BillingPeriod {
+	if s == "" {
+		return nil
+	}
+	bp := types.BillingPeriod(s)
+	return &bp
+}
+
+// listParams builds pagination RequestParameters from --limit and --offset flags (TD-017).
 // Returns nil when neither flag is set, preserving the existing nil-means-no-options contract.
 func listOpts(cmd *cobra.Command) []aruba.CallOption {
 	limit, _ := cmd.Flags().GetInt32("limit")

@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	aruba "github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
 )
 
 func init() {
-	// DBaaS commands
 	databaseCmd.AddCommand(dbaasCmd)
 	dbaasCmd.AddCommand(dbaasCreateCmd)
 	dbaasCmd.AddCommand(dbaasGetCmd)
@@ -19,7 +17,6 @@ func init() {
 	dbaasCmd.AddCommand(dbaasDeleteCmd)
 	dbaasCmd.AddCommand(dbaasListCmd)
 
-	// Add flags for DBaaS commands
 	dbaasCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasCreateCmd.Flags().String("name", "", "Name for the DBaaS instance (required)")
 	dbaasCreateCmd.Flags().String("region", "", "Region code (required)")
@@ -53,33 +50,11 @@ func init() {
 	dbaasListCmd.Flags().Int("limit", 0, "Maximum number of results to return (0 = no limit)")
 	dbaasListCmd.Flags().Int("offset", 0, "Number of results to skip")
 
-	// Set up auto-completion for resource IDs
 	dbaasGetCmd.ValidArgsFunction = completeDBaaSID
 	dbaasUpdateCmd.ValidArgsFunction = completeDBaaSID
 	dbaasDeleteCmd.ValidArgsFunction = completeDBaaSID
 }
 
-// File-local Ref helpers
-
-func dbaasRef(projectID, dbaasID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-}
-
-func dbaasFromRaw(d *aruba.DBaaS) *types.DBaaSResponse {
-	if d == nil {
-		return nil
-	}
-	return d.Raw()
-}
-
-func dbaasListPayload(l *aruba.List[*aruba.DBaaS]) any {
-	if r, ok := l.Raw().(*types.Response[types.DBaaSList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
-
-// Completion functions for database resources
 func completeDBaaSID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
@@ -92,17 +67,20 @@ func completeDBaaSID(cmd *cobra.Command, args []string, toComplete string) ([]st
 	}
 
 	ctx := context.Background()
-	list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID))
+	list, err := client.FromDatabase().DBaaS().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
 	if list != nil {
-		for _, r := range list.Items() {
-			id := r.DBaaSID()
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, r.Name()))
+		for _, d := range list.Items() {
+			raw := d.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -110,7 +88,6 @@ func completeDBaaSID(cmd *cobra.Command, args []string, toComplete string) ([]st
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-// DBaaS subcommands
 var dbaasCmd = &cobra.Command{
 	Use:   "dbaas",
 	Short: "Manage DBaaS resources",
@@ -155,39 +132,23 @@ and users with 'acloud database dbaas user create'.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		d := aruba.NewDBaaS().
-			IntoProject(projectRef(projectID)).
+		dbaas := aruba.NewDBaaS().
+			IntoProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			InZone(aruba.Zone(zone)).
 			OfEngine(aruba.DatabaseEngine(engineID)).
 			OfFlavor(aruba.DBaaSFlavor(flavor)).
-			WithSizeGB(storageSize)
-		if len(tags) > 0 {
-			d.ReplaceTags(tags...)
-		}
-		if vpcURI != "" {
-			d.WithVPC(aruba.URI(vpcURI))
-		}
-		if subnetURI != "" {
-			d.WithSubnet(aruba.URI(subnetURI))
-		}
-		if sgURI != "" {
-			d.WithSecurityGroup(aruba.URI(sgURI))
-		}
-		if elasticIPURI != "" {
-			d.WithElasticIP(aruba.URI(elasticIPURI))
-		}
+			ReplaceTags(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		created, err := client.FromDatabase().DBaaS().Create(ctx, d)
+		created, err := client.FromDatabase().DBaaS().Create(ctx, dbaas)
 		if err != nil {
 			return fmt.Errorf("creating DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		resource := dbaasFromRaw(created)
-		if resource != nil {
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
@@ -196,45 +157,31 @@ and users with 'acloud database dbaas user create'.`,
 				{Header: "FLAVOR", Width: 20},
 				{Header: "REGION", Width: 20},
 			}
-			row := []string{
-				func() string {
-					if resource.Metadata.ID != nil {
-						return *resource.Metadata.ID
-					}
-					return ""
-				}(),
-				func() string {
-					if resource.Metadata.Name != nil {
-						return *resource.Metadata.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if resource.Properties.Engine != nil && resource.Properties.Engine.Type != nil {
-						return *resource.Properties.Engine.Type
-					}
-					return ""
-				}(),
-				func() string {
-					if resource.Properties.Engine != nil && resource.Properties.Engine.Version != nil {
-						return *resource.Properties.Engine.Version
-					}
-					return ""
-				}(),
-				func() string {
-					if resource.Properties.Flavor != nil && resource.Properties.Flavor.Name != nil {
-						return *resource.Properties.Flavor.Name
-					}
-					return ""
-				}(),
-				func() string {
-					if resource.Metadata.LocationResponse != nil {
-						return string(resource.Metadata.LocationResponse.Value)
-					}
-					return ""
-				}(),
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			PrintOutput(resource, headers, [][]string{row})
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
+			}
+			engine := ""
+			if raw.Properties.Engine != nil && raw.Properties.Engine.Type != nil {
+				engine = *raw.Properties.Engine.Type
+			}
+			version := ""
+			if raw.Properties.Engine != nil && raw.Properties.Engine.Version != nil {
+				version = *raw.Properties.Engine.Version
+			}
+			flavorVal := ""
+			if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
+				flavorVal = *raw.Properties.Flavor.Name
+			}
+			regionVal := ""
+			if raw.Metadata.LocationResponse != nil {
+				regionVal = string(raw.Metadata.LocationResponse.Value)
+			}
+			PrintOutput(raw, headers, [][]string{{id, nameVal, engine, version, flavorVal, regionVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("DBaaS instance", name))
 		}
@@ -261,59 +208,59 @@ var dbaasGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
+		dbaas, err := client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
 		if err != nil {
 			return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		resource := dbaasFromRaw(got)
-		if resource != nil {
+		if dbaas != nil && dbaas.Raw() != nil {
+			raw := dbaas.Raw()
+
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(resource, nil, nil)
+				PrintOutput(raw, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nDBaaS Instance Details:")
-			fmt.Println("======================")
-
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			fmt.Println("=======================")
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if resource.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *resource.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if resource.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", resource.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			if resource.Properties.Engine != nil {
-				if resource.Properties.Engine.Type != nil {
-					fmt.Printf("Engine Type:     %s\n", *resource.Properties.Engine.Type)
+			if raw.Properties.Engine != nil {
+				if raw.Properties.Engine.Type != nil {
+					fmt.Printf("Engine Type:     %s\n", *raw.Properties.Engine.Type)
 				}
-				if resource.Properties.Engine.Version != nil {
-					fmt.Printf("Engine Version:  %s\n", *resource.Properties.Engine.Version)
+				if raw.Properties.Engine.Version != nil {
+					fmt.Printf("Engine Version:  %s\n", *raw.Properties.Engine.Version)
 				}
-				if resource.Properties.Engine.Name != nil {
-					fmt.Printf("Engine Name:    %s\n", *resource.Properties.Engine.Name)
+				if raw.Properties.Engine.Name != nil {
+					fmt.Printf("Engine Name:     %s\n", *raw.Properties.Engine.Name)
 				}
 			}
-			if resource.Properties.Flavor != nil && resource.Properties.Flavor.Name != nil {
-				fmt.Printf("Flavor:         %s\n", *resource.Properties.Flavor.Name)
+			if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
+				fmt.Printf("Flavor:          %s\n", *raw.Properties.Flavor.Name)
 			}
-			if resource.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *resource.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
 			}
-			if resource.Metadata.CreationDate != nil && !resource.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", resource.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if resource.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *resource.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(resource.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -342,7 +289,7 @@ var dbaasListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromDatabase().DBaaS().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromDatabase().DBaaS().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing DBaaS instances: %w", apiErrFromV2(err))
 		}
@@ -360,57 +307,41 @@ var dbaasListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, d := range list.Items() {
-				raw := dbaasFromRaw(d)
+				raw := d.Raw()
 				if raw == nil {
 					continue
 				}
-				row := []string{
-					func() string {
-						if raw.Metadata.Name != nil {
-							return *raw.Metadata.Name
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Metadata.ID != nil {
-							return *raw.Metadata.ID
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Properties.Engine != nil && raw.Properties.Engine.Type != nil {
-							return *raw.Properties.Engine.Type
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Properties.Engine != nil && raw.Properties.Engine.Version != nil {
-							return *raw.Properties.Engine.Version
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
-							return *raw.Properties.Flavor.Name
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Metadata.LocationResponse != nil {
-							return string(raw.Metadata.LocationResponse.Value)
-						}
-						return ""
-					}(),
-					func() string {
-						if raw.Status.State != nil {
-							return *raw.Status.State
-						}
-						return ""
-					}(),
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
 				}
-				rows = append(rows, row)
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				engine := ""
+				if raw.Properties.Engine != nil && raw.Properties.Engine.Type != nil {
+					engine = *raw.Properties.Engine.Type
+				}
+				version := ""
+				if raw.Properties.Engine != nil && raw.Properties.Engine.Version != nil {
+					version = *raw.Properties.Engine.Version
+				}
+				flavor := ""
+				if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
+					flavor = *raw.Properties.Flavor.Name
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
+				rows = append(rows, []string{name, id, engine, version, flavor, region, status})
 			}
-			PrintOutput(dbaasListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No DBaaS instances found")
 		}
@@ -444,34 +375,37 @@ var dbaasUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		current, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID))
+		dbaas, err := client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
 		if err != nil {
-			return fmt.Errorf("fetching current DBaaS instance: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting DBaaS instance: %w", err)
+		}
+		if dbaas == nil || dbaas.Raw() == nil {
+			return fmt.Errorf("DBaaS instance not found")
 		}
 
 		if name != "" {
-			current.Named(name)
+			dbaas.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			current.ReplaceTags(tags...)
+			dbaas.ReplaceTags(tags...)
 		}
 
-		updated, err := client.FromDatabase().DBaaS().Update(ctx, current)
+		updated, err := client.FromDatabase().DBaaS().Update(ctx, dbaas)
 		if err != nil {
 			return fmt.Errorf("updating DBaaS instance: %w", apiErrFromV2(err))
 		}
 
-		resource := dbaasFromRaw(updated)
-		if resource != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			fmt.Printf("\n%s\n", msgUpdated("DBaaS instance", dbaasID))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if len(resource.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("DBaaS instance", dbaasID))
@@ -487,7 +421,16 @@ var dbaasDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dbaasID := args[0]
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
+		confirm, _ := cmd.Flags().GetBool("yes")
+		if !confirm {
+			ok, err := confirmDelete("DBaaS instance", dbaasID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+		}
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -504,25 +447,17 @@ var dbaasDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			if _, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(projectID, dbaasID)); err != nil {
-				return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", apiErrFromV2(err))
+			_, err = client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
+			if err != nil {
+				return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", err)
 			}
 			fmt.Println(msgDryRun("DBaaS instance", dbaasID))
 			return nil
 		}
 
-		if !skipConfirm {
-			ok, err := confirmDelete("DBaaS instance", dbaasID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
-
-		if err := client.FromDatabase().DBaaS().Delete(ctx, dbaasRef(projectID, dbaasID)); err != nil {
-			return fmt.Errorf("deleting DBaaS instance: %w", apiErrFromV2(err))
+		err = client.FromDatabase().DBaaS().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
+		if err != nil {
+			return fmt.Errorf("deleting DBaaS instance: %w", err)
 		}
 
 		fmt.Println(msgDeleted("DBaaS instance", dbaasID))

@@ -5,22 +5,17 @@ import (
 	"fmt"
 	"strings"
 
-	aruba "github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
 )
 
 func init() {
-	// Database backup commands
 	databaseCmd.AddCommand(backupCmd)
 	backupCmd.AddCommand(backupCreateCmd)
 	backupCmd.AddCommand(backupGetCmd)
-	// Note: Database backups don't support update operations
-	// backupCmd.AddCommand(backupUpdateCmd)
 	backupCmd.AddCommand(backupDeleteCmd)
 	backupCmd.AddCommand(backupListCmd)
 
-	// Add flags for database backup commands
 	backupCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	backupCreateCmd.Flags().String("name", "", "Backup name (required)")
 	backupCreateCmd.Flags().String("region", "", "Region code (required)")
@@ -44,32 +39,10 @@ func init() {
 	backupListCmd.Flags().Int("limit", 0, "Maximum number of results to return (0 = no limit)")
 	backupListCmd.Flags().Int("offset", 0, "Number of results to skip")
 
-	// Set up auto-completion for resource IDs
 	backupGetCmd.ValidArgsFunction = completeDatabaseBackupID
 	backupDeleteCmd.ValidArgsFunction = completeDatabaseBackupID
 }
 
-// File-local Ref helpers
-
-func databaseBackupRef(projectID, backupID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/backups/" + backupID)
-}
-
-func databaseBackupFromRaw(b *aruba.DBaaSBackup) *types.BackupResponse {
-	if b == nil {
-		return nil
-	}
-	return b.Raw()
-}
-
-func databaseBackupListPayload(l *aruba.List[*aruba.DBaaSBackup]) any {
-	if r, ok := l.Raw().(*types.Response[types.BackupList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
-
-// Completion functions for database resources
 func completeDatabaseBackupID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
@@ -82,17 +55,20 @@ func completeDatabaseBackupID(cmd *cobra.Command, args []string, toComplete stri
 	}
 
 	ctx := context.Background()
-	list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID))
+	list, err := client.FromDatabase().Backups().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
 	if list != nil {
-		for _, b := range list.Items() {
-			id := b.DBaaSBackupID()
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, b.Name()))
+		for _, backup := range list.Items() {
+			raw := backup.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -100,7 +76,6 @@ func completeDatabaseBackupID(cmd *cobra.Command, args []string, toComplete stri
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-// Database backup subcommands
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Manage database backups",
@@ -140,42 +115,50 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		bk := aruba.NewDBaaSBackup().
-			IntoProject(projectRef(projectID)).
+		dbaasURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID
+		databaseURI := dbaasURI + "/databases/" + databaseName
+
+		bkp := aruba.NewDBaaSBackup().
+			IntoProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			FromDBaaS(dbaasRef(projectID, dbaasID)).
-			FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
-		if zone != "" {
-			bk.InZone(aruba.Zone(zone))
-		}
-		if len(tags) > 0 {
-			bk.ReplaceTags(tags...)
-		}
+			FromDBaaS(aruba.URI(dbaasURI)).
+			FromDatabase(aruba.URI(databaseURI)).
+			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
+			ReplaceTags(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		created, err := client.FromDatabase().Backups().Create(ctx, bk)
+		created, err := client.FromDatabase().Backups().Create(ctx, bkp)
 		if err != nil {
-			return fmt.Errorf("creating backup: %w", apiErrFromV2(err))
+			return fmt.Errorf("creating backup: %w", err)
 		}
 
-		resource := databaseBackupFromRaw(created)
-		if resource != nil {
-			fmt.Printf("\n%s\n", msgCreated("Backup", name))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
+			headers := []TableColumn{
+				{Header: "ID", Width: 30},
+				{Header: "NAME", Width: 40},
+				{Header: "REGION", Width: 20},
+				{Header: "STATUS", Width: 15},
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			if resource.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", resource.Metadata.LocationResponse.Value)
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			if resource.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *resource.Status.State)
+			regionVal := ""
+			if raw.Metadata.LocationResponse != nil {
+				regionVal = string(raw.Metadata.LocationResponse.Value)
 			}
+			statusVal := ""
+			if raw.Status.State != nil {
+				statusVal = string(*raw.Status.State)
+			}
+			PrintOutput(raw, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Backup", name))
 		}
@@ -202,48 +185,47 @@ var backupGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromDatabase().Backups().Get(ctx, databaseBackupRef(projectID, backupID))
+		backup, err := client.FromDatabase().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
 		if err != nil {
 			return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 		}
 
-		resource := databaseBackupFromRaw(got)
-		if resource != nil {
+		if backup != nil && backup.Raw() != nil {
+			raw := backup.Raw()
+
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(resource, nil, nil)
+				PrintOutput(raw, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nBackup Details:")
 			fmt.Println("==============")
-
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if resource.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", resource.Metadata.LocationResponse.Value)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if resource.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *resource.Status.State)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			if resource.Metadata.CreationDate != nil && !resource.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", resource.Metadata.CreationDate.Format(DateLayout))
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
 			}
-			if resource.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *resource.Metadata.CreatedBy)
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if len(resource.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if resource.Properties.DBaaS.URI != "" {
-				fmt.Printf("DBaaS URI:       %s\n", resource.Properties.DBaaS.URI)
-			}
-			if resource.Properties.Database.URI != "" {
-				fmt.Printf("Database URI:    %s\n", resource.Properties.Database.URI)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+			} else {
+				fmt.Printf("Tags:            []\n")
 			}
 			fmt.Println()
 		} else {
@@ -270,7 +252,7 @@ var backupListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromDatabase().Backups().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing backups: %w", apiErrFromV2(err))
 		}
@@ -284,30 +266,33 @@ var backupListCmd = &cobra.Command{
 			}
 
 			var rows [][]string
-			for _, b := range list.Items() {
-				row := []string{
-					b.Name(),
-					b.DBaaSBackupID(),
-					string(b.Region()),
-					b.State(),
+			for _, backup := range list.Items() {
+				raw := backup.Raw()
+				if raw == nil {
+					continue
 				}
-				rows = append(rows, row)
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
+				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintOutput(databaseBackupListPayload(list), headers, rows)
+			PrintOutput(list.Raw(), headers, rows)
 		} else {
 			fmt.Println("No backups found")
 		}
-		return nil
-	},
-}
-
-var backupUpdateCmd = &cobra.Command{
-	Use:   "update [backup-id]",
-	Short: "Update a backup",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("Error: Database backups do not support update operations")
-		fmt.Println("You can only create, list, get, and delete database backups.")
 		return nil
 	},
 }
@@ -319,7 +304,16 @@ var backupDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backupID := args[0]
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
+		confirm, _ := cmd.Flags().GetBool("yes")
+		if !confirm {
+			ok, err := confirmDelete("backup", backupID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+		}
 
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -336,25 +330,17 @@ var backupDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			if _, err := client.FromDatabase().Backups().Get(ctx, databaseBackupRef(projectID, backupID)); err != nil {
-				return fmt.Errorf("dry-run: database backup not found or inaccessible: %w", apiErrFromV2(err))
+			_, err = client.FromDatabase().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
+			if err != nil {
+				return fmt.Errorf("dry-run: database backup not found or inaccessible: %w", err)
 			}
 			fmt.Println(msgDryRun("database backup", backupID))
 			return nil
 		}
 
-		if !skipConfirm {
-			ok, err := confirmDelete("backup", backupID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
-
-		if err := client.FromDatabase().Backups().Delete(ctx, databaseBackupRef(projectID, backupID)); err != nil {
-			return fmt.Errorf("deleting backup: %w", apiErrFromV2(err))
+		err = client.FromDatabase().Backups().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
+		if err != nil {
+			return fmt.Errorf("deleting backup: %w", err)
 		}
 
 		fmt.Println(msgDeleted("Backup", backupID))
