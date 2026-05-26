@@ -43,7 +43,6 @@ func init() {
 	projectListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 }
 
-
 // completeProjectID provides completion for project IDs
 func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Allow completion even if args exist - user might be completing a partial ID

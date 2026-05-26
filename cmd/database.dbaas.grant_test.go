@@ -325,7 +325,6 @@ func TestDBaaSGrantDeleteCmd(t *testing.T) {
 	}
 }
 
-
 func TestGrantRef(t *testing.T) {
 	ref := grantRef("proj", "dbaas", "db", "g1")
 	_ = ref

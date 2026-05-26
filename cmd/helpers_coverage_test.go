@@ -260,4 +260,3 @@ func TestConfirmDelete_NonInteractive(t *testing.T) {
 		t.Errorf("expected --yes mention in error, got: %s", err.Error())
 	}
 }
-

@@ -44,7 +44,6 @@ func grantRef(projectID, dbaasID, dbName, grantID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + dbName + "/grants/" + grantID)
 }
 
-
 func completeGrantID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) < 2 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
