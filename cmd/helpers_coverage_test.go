@@ -16,103 +16,46 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
-// ─── *FromRaw nil branches ────────────────────────────────────────────────────
-// Each *FromRaw function has two branches: nil input → nil, non-nil → Raw().
-// The non-nil branch is exercised by the command tests; the nil branch is not.
-
-func TestFromRaw_Nil(t *testing.T) {
-	t.Run("containerRegistryFromRaw", func(t *testing.T) {
-		if containerRegistryFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("kaasFromRaw", func(t *testing.T) {
-		if kaasFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("databaseBackupFromRaw", func(t *testing.T) {
-		if databaseBackupFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("databaseFromRaw", func(t *testing.T) {
-		if databaseFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("dbaasFromRaw", func(t *testing.T) {
-		if dbaasFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("userFromRaw", func(t *testing.T) {
-		if userFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("projectFromRaw", func(t *testing.T) {
-		if projectFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("backupFromRaw (storage)", func(t *testing.T) {
-		if backupFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("restoreFromRaw", func(t *testing.T) {
-		if restoreFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("snapshotFromRaw", func(t *testing.T) {
-		if snapshotFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("volumeFromRaw", func(t *testing.T) {
-		if volumeFromRaw(nil) != nil {
-			t.Error("expected nil")
-		}
-	})
-}
-
 // ─── redactVPNTunnelSecrets ───────────────────────────────────────────────────
 
 func TestRedactVPNTunnelSecrets(t *testing.T) {
 	secret := "super-secret"
 	cloud := "cloud-site"
+	id := "vpn-redact-1"
 
-	tunnels := []types.VPNTunnelResponse{
-		{
-			Properties: types.VPNTunnelPropertiesResponse{
-				VPNClientSettings: &types.VPNClientSettings{
-					PSK: &types.PSKSettings{
-						CloudSite: &cloud,
-						Secret:    &secret,
-					},
+	// Build a VPNTunnel via a mock GET so we get a real *aruba.VPNTunnel.
+	resp := types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id},
+		Properties: types.VPNTunnelPropertiesResponse{
+			VPNClientSettings: &types.VPNClientSettings{
+				PSK: &types.PSKSettings{
+					CloudSite: &cloud,
+					Secret:    &secret,
 				},
 			},
 		},
-		// nil VPNClientSettings — must not panic
-		{},
-		// non-nil settings but nil PSK — must not panic
-		{
-			Properties: types.VPNTunnelPropertiesResponse{
-				VPNClientSettings: &types.VPNClientSettings{},
-			},
-		},
+	}
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-redact-1", jsonResponse(200, resp))
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	tunnel, err := srv.Client().FromNetwork().VPNTunnels().Get(ctx, aruba.URI("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-redact-1"))
+	if err != nil {
+		t.Fatalf("unexpected error fetching tunnel: %v", err)
 	}
 
-	redactVPNTunnelSecrets(tunnels)
+	redactVPNTunnelSecrets(tunnel)
 
-	if tunnels[0].Properties.VPNClientSettings.PSK.Secret != nil {
+	if tunnel.Raw().Properties.VPNClientSettings.PSK.Secret != nil {
 		t.Error("expected PSK.Secret to be nil after redaction")
 	}
-	if tunnels[0].Properties.VPNClientSettings.PSK.CloudSite == nil {
+	if tunnel.Raw().Properties.VPNClientSettings.PSK.CloudSite == nil {
 		t.Error("expected non-secret PSK fields to be preserved")
 	}
+
+	// nil tunnel — must not panic
+	redactVPNTunnelSecrets(nil)
 }
 
 // ─── vpnTunnelReattachSettings (via update command) ───────────────────────────
@@ -131,7 +74,7 @@ func TestVPNTunnelUpdate_ReattachSettings(t *testing.T) {
 	secret := "psk-secret"
 
 	id, name := "vpn-001", "my-tunnel"
-	active := "Active"
+	active := types.StateActive
 	getResp := types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Status:   types.ResourceStatus{State: &active},
@@ -189,7 +132,8 @@ func TestVPNTunnelUpdate_ReattachSettings(t *testing.T) {
 
 func TestVPNTunnelUpdate_NilIPConfig(t *testing.T) {
 	// vpnTunnelReattachSettings with nil IPConfigurations and nil VPNClientSettings
-	id, name, active := "vpn-002", "tunnel-2", "Active"
+	id, name := "vpn-002", "tunnel-2"
+	active := types.StateActive
 	getResp := types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Status:   types.ResourceStatus{State: &active},
@@ -317,160 +261,3 @@ func TestConfirmDelete_NonInteractive(t *testing.T) {
 	}
 }
 
-// ─── *ListPayload nil branches ────────────────────────────────────────────────
-// Each *ListPayload function has a defensive return nil when the type assertion
-// fails. A zero-value *aruba.List has raw=nil, so the type assertion always
-// fails → return nil is exercised.
-
-func TestListPayload_Nil(t *testing.T) {
-	t.Run("csListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.CloudServer]
-		if csListPayload(&l) != nil {
-			t.Error("expected nil from csListPayload with nil raw")
-		}
-	})
-	t.Run("keypairListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.KeyPair]
-		if keypairListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("containerRegistryListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.ContainerRegistry]
-		if containerRegistryListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("kaasListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.KaaS]
-		if kaasListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("databaseBackupListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.DBaaSBackup]
-		if databaseBackupListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("databaseListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.Database]
-		if databaseListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("dbaasListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.DBaaS]
-		if dbaasListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("userListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.User]
-		if userListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("projectListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.Project]
-		if projectListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("elasticIPListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.ElasticIP]
-		if elasticIPListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("loadBalancerListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.LoadBalancer]
-		if loadBalancerListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("securityGroupListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.SecurityGroup]
-		if securityGroupListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("securityRuleListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.SecurityRule]
-		if securityRuleListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("subnetListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.Subnet]
-		if subnetListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("vpcListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.VPC]
-		if vpcListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("vpcPeeringListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.VPCPeering]
-		if vpcPeeringListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("vpcPeeringRouteListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.VPCPeeringRoute]
-		if vpcPeeringRouteListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("vpnRouteListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.VPNRoute]
-		if vpnRouteListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("vpnTunnelListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.VPNTunnel]
-		if vpnTunnelListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("jobListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.Job]
-		if jobListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("kmsListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.KMS]
-		if kmsListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("backupListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.StorageBackup]
-		if backupListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("volumeListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.BlockStorage]
-		if volumeListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("restoreListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.StorageRestore]
-		if restoreListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-	t.Run("snapshotListPayload", func(t *testing.T) {
-		var l aruba.List[*aruba.Snapshot]
-		if snapshotListPayload(&l) != nil {
-			t.Error("expected nil")
-		}
-	})
-}

@@ -264,7 +264,7 @@ func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					jsonResponse(200, types.VPCPeeringRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "route-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
@@ -293,7 +293,7 @@ func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					jsonResponse(200, types.VPCPeeringRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					errorResponse(500, "Internal Server Error", "boom"))

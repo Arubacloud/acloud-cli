@@ -293,7 +293,7 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "update", "vol-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				state := "NotUsed"
+				state := types.StateNotUsed
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
@@ -322,7 +322,7 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "update", "vol-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				state := "NotUsed"
+				state := types.StateNotUsed
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},

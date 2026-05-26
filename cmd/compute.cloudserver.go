@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -129,7 +130,7 @@ func completeCloudServerID(cmd *cobra.Command, args []string, toComplete string)
 				name = *raw.Metadata.Name
 			}
 			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, cs.Name()))
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
@@ -181,7 +182,6 @@ Billing period: Hour (default), Month, or Year.`,
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		userDataFile, _ := cmd.Flags().GetString("user-data-file")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 
 		client, err := GetArubaClient()
 		if err != nil {

@@ -231,7 +231,7 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				state := "Active"
+				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
@@ -266,7 +266,7 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				state := "Active"
+				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},

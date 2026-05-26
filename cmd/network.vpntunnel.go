@@ -377,7 +377,7 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		subnetName, _ := cmd.Flags().GetString("subnet-name")
 		publicIPURI, _ := cmd.Flags().GetString("elastic-ip-uri")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		pskSecret, _ := cmd.Flags().GetString("psk")
+		psk, _ := cmd.Flags().GetString("psk")
 
 		// IKE settings
 		ikeLifetime, _ := cmd.Flags().GetInt32("ike-lifetime")
@@ -408,13 +408,13 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 			flag  string
 			valid []string
 		}{
-			{ikeEncryption, "ike-encryption", vpnIKEEncryptionAlgorithms},
-			{ikeHash, "ike-hash", vpnIKEHashAlgorithms},
-			{ikeDHGroup, "ike-dh-group", vpnIKEDHGroups},
-			{ikeDPDAction, "ike-dpd-action", vpnIKEDPDActions},
-			{espEncryption, "esp-encryption", vpnESPEncryptionAlgorithms},
-			{espHash, "esp-hash", vpnESPHashAlgorithms},
-			{espPFS, "esp-pfs", vpnESPPFSGroups},
+			{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
+			{ikeHash, "ike-hash", vpnHashAlgorithms},
+			{ikeDHGroup, "ike-dh-group", vpnDHGroups},
+			{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
+			{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
+			{espHash, "esp-hash", vpnHashAlgorithms},
+			{espPFS, "esp-pfs", vpnPFSGroups},
 		} {
 			if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
 				return err
@@ -457,7 +457,6 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		if ikeDPDTimeout > 0 {
 			ike.WithDPDTimeoutSeconds(int(ikeDPDTimeout))
 		}
-		t.WithIKESettings(ike)
 
 		// Build ESP settings
 		esp := aruba.NewVPNESP().
@@ -469,7 +468,6 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		if espPFS != "" {
 			esp.WithPFS(aruba.ESPPFSGroup(espPFS))
 		}
-		t.WithESPSettings(esp)
 
 		// Build PSK settings
 		pskBuilder := aruba.NewVPNPSK()
@@ -482,7 +480,6 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		if pskOnpremSite != "" {
 			pskBuilder.WithOnPremSite(pskOnpremSite)
 		}
-		t.WithPSKSettings(pskB)
 
 		tunnel := aruba.NewVPNTunnel().
 			IntoProject(aruba.URI("/projects/" + projectID)).

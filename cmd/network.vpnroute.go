@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -416,10 +418,6 @@ var vpnrouteDeleteCmd = &cobra.Command{
 			}
 		}
 
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)

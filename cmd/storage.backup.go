@@ -103,7 +103,6 @@ Billing period: Hour (default), Month, or Year.`,
 		retentionDays, _ := cmd.Flags().GetInt("retention-days")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		client, err := GetArubaClient()
 		if err != nil {

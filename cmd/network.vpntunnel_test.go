@@ -325,7 +325,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "vpn-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
@@ -354,7 +354,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -471,28 +471,28 @@ func TestVPNValidateEnum(t *testing.T) {
 		wantErr bool
 		errMsg  string
 	}{
-		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
-		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
-		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnIKEHashAlgorithms},
-		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnIKEDHGroups},
-		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnIKEDPDActions},
-		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnESPPFSGroups},
-		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnESPEncryptionAlgorithms},
-		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnESPHashAlgorithms},
+		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnHashAlgorithms},
+		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnDHGroups},
+		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnDPDActions},
+		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnPFSGroups},
+		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnHashAlgorithms},
 		{
-			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms,
+			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnEncryptionAlgorithms,
 			wantErr: true, errMsg: `--ike-encryption "rot13" is not a valid value`,
 		},
 		{
-			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnIKEHashAlgorithms,
+			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnHashAlgorithms,
 			wantErr: true, errMsg: "--ike-hash",
 		},
 		{
-			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnIKEDPDActions,
+			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnDPDActions,
 			wantErr: true, errMsg: "--ike-dpd-action",
 		},
 		{
-			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnESPPFSGroups,
+			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnPFSGroups,
 			wantErr: true, errMsg: "--esp-pfs",
 		},
 	}

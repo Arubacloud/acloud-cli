@@ -117,15 +117,9 @@ and users with 'acloud database dbaas user create'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
-		zone, _ := cmd.Flags().GetString("zone")
 		engineID, _ := cmd.Flags().GetString("engine-id")
 		flavor, _ := cmd.Flags().GetString("flavor")
-		storageSize, _ := cmd.Flags().GetInt("storage-size")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		vpcURI, _ := cmd.Flags().GetString("vpc-uri")
-		subnetURI, _ := cmd.Flags().GetString("subnet-uri")
-		sgURI, _ := cmd.Flags().GetString("security-group-uri")
-		elasticIPURI, _ := cmd.Flags().GetString("elastic-ip-uri")
 
 		client, err := GetArubaClient()
 		if err != nil {

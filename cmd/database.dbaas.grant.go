@@ -10,6 +10,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// databaseRef returns a Ref for a specific database inside a DBaaS instance.
+func databaseRef(projectID, dbaasID, dbName string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID +
+		"/providers/Aruba.Database/dbaas/" + dbaasID +
+		"/databases/" + dbName)
+}
+
 func init() {
 	dbaasCmd.AddCommand(dbaasGrantCmd)
 	dbaasGrantCmd.AddCommand(dbaasGrantCreateCmd)

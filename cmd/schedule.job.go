@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -144,10 +145,6 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 		executeUntil, _ := cmd.Flags().GetString("execute-until")
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		stepResourceURI, _ := cmd.Flags().GetString("step-resource-uri")
-		stepActionURI, _ := cmd.Flags().GetString("step-action-uri")
-		stepHTTPVerb, _ := cmd.Flags().GetString("step-http-verb")
-		stepName, _ := cmd.Flags().GetString("step-name")
 
 		if jobType != "OneShot" && jobType != "Recurring" {
 			return fmt.Errorf("--job-type must be either 'OneShot' or 'Recurring'")
@@ -307,45 +304,7 @@ var jobGetCmd = &cobra.Command{
 			fmt.Println()
 		} else {
 			fmt.Println("Job not found")
-			return nil
 		}
-
-		fmt.Println("\nJob Details:")
-		fmt.Println("============")
-		fmt.Printf("ID:              %s\n", got.JobID())
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		fmt.Printf("Name:            %s\n", got.Name())
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		fmt.Printf("Job Type:        %s\n", string(got.JobType()))
-		fmt.Printf("Enabled:         %t\n", got.Enabled())
-		if raw.Properties.ScheduleAt != nil {
-			fmt.Printf("Schedule At:     %s\n", *raw.Properties.ScheduleAt)
-		}
-		if raw.Properties.Cron != nil {
-			fmt.Printf("CRON:            %s\n", *raw.Properties.Cron)
-		}
-		if raw.Properties.ExecuteUntil != nil {
-			fmt.Printf("Execute Until:   %s\n", *raw.Properties.ExecuteUntil)
-		}
-		if state := got.State(); state != "" {
-			fmt.Printf("Status:          %s\n", state)
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
 		return nil
 	},
 }

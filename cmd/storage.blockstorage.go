@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -142,7 +143,6 @@ Billing period: Hour (default), Month, or Year.`,
 		snapshotURI, _ := cmd.Flags().GetString("snapshot-uri")
 		setBootable, _ := cmd.Flags().GetBool("set-bootable")
 		image, _ := cmd.Flags().GetString("image")
-		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		if size <= 0 {
 			return fmt.Errorf("--size must be greater than 0")

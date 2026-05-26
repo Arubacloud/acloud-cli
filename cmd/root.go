@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -588,4 +589,15 @@ func rowsToRecords(headers []TableColumn, rows [][]string) []yaml.Node {
 // New code should call PrintOutput directly to pass the full SDK response object.
 func PrintTable(headers []TableColumn, rows [][]string) {
 	PrintOutput(nil, headers, rows)
+}
+
+// extractIDFromURI returns the last path segment of a URI string.
+// e.g. "/projects/p-1/providers/Aruba.Network/elasticIps/eip-42" → "eip-42"
+func extractIDFromURI(uri string) string {
+	uri = strings.TrimRight(uri, "/")
+	idx := strings.LastIndex(uri, "/")
+	if idx < 0 {
+		return uri
+	}
+	return uri[idx+1:]
 }

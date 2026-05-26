@@ -270,7 +270,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 							Name:             &name,
 							LocationResponse: &types.LocationResponse{Value: region},
 						},
-						Status: types.ResourceStatus{State: strPtr("Active")},
+						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "rule-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
@@ -304,7 +304,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 							Name:             &name,
 							LocationResponse: &types.LocationResponse{Value: region},
 						},
-						Status: types.ResourceStatus{State: strPtr("Active")},
+						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -330,7 +330,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				vpcID, vpcName := "vpc-001", "my-vpc"
 				region := types.Region("IT-BG")

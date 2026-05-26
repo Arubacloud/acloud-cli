@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -123,7 +124,6 @@ idle before starting a restore to avoid data corruption.`,
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		client, err := GetArubaClient()
 		if err != nil {

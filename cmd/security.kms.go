@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -238,34 +239,7 @@ var kmsGetCmd = &cobra.Command{
 			fmt.Println()
 		} else {
 			fmt.Println("KMS not found")
-			return nil
 		}
-
-		fmt.Println("\nKMS Details:")
-		fmt.Println("============")
-		fmt.Printf("ID:              %s\n", got.KMSID())
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		fmt.Printf("Name:            %s\n", got.Name())
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if state := got.State(); state != "" {
-			fmt.Printf("Status:          %s\n", state)
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
 		return nil
 	},
 }

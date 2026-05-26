@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -107,7 +108,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 			if !dhcpEnabled {
 				return fmt.Errorf("--dhcp-enabled is required when creating an Advanced subnet (CIDR provided)")
 			}
-			s.OfType(aruba.SubnetTypeAdvanced).WithCIDR(cidr)
+		}
 
 		subnet := aruba.NewSubnet().
 			IntoVPC(aruba.VPCRef(projectID, vpcID)).

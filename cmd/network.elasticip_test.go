@@ -231,7 +231,7 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				state := "Active"
+				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
@@ -266,7 +266,7 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 			args: []string{"network", "elasticip", "update", "eip-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				state := "Active"
+				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},

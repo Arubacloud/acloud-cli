@@ -106,7 +106,6 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 		region, _ := cmd.Flags().GetString("region")
 		volumeURI, _ := cmd.Flags().GetString("volume-uri")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		client, err := GetArubaClient()
 		if err != nil {

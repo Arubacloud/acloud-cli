@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -117,7 +118,6 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 
 		name, _ := cmd.Flags().GetString("name")
 		publicKey, _ := cmd.Flags().GetString("public-key")
-		region, _ := cmd.Flags().GetString("region")
 
 		client, err := GetArubaClient()
 		if err != nil {

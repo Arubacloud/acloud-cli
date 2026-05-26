@@ -231,7 +231,7 @@ func TestSubnetUpdateCmd(t *testing.T) {
 			args: []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				state := "Active"
+				state := types.StateActive
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
@@ -267,7 +267,7 @@ func TestSubnetUpdateCmd(t *testing.T) {
 			args: []string{"network", "subnet", "update", "vpc-001", "sub-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				state := "Active"
+				state := types.StateActive
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},

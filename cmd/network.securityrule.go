@@ -179,22 +179,6 @@ Example target values:
 			fmt.Println()
 		}
 
-		rule := aruba.NewSecurityRule().
-			IntoSecurityGroup(securityGroupRef(projectID, vpcID, securityGroupID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			WithDirection(types.RuleDirection(direction)).
-			WithProtocol(aruba.RuleProtocol(protocol)).
-			WithPort(port)
-		if targetKind == string(types.EndpointTypeSecurityGroup) {
-			rule.WithTargetSecurityGroup(aruba.URI(targetValue))
-		} else {
-			rule.WithTargetCIDR(targetValue)
-		}
-		if len(tags) > 0 {
-			rule.ReplaceTags(tags...)
-		}
-
 		ctx, cancel := newCtx()
 		defer cancel()
 
@@ -509,11 +493,6 @@ var securityruleDeleteCmd = &cobra.Command{
 			if !ok {
 				return nil
 			}
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
 		}
 
 		client, err := GetArubaClient()

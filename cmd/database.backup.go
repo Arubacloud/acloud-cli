@@ -106,7 +106,6 @@ Billing period: Hour (default), Month, or Year.`,
 		region, _ := cmd.Flags().GetString("region")
 		dbaasID, _ := cmd.Flags().GetString("dbaas-id")
 		databaseName, _ := cmd.Flags().GetString("database-name")
-		zone, _ := cmd.Flags().GetString("zone")
 		billingPeriod, _ := cmd.Flags().GetString("billing-period")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
