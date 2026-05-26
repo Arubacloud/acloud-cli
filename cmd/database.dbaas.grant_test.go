@@ -324,4 +324,3 @@ func TestDBaaSGrantDeleteCmd(t *testing.T) {
 		})
 	}
 }
-
