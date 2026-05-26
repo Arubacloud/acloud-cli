@@ -75,12 +75,18 @@ import (
     "os"
     "strings"
 
-    "github.com/Arubacloud/sdk-go/pkg/types"  // external: alphabetical
+    "github.com/Arubacloud/sdk-go/pkg/aruba"  // external: alphabetical
     "github.com/spf13/cobra"
 )
 ```
 
 Two groups: stdlib, then external. Each group is alphabetically ordered.
+
+**Single-import policy** — non-test `cmd/` files must only import
+`github.com/Arubacloud/sdk-go/pkg/aruba`. Importing `pkg/types` directly from
+non-test cmd files is not permitted. The only documented escape hatch in v0.3.0 is
+`container.kaas.go`, which must reference `types.APIServerAccessProfileProperties`
+until the SDK provides a convenience setter for that field.
 
 ---
 
@@ -176,7 +182,7 @@ Never dereference a response pointer without a nil guard.
 
 ## Standard Command Bodies
 
-SDK v0.2.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
+SDK v0.3.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
 typed client whose CRUD methods take/return hydrated wrapper types (`*aruba.<T>`,
 `*aruba.List[*aruba.<T>]`) rather than raw request/response structs. Non-2xx
 responses surface as `*aruba.HTTPError` in the error return — there is no separate
@@ -184,14 +190,13 @@ responses surface as `*aruba.HTTPError` in the error return — there is no sepa
 a verb prefix for all error sites.
 
 **Wrapper note:** `*aruba.<T>` wrapper types carry only unexported fields and are not
-JSON-marshalable. For single-resource rendering and `-o json`/`-o yaml` payloads,
-use `.Raw()` directly when the wrapper exposes the full typed response (e.g.
-`*aruba.CloudServer.Raw()` → `*types.CloudServerResponse`). Only fall back to re-
-parsing via `RawHTTP()` when `.Raw()` returns only metadata (e.g. `*aruba.Project`
-— see `management.project.go`). For project-scoped resources, build the create
-wrapper with `.IntoProject(projectRef(projectID))` and use a file-local
-`<resource>Ref(projectID, id)` helper (encoding both project + resource IDs in the
-URI) for `Get` and `Delete`.
+directly JSON-marshalable via `encoding/json`. For single-resource rendering and
+`-o json`/`-o yaml` payloads, `PrintOutput` delegates to the SDK's `RawJSON()`/
+`RawYAML()` methods (via the local `rawMarshaler` interface). Only `*aruba.Project`
+falls back to `RawHTTP()` re-parsing (via `rawHTTPer`) — see `management.project.go`.
+For project-scoped resources, build the create wrapper with `.InProject(projectRef(projectID))`
+and use a file-local `<resource>Ref(projectID, id)` helper (encoding both project +
+resource IDs in the URI) for `Get` and `Delete`.
 
 **Multi-segment ancestry Refs** — For nested resources (e.g. `Subnet` inside `VPC`,
 `SecurityRule` inside `SecurityGroup` inside `VPC`), each file declares a file-local
@@ -290,7 +295,7 @@ current, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
 if err != nil { return fmt.Errorf("fetching current <resource>: %w", apiErrFromV2(err)) }
 // 2. Apply only the flags that were explicitly Changed:
 if description != "" { current.WithDescription(description) }
-if cmd.Flags().Changed("tags") { current.ReplaceTags(tags...) }
+if cmd.Flags().Changed("tags") { current.RetaggedAs(tags...) }
 // 3. Call Update with the hydrated wrapper (ID is preserved from Get):
 updated, err := client.From<Svc>().<Resource>().Update(ctx, current, ...)
 if err != nil { return fmt.Errorf("updating <resource>: %w", apiErrFromV2(err)) }
@@ -339,7 +344,7 @@ PrintOutput(result, headers, [][]string{row})
 - Skip live-API tests with `ACLOUD_TEST_SKIP_CLIENT=true`.
 - Table-driven tests are preferred for multiple input/output cases.
 
-### Test client — httptest harness (v0.2.0+)
+### Test client — httptest harness (v0.2.0+, current v0.3.0)
 
 Since SDK v0.2.0, wrapper types (`aruba.CloudServer`, `aruba.VPC`, …) carry unexported internal state that can only be populated by the SDK's own adapters. Hand-built fake structs cannot produce a hydrated wrapper with real `.ID()`/`.State()`/`List[T]` values.
 
@@ -384,10 +389,10 @@ vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeI
 if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
 
 bk := aruba.NewStorageBackup().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
-    WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
+    BilledBy(aruba.BillingPeriod(billingPeriod)).
     FromVolume(vol)
 if retentionDays > 0 { bk.WithRetentionDays(int(retentionDays)) }
 
@@ -398,7 +403,7 @@ if err != nil { return fmt.Errorf("creating backup: %w", apiErrFromV2(err)) }
 ### Restore Create: dual cross-family Gets + IntoBackup/ToVolume
 
 `StorageRestore` is parented on a Backup (not a project). Use `IntoBackup(bk)` (not
-`IntoProject`) — it extracts projectID and backupID from the backup's URI. Both the
+`InProject`) — it extracts projectID and backupID from the backup's URI. Both the
 backup GET and volume GET responses **must** include a URI field. `ToVolume(target)`
 extracts the URI from the volume wrapper.
 
@@ -410,7 +415,7 @@ target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volu
 if err != nil { return fmt.Errorf("getting volume: %w", apiErrFromV2(err)) }
 
 rs := aruba.NewStorageRestore().
-    IntoBackup(bk).       // parents on backup, NOT IntoProject(...)
+    IntoBackup(bk).       // parents on backup, NOT InProject(...)
     Named(name).
     InRegion(aruba.Region(region)).
     ToVolume(target)
@@ -439,7 +444,7 @@ In tests, register the list route under the backup-scoped path:
 
 ### Family B create (Database, User)
 
-Family B resources (Database, User) use `IntoDBaaS(dbaasRef(projectID, dbaasID))` rather than `IntoProject`. Name/username is the path identifier.
+Family B resources (Database, User) use `IntoDBaaS(dbaasRef(projectID, dbaasID))` rather than `InProject`. Name/username is the path identifier.
 
 ```go
 // Database create
@@ -462,12 +467,12 @@ Pass constructed Refs directly — `FromDBaaS` and `FromDatabase` accept any `ar
 
 ```go
 bk := aruba.NewDBaaSBackup().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
     FromDBaaS(dbaasRef(projectID, dbaasID)).
     FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
-    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+    BilledBy(aruba.BillingPeriod(billingPeriod))
 created, err := client.FromDatabase().Backups().Create(ctx, bk)
 ```
 
@@ -498,7 +503,7 @@ list, err := client.FromDatabase().Backups().List(ctx, projectRef(projectID), li
 ```go
 sg := aruba.NewSecurityGroup().Named(securityGroupName) // *aruba.SecurityGroup, not aruba.URI(...)
 k := aruba.NewKaaS().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
     WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).
@@ -530,7 +535,7 @@ Unlike KaaS, `ContainerRegistry.WithSecurityGroup` accepts any `Ref` (no type as
 
 ```go
 r := aruba.NewContainerRegistry().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
     WithElasticIP(aruba.URI(publicIPURI)).
@@ -548,11 +553,11 @@ created, err := client.FromContainer().ContainerRegistry().Create(ctx, r)
 
 ```go
 j := aruba.NewJob().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
     OfType(aruba.JobType(jobType)).
-    WithEnabled(enabled)
+    Enabled()  // or .Disabled() — replaces WithEnabled(bool) in v0.3.0
 
 if cronExpr != "" {
     endTime, _ := time.Parse(time.RFC3339, endTimeStr)
@@ -580,10 +585,12 @@ cur, err := client.FromSchedule().Jobs().Get(ctx, jobRef(projectID, jobID))
 if err != nil { return fmt.Errorf("getting schedule job: %w", apiErrFromV2(err)) }
 
 if name != "" { cur.Named(name) }
-if enabledSet { cur.WithEnabled(enabled) }  // enabledSet = cmd.Flags().Changed("enabled")
-if cmd.Flags().Changed("tags") { cur.ReplaceTags(tags...) }
+if enabledSet {
+    if enabled { cur.Enabled() } else { cur.Disabled() }  // v0.3.0: replaces WithEnabled(bool)
+}
+if cmd.Flags().Changed("tags") { cur.RetaggedAs(tags...) }
 
 updated, err := client.FromSchedule().Jobs().Update(ctx, cur)
 ```
 
-Note: `WithEnabled(false)` is a no-op on the wire due to `omitempty` in the SDK request type. See ARCHITECTURE.md.
+The `omitempty` issue that affected `WithEnabled(false)` in earlier SDK versions is resolved in v0.3.0 via the explicit `Enabled()`/`Disabled()` setters.

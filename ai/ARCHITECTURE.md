@@ -43,7 +43,7 @@ If `LoadConfig()` fails (missing `~/.acloud.yaml`), the error is wrapped:
 
 ## SDK Call Pattern
 
-SDK v0.2.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
+SDK v0.3.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
 sub-client; each CRUD method returns a hydrated wrapper type or `*aruba.List[T]`
 rather than raw `types.*Response` structs.
 
@@ -55,7 +55,7 @@ client.FromProject().Create(ctx, proj)             // → (*aruba.Project, error
 client.FromProject().Update(ctx, proj)             // → (*aruba.Project, error)
 client.FromProject().Delete(ctx, projectRef(id))   // → error
 
-// Project-scoped resources — wrapper built with IntoProject(projectRef):
+// Project-scoped resources — wrapper built with InProject(projectRef):
 client.FromCompute().CloudServers().Get(ctx, ref)  // → (*aruba.CloudServer, error)
 client.FromStorage().Volumes().List(ctx, ...)      // → (*aruba.List[*aruba.BlockStorage], error)
 
@@ -66,10 +66,10 @@ client.FromStorage().Volumes().List(ctx, ...)      // → (*aruba.List[*aruba.Bl
 
 **Ref addressing** — resources are addressed by `aruba.Ref` (an interface with `URI()
 string`). Use `aruba.URI("/projects/"+id)` (wrapped by `projectRef` in `cmd/root.go`)
-for top-level refs and chain `IntoProject(proj)` / `IntoVPC(vpc)` on wrappers for
+for top-level refs and chain `InProject(proj)` / `InVPC(vpc)` on wrappers for
 scoped resources.
 
-**Combined-URI Refs for project-scoped Get/Delete** — `List` and builder `IntoProject`
+**Combined-URI Refs for project-scoped Get/Delete** — `List` and builder `InProject`
 only need the project Ref (`projectRef(id)`). `Get` and `Delete` on project-scoped
 resources require a single Ref encoding *both* the project and resource IDs. Declare
 a file-local helper for each resource:
@@ -87,12 +87,12 @@ alias. Each file declares a file-local Ref helper:
 
 | Helper | Defined in | URI template |
 |---|---|---|
-| `volumeRef(pid, vid)` | `storage.blockstorage.go` | `/projects/<pid>/providers/Aruba.Storage/blockstorages/<vid>` |
+| `volumeRef(pid, vid)` | `storage.blockstorage.go` | `/projects/<pid>/providers/Aruba.Storage/blockStorages/<vid>` |
 | `snapshotRef(pid, sid)` | `storage.snapshot.go` | `/projects/<pid>/providers/Aruba.Storage/snapshots/<sid>` |
 | `backupRef(pid, bid)` | `storage.backup.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>` |
 | `restoreRef(pid, bid, rid)` | `storage.restore.go` | `/projects/<pid>/providers/Aruba.Storage/backups/<bid>/restores/<rid>` |
 
-Note: path segments use **all-lowercase** (`blockstorages`, `snapshots`, `backups`,
+Note: path segments use **all-lowercase** (`blockStorages`, `snapshots`, `backups`,
 `restores`) matching `internal/clients/storage/path.go`.
 
 **Cross-family pre-validation** — `StorageBackup` Create fetches the source volume
@@ -107,7 +107,7 @@ Create fetches both the parent backup (`Backups().Get`) **and** the target volum
 ```go
 // Backup Create — cross-family pre-validation then builder:
 vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(projectID, volumeID))
-bk := aruba.NewStorageBackup().IntoProject(projectRef(projectID)).Named(name).
+bk := aruba.NewStorageBackup().InProject(projectRef(projectID)).Named(name).
     InRegion(aruba.Region(region)).OfType(aruba.StorageBackupType(t)).FromVolume(vol)
 
 // Restore Create — dual cross-family pre-validation:
@@ -124,9 +124,9 @@ All four storage wrappers' `Raw()` returns the **full** typed response (e.g. `*t
 **Multi-level nested Refs (network family)** — VPC-scoped resources (Subnet,
 SecurityGroup, VPCPeering) require 3-segment Refs; deeper resources (SecurityRule,
 VPCPeeringRoute, VPNRoute) require 4-segment Refs encoding the full ancestry. The
-path-segment casing matters: `subnets`, `securitygroups`, `securityrules`,
-`loadbalancers` are lowercase; `vpcPeerings`, `vpcPeeringRoutes`, `vpnTunnels`,
-`vpnRoutes`, `elasticIps` are camelCase (matches
+path-segment casing matters: `subnets`, `securityGroups`, `securityRules`,
+`loadBalancers`, `keyPairs` are camelCase; `vpcPeerings`, `vpcPeeringRoutes`,
+`vpnTunnels`, `vpnRoutes`, `elasticIps` are also camelCase (matches
 `internal/clients/network/path.go`, which is `internal/` and not importable).
 Each file declares a file-local `<resource>Ref` helper and reuses the parent Ref
 helper from the sibling file where it is defined once:
@@ -134,7 +134,7 @@ helper from the sibling file where it is defined once:
 | Helper | Defined in | URI template |
 |---|---|---|
 | `vpcRef(pid, vid)` | `network.vpc.go` | `/projects/<pid>/providers/Aruba.Network/vpcs/<vid>` |
-| `securityGroupRef(pid, vid, sgid)` | `network.securitygroup.go` | `…/vpcs/<vid>/securitygroups/<sgid>` |
+| `securityGroupRef(pid, vid, sgid)` | `network.securitygroup.go` | `…/vpcs/<vid>/securityGroups/<sgid>` |
 | `vpcPeeringRef(pid, vid, peerid)` | `network.vpcpeering.go` | `…/vpcs/<vid>/vpcPeerings/<peerid>` |
 | `vpnTunnelRef(pid, tid)` | `network.vpntunnel.go` | `…/vpnTunnels/<tid>` |
 
@@ -156,9 +156,8 @@ file-local `vpnTunnelReattachSettings(cur *aruba.VPNTunnel)` helper that
 reconstructs the sub-builders from `cur.Raw().Properties.*` and re-attaches them
 before calling `Update`.
 
-**VPN crypto enums split per direction** — v0.2.0 replaces the unified
-`types.VPNEncryption*` / `types.VPNHash*` / `types.VPNDHGroup*` / etc. constants
-with per-direction types: `aruba.IKEEncryption` / `aruba.ESPEncryption`,
+**VPN crypto enums split per direction** — v0.3.0 provides per-direction types
+(introduced in v0.2.0, carried forward): `aruba.IKEEncryption` / `aruba.ESPEncryption`,
 `aruba.IKEHash` / `aruba.ESPHash`, `aruba.IKEDHGroup`, `aruba.IKEDPDAction`,
 `aruba.ESPPFSGroup`. The CLI exposes seven separate `[]string` enum slices
 (`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, etc.) and keys each
@@ -192,18 +191,28 @@ if err != nil {
 ```
 
 **Rendering** — wrapper types (`*aruba.<T>`) carry only unexported fields and are not
-JSON-marshalable. For table columns the wrapper exposes (`.ID()`, `.Name()`,
-`.State()`, `.CreatedAt()`, …) use the accessors directly. Two cases for full-payload
-rendering:
+directly JSON-marshalable via `encoding/json`. For table columns the wrapper exposes
+(`.ID()`, `.Name()`, `.State()`, `.CreatedAt()`, …) use the accessors directly.
 
-- **`Raw()` returns the full typed response** (e.g. `*aruba.CloudServer.Raw()` →
-  `*types.CloudServerResponse`) — use it directly; no re-parse helper needed.
-- **`Raw()` returns only metadata** (e.g. `*aruba.Project`) — re-parse the typed
-  `types.<T>Response` from the wrapper's `RawHTTP()` raw body via a file-local
-  `<resource>FromRaw` helper.
+`PrintOutput` delegates full-payload rendering to the SDK's own marshalers via a
+local `rawMarshaler` interface (methods `RawJSON() ([]byte, error)` and
+`RawYAML() ([]byte, error)`). All wrapper types except `*aruba.Project` satisfy
+this interface in v0.3.0. For `*aruba.Project` (which lacks explicit `RawJSON`/
+`RawYAML` in v0.3.0), a `rawHTTPer` interface (method `RawHTTP() []byte`) is used
+instead to access the raw response body for re-parsing. This keeps the **single-import
+principle**: only `github.com/Arubacloud/sdk-go/pkg/aruba` is imported in non-test
+`cmd/` files.
 
-For list `-o json`, extract the typed list via `list.Raw()` (stores the original
-`*types.Response[types.<T>List]`) via a file-local `<resource>ListPayload` helper.
+Two cases for full-payload rendering:
+
+- **`rawMarshaler`-satisfying wrappers** (e.g. `*aruba.CloudServer`, `*aruba.VPC`,
+  …) — `PrintOutput` calls `RawJSON()` / `RawYAML()` directly on the wrapper.
+- **`*aruba.Project`** (rawHTTPer fallback) — `PrintOutput` reads `RawHTTP()` and
+  re-parses the body via a file-local `<resource>FromRaw` helper.
+
+For list `-o json`/`-o yaml`, `*aruba.List[T]` also satisfies `rawMarshaler`; no
+separate `<resource>ListPayload` helper is needed for the output call itself, though
+file-local helpers may still be used for extracting typed sub-fields.
 
 **`ctx`** — use `newCtx()` (30-second timeout, in `cmd/root.go`) for all SDK calls.
 Completion functions that run interactively may keep `context.Background()`.
@@ -470,7 +479,7 @@ if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
 
 ### Two wrapper families
 
-**Family A** (DBaaS, DBaaSBackup) — standard `Metadata/Properties/Status` envelope. Uses `IntoProject(projectRef(projectID))` for the builder.
+**Family A** (DBaaS, DBaaSBackup) — standard `Metadata/Properties/Status` envelope. Uses `InProject(projectRef(projectID))` for the builder.
 
 **Family B** (Database, User) — flat request, name/username IS the path identifier, no `Metadata.ID` in responses. Uses `IntoDBaaS(dbaasRef(projectID, dbaasID))` for the builder. `Database.ID()` returns the name; `User.ID()` returns the username.
 
@@ -515,16 +524,16 @@ No manual field reconstruction is needed — all unchanged fields survive the ro
 
 ```go
 bk := aruba.NewDBaaSBackup().
-    IntoProject(projectRef(projectID)).
+    InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
     FromDBaaS(dbaasRef(projectID, dbaasID)).
     FromDatabase(databaseRef(projectID, dbaasID, databaseName)).
-    WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+    BilledBy(aruba.BillingPeriod(billingPeriod))
 created, err := client.FromDatabase().Backups().Create(ctx, bk)
 ```
 
-The old v0.1.x code performed 2 cross-family Gets just to obtain URIs (and used a malformed URI for the database ref). The v0.2.0 builder eliminates both round-trips.
+The old v0.1.x code performed 2 cross-family Gets just to obtain URIs (and used a malformed URI for the database ref). The v0.2.0 builder eliminated both round-trips; v0.3.0 renames the setter to `BilledBy`.
 
 ### BackupsClient — no Update
 
@@ -623,7 +632,7 @@ The response field is still `resource.Properties.PublicIp.URI` (unchanged wire f
 
 ### KubernetesVersion constants
 
-v0.2.0 removed `KubernetesVersion1313`. Available: `aruba.KubernetesVersion1323`, `KubernetesVersion1332`, `KubernetesVersion1341`. The CLI accepts any string via `aruba.KubernetesVersion(version)` — validation is left to the API.
+`KubernetesVersion1313` was removed in v0.2.0 and is absent in v0.3.0. Available: `aruba.KubernetesVersion1323`, `KubernetesVersion1332`, `KubernetesVersion1341`. The CLI accepts any string via `aruba.KubernetesVersion(version)` — validation is left to the API.
 
 ## Schedule Family
 
@@ -660,9 +669,12 @@ j.WithCron(cronExpr).RecurringUntil(endTime)
 
 Call `j.Err()` after builder setup to surface any validation errors before the Create call.
 
-### `WithEnabled(false)` omitempty limitation
+### `Enabled()`/`Disabled()` setters (v0.3.0)
 
-The `enabled` field in the Job request body is tagged `omitempty`. Passing `false` via `WithEnabled(false)` has no effect on the wire — the field is omitted and the server keeps the previous value. This is an upstream SDK bug tracked in `Arubacloud/sdk-go`. Disabling a job via Update is currently a no-op.
+In v0.3.0 the boolean `WithEnabled(bool)` setter is replaced by two explicit methods:
+`Enabled()` and `Disabled()`. Use `j.Enabled()` or `j.Disabled()` to set the job
+state — the `omitempty` wire issue that affected the old `WithEnabled(false)` call
+is resolved upstream in v0.3.0.
 
 ## Security (KMS) Family
 
