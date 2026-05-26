@@ -8,7 +8,7 @@ import (
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
-const snapshotVolURI = "/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001"
+const snapshotVolURI = "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
 
 func TestSnapshotListCmd(t *testing.T) {
 	tests := []struct {

@@ -10,7 +10,7 @@ import (
 
 func TestStorageBackupCreateCmd(t *testing.T) {
 	createArgs := []string{"storage", "backup", "vol-001", "--project-id", "proj-123", "--name", "my-backup"}
-	volURI := "/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001"
+	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
 
 	tests := []struct {
 		name        string
@@ -26,7 +26,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-new", "my-backup"
 				// Pre-validation: GET volume
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				// Create: POST backup
@@ -50,7 +50,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "volume pre-validation error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
 			},
 			wantErr: true, errContains: "getting volume",
 		},
@@ -58,7 +58,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "API error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", errorResponse(404, "Not Found", "resource not found"))
@@ -69,7 +69,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "server error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", errorResponse(500, "Internal Server Error", "boom"))

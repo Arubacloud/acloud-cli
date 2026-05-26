@@ -22,7 +22,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "lb-001", "my-lb"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", jsonResponse(200, types.LoadBalancerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
 					Values: []types.LoadBalancerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -38,7 +38,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", jsonResponse(200, types.LoadBalancerList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "lb-001", "my-lb"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", jsonResponse(200, types.LoadBalancerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
 					Values: []types.LoadBalancerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -63,7 +63,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
@@ -72,7 +72,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -105,7 +105,7 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 			name: "success",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "lb-001", "my-lb"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers/lb-001", jsonResponse(200, types.LoadBalancerResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001", jsonResponse(200, types.LoadBalancerResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -118,7 +118,7 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers/lb-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
@@ -126,7 +126,7 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers/lb-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",

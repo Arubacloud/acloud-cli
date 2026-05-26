@@ -10,7 +10,7 @@ import (
 
 const (
 	restoreBkpURI = "/projects/proj-123/providers/Aruba.Storage/backups/bkp-001"
-	restoreVolURI = "/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001"
+	restoreVolURI = "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
 )
 
 func TestStorageRestoreCreateCmd(t *testing.T) {
@@ -36,7 +36,7 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
 				}))
 				// Pre-validation: GET volume
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				// Create: POST restore (scoped to the backup)
@@ -72,7 +72,7 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
 				}))
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
 			},
 			wantErr: true, errContains: "getting volume",
 		},
@@ -85,7 +85,7 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
 				}))
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(404, "Not Found", "resource not found"))
@@ -101,7 +101,7 @@ func TestStorageRestoreCreateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &bkpURI},
 				}))
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", errorResponse(500, "Internal Server Error", "boom"))

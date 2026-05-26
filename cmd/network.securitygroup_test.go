@@ -22,7 +22,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{
 					Values: []types.SecurityGroupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -38,7 +38,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{
 					Values: []types.SecurityGroupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -63,7 +63,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
@@ -72,7 +72,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -105,7 +105,7 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 			name: "success",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -118,7 +118,7 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
@@ -126,7 +126,7 @@ func TestSecurityGroupGetCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -161,7 +161,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -187,7 +187,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(500, "Internal Server Error", "quota exceeded"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
 			wantErr:     true,
 			errContains: "creating",
@@ -196,7 +196,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -232,11 +232,11 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
 				state := types.StateActive
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -256,7 +256,7 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 			name: "pre-Get server error",
 			args: []string{"network", "securitygroup", "update", "vpc-001", "sg-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -267,11 +267,11 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
 				state := types.StateActive
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "updating",
@@ -305,7 +305,7 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			name: "success with --yes",
 			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, nil))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "sg-001") {
@@ -318,7 +318,7 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes", "--dry-run"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -332,7 +332,7 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(500, "Internal Server Error", "resource in use"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(500, "Internal Server Error", "resource in use"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
@@ -341,7 +341,7 @@ func TestSecurityGroupDeleteCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"network", "securitygroup", "delete", "vpc-001", "sg-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",

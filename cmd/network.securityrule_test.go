@@ -22,7 +22,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					jsonResponse(200, types.SecurityRuleList{
 						Values: []types.SecurityRuleResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
@@ -39,7 +39,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					jsonResponse(200, types.SecurityRuleList{}))
 			},
 		},
@@ -48,7 +48,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					jsonResponse(200, types.SecurityRuleList{
 						Values: []types.SecurityRuleResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
@@ -66,7 +66,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
@@ -76,7 +76,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			name: "API 404 propagates",
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
@@ -112,7 +112,7 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					}))
@@ -127,7 +127,7 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
@@ -137,7 +137,7 @@ func TestSecurityRuleGetCmd(t *testing.T) {
 			name: "API 404 propagates",
 			args: []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
@@ -183,7 +183,7 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 			args: baseArgs,
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-new", "my-rule"
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					}))
@@ -216,7 +216,7 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 			name: "server error propagates",
 			args: baseArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
@@ -226,7 +226,7 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 			name: "API 404 propagates",
 			args: baseArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules",
+				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
 					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
@@ -263,7 +263,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
 				region := types.Region("IT-BG")
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{
 							ID:               &id,
@@ -273,7 +273,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "rule-001", "new-name"
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
 					}))
@@ -297,7 +297,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
 				region := types.Region("IT-BG")
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{
 							ID:               &id,
@@ -306,7 +306,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 						},
 						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
@@ -316,7 +316,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 			name: "API 404 on get propagates",
 			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
@@ -327,7 +327,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "update", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--name", "new-name"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
@@ -343,7 +343,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 						},
 					}))
 				updID, updName := "rule-001", "new-name"
-				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
 					}))
@@ -378,7 +378,7 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			name: "success with --yes",
 			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
@@ -392,7 +392,7 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes", "--dry-run"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					}))
@@ -407,7 +407,7 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
@@ -417,7 +417,7 @@ func TestSecurityRuleDeleteCmd(t *testing.T) {
 			name: "API 404 propagates",
 			args: []string{"network", "securityrule", "delete", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123", "--yes"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules/rule-001",
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,

@@ -22,7 +22,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
 					Values: []types.BlockStorageResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -38,7 +38,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
 					Values: []types.BlockStorageResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -63,7 +63,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr: true, errContains: "listing",
 		},
@@ -71,7 +71,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
@@ -103,7 +103,7 @@ func TestBlockStorageGetCmd(t *testing.T) {
 			name: "success",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -116,14 +116,14 @@ func TestBlockStorageGetCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr: true, errContains: "getting",
 		},
@@ -158,7 +158,7 @@ func TestBlockStorageCreateCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "create", "--project-id", "proj-123", "--name", "my-vol", "--region", "ITBG-Bergamo", "--size", "10"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-new", "my-vol"
-				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -184,7 +184,7 @@ func TestBlockStorageCreateCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"storage", "blockstorage", "create", "--project-id", "proj-123", "--name", "my-vol", "--region", "ITBG-Bergamo", "--size", "10"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockstorages", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockStorages", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
@@ -192,7 +192,7 @@ func TestBlockStorageCreateCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"storage", "blockstorage", "create", "--project-id", "proj-123", "--name", "my-vol", "--region", "ITBG-Bergamo", "--size", "10"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockstorages", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockStorages", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr: true, errContains: "creating",
 		},
@@ -224,7 +224,7 @@ func TestBlockStorageDeleteCmd(t *testing.T) {
 		{
 			name: "success with --yes",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, nil))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "vol-001") {
@@ -237,7 +237,7 @@ func TestBlockStorageDeleteCmd(t *testing.T) {
 			extraArgs: []string{"--dry-run"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -250,14 +250,14 @@ func TestBlockStorageDeleteCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr: true, errContains: "API error (status 404): Not Found",
 		},
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr: true, errContains: "deleting",
 		},
@@ -294,11 +294,11 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
 				state := types.StateNotUsed
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				}))
 			},
@@ -312,7 +312,7 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 			name: "pre-GET error",
 			args: []string{"storage", "blockstorage", "update", "vol-001", "--project-id", "proj-123", "--name", "x"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -323,11 +323,11 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
 				state := types.StateNotUsed
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Status:   types.ResourceStatus{State: &state},
 				}))
-				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "updating",
