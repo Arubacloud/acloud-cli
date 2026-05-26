@@ -122,11 +122,11 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 		}
 
 		snap := aruba.NewSnapshot().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			FromVolume(aruba.URI(volumeURI)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -280,7 +280,7 @@ var snapshotUpdateCmd = &cobra.Command{
 			snap.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			snap.ReplaceTags(tags...)
+			snap.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromStorage().Snapshots().Update(ctx, snap)

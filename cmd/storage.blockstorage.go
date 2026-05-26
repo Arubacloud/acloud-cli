@@ -154,13 +154,13 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		vol := aruba.NewBlockStorage().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithSizeGB(size).
+			SizedGB(size).
 			OfType(aruba.BlockStorageType(volumeType)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		if zone != "" {
 			vol.InZone(aruba.Zone(zone))
@@ -169,7 +169,7 @@ Billing period: Hour (default), Month, or Year.`,
 			vol.FromSnapshot(aruba.URI(snapshotURI))
 		}
 		if setBootable {
-			vol.SetBootable()
+			vol.AsBootable()
 		}
 		if image != "" {
 			vol.FromImage(image)
@@ -326,7 +326,7 @@ var blockstorageUpdateCmd = &cobra.Command{
 			vol.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			vol.ReplaceTags(tags...)
+			vol.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromStorage().Volumes().Update(ctx, vol)

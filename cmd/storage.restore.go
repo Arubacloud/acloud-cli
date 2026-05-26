@@ -147,11 +147,11 @@ idle before starting a restore to avoid data corruption.`,
 		}
 
 		restore := aruba.NewStorageRestore().
-			IntoBackup(aruba.URI(backupURI)).
+			FromBackup(aruba.URI(backupURI)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			ToVolume(aruba.URI(volumeURI)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		created, err := client.FromStorage().Restores().Create(ctx, restore)
 		if err != nil {
@@ -357,7 +357,7 @@ var storageRestoreUpdateCmd = &cobra.Command{
 			restore.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			restore.ReplaceTags(tags...)
+			restore.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromStorage().Restores().Update(ctx, restore)

@@ -120,18 +120,18 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		bkp := aruba.NewStorageBackup().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			OfType(aruba.StorageBackupType(backupType)).
 			FromVolume(aruba.URI(volumeURI)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		if retentionDays > 0 {
-			bkp.WithRetentionDays(retentionDays)
+			bkp.RetainedForDays(retentionDays)
 		}
 		if billingPeriod != "" {
-			bkp.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			bkp.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 
 		created, err := client.FromStorage().Backups().Create(ctx, bkp)
@@ -344,7 +344,7 @@ var storageBackupUpdateCmd = &cobra.Command{
 			bkp.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			bkp.ReplaceTags(tags...)
+			bkp.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromStorage().Backups().Update(ctx, bkp)
