@@ -24,9 +24,10 @@ func init() {
 	keypairCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	keypairCreateCmd.Flags().String("name", "", "Name for the keypair (required)")
 	keypairCreateCmd.Flags().String("public-key", "", "Public key value (required)")
-	keypairCreateCmd.Flags().String("region", "ITBG-Bergamo", "Region code (required)")
+	keypairCreateCmd.Flags().String("region", "", "Region code (required, e.g. IT-BG)")
 	keypairCreateCmd.MarkFlagRequired("name")
 	keypairCreateCmd.MarkFlagRequired("public-key")
+	keypairCreateCmd.MarkFlagRequired("region")
 
 	keypairGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -108,6 +109,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 
 		name, _ := cmd.Flags().GetString("name")
 		publicKey, _ := cmd.Flags().GetString("public-key")
+		region, _ := cmd.Flags().GetString("region")
 
 		client, err := GetArubaClient()
 		if err != nil {
@@ -117,6 +119,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 		kp := aruba.NewKeyPair().
 			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
+			InRegion(aruba.Region(region)).
 			WithPublicKey(publicKey)
 
 		ctx, cancel := newCtx()
@@ -145,7 +148,11 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 			if raw.Metadata.Name != nil {
 				nameVal = *raw.Metadata.Name
 			}
-			row := []string{nameVal, publicKeyValue}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			row := []string{nameVal, id, publicKeyValue, "Active"}
 			PrintOutput(raw, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Keypair", name))

@@ -171,7 +171,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-new", "my-kp"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
@@ -186,19 +186,25 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --public-key",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--region", "IT-BG"},
 			wantErr:     true,
 			errContains: "public-key",
 		},
 		{
+			name:        "missing required flag --region",
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			wantErr:     true,
+			errContains: "region",
+		},
+		{
 			name: "server error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "duplicate name"))
 			},
@@ -207,7 +213,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(404, "Not Found", "resource not found"))
 			},
