@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -344,14 +344,19 @@ func msgDryRun(kind, id string) string {
 	return fmt.Sprintf("[dry-run] Would delete %s '%s'. Resource exists and is accessible.", kind, id)
 }
 
-// billingPeriodPtr converts a non-empty string flag value to a *types.BillingPeriod pointer.
-// Returns nil when s is empty so the field is omitted from the JSON payload.
-func billingPeriodPtr(s string) *types.BillingPeriod {
-	if s == "" {
-		return nil
-	}
-	bp := types.BillingPeriod(s)
-	return &bp
+// rawMarshaler is satisfied by every SDK wrapper and List[T] in sdk-go v0.3.0.
+// printJSON and printYAML use it to delegate serialisation to the SDK so the
+// output shape matches the wire representation exactly.
+type rawMarshaler interface {
+	RawJSON() []byte
+	RawYAML() []byte
+}
+
+// rawHTTPer is the fallback for SDK wrappers that embed httpEnvelopeMixin but
+// lack explicit RawJSON/RawYAML (currently only *aruba.Project in v0.3.0).
+// The second return of RawHTTP() is the verbatim JSON body from the API.
+type rawHTTPer interface {
+	RawHTTP() (*http.Response, []byte)
 }
 
 // listParams builds pagination RequestParameters from --limit and --offset flags (TD-017).
@@ -420,11 +425,32 @@ func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 	}
 }
 
-// printJSON serialises obj as indented JSON to stdout.
+// printJSON serialises obj as JSON to stdout.
+// SDK wrappers and List[T] satisfy rawMarshaler and are written verbatim.
+// Wrappers that embed httpEnvelopeMixin but lack RawJSON (e.g. *aruba.Project)
+// fall through to rawHTTPer — their raw wire body is used directly.
 // Emits {} when obj is nil so machine consumers always receive valid JSON.
 func printJSON(obj any) {
 	if obj == nil {
 		fmt.Println("{}")
+		return
+	}
+	if m, ok := obj.(rawMarshaler); ok {
+		b := m.RawJSON()
+		if len(b) == 0 {
+			fmt.Println("{}")
+			return
+		}
+		fmt.Println(string(b))
+		return
+	}
+	if r, ok := obj.(rawHTTPer); ok {
+		_, body := r.RawHTTP()
+		if len(body) == 0 {
+			fmt.Println("{}")
+			return
+		}
+		fmt.Println(string(body))
 		return
 	}
 	b, err := json.MarshalIndent(obj, "", "  ")
@@ -436,22 +462,40 @@ func printJSON(obj any) {
 }
 
 // printYAML serialises obj as YAML to stdout.
-// SDK structs carry json tags but no yaml tags, so the value is first marshalled
-// to JSON and then decoded into interface{} before encoding as YAML; this keeps
-// key names in camelCase, consistent with the JSON output.
+// SDK wrappers and List[T] satisfy rawMarshaler and are written verbatim via RawYAML().
+// Wrappers with only RawHTTP() have their JSON body converted to YAML.
 // Emits {} when obj is nil.
 func printYAML(obj any) {
 	if obj == nil {
 		fmt.Println("{}")
 		return
 	}
-	b, err := json.Marshal(obj)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error marshalling to JSON for YAML conversion: %v\n", err)
+	if m, ok := obj.(rawMarshaler); ok {
+		b := m.RawYAML()
+		if len(b) == 0 {
+			fmt.Println("{}")
+			return
+		}
+		os.Stdout.Write(b)
+		return
+	}
+	var jsonBytes []byte
+	if r, ok := obj.(rawHTTPer); ok {
+		_, jsonBytes = r.RawHTTP()
+	} else {
+		var err error
+		jsonBytes, err = json.Marshal(obj)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error marshalling to JSON for YAML conversion: %v\n", err)
+			return
+		}
+	}
+	if len(jsonBytes) == 0 {
+		fmt.Println("{}")
 		return
 	}
 	var intermediate any
-	if err := json.Unmarshal(b, &intermediate); err != nil {
+	if err := json.Unmarshal(jsonBytes, &intermediate); err != nil {
 		fmt.Fprintf(os.Stderr, "error converting JSON to YAML intermediate: %v\n", err)
 		return
 	}
