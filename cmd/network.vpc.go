@@ -119,10 +119,10 @@ network resources are created within a VPC.`,
 		}
 
 		vpc := aruba.NewVPC().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -262,7 +262,7 @@ var vpcUpdateCmd = &cobra.Command{
 			vpc.Named(name)
 		}
 		if len(tags) > 0 {
-			vpc.ReplaceTags(tags...)
+			vpc.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromNetwork().VPCs().Update(ctx, vpc)

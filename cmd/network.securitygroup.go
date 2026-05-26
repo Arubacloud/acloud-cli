@@ -81,9 +81,9 @@ after the group is created.`,
 		defer cancel()
 
 		sg := aruba.NewSecurityGroup().
-			IntoVPC(aruba.VPCRef(projectID, vpcID)).
+			InVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		resp, err := client.FromNetwork().SecurityGroups().Create(ctx, sg)
 		if err != nil {
@@ -271,7 +271,7 @@ var securitygroupUpdateCmd = &cobra.Command{
 			sg.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			sg.ReplaceTags(tags...)
+			sg.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromNetwork().SecurityGroups().Update(ctx, sg)

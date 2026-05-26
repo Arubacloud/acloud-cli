@@ -86,11 +86,11 @@ peering is established.`,
 		defer cancel()
 
 		peering := aruba.NewVPCPeering().
-			IntoVPC(aruba.VPCRef(projectID, vpcID)).
+			InVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithRemoteVPC(aruba.URI(peerVPCID)).
-			ReplaceTags(tags...)
+			PeeredWith(aruba.URI(peerVPCID)).
+			RetaggedAs(tags...)
 
 		resp, err := client.FromNetwork().VPCPeerings().Create(ctx, peering)
 		if err != nil {
@@ -288,7 +288,7 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 			peering.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			peering.ReplaceTags(tags...)
+			peering.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromNetwork().VPCPeerings().Update(ctx, peering)

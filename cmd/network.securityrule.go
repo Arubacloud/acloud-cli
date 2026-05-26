@@ -183,21 +183,21 @@ Example target values:
 		defer cancel()
 
 		rule := aruba.NewSecurityRule().
-			IntoSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, securityGroupID)).
+			InSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, securityGroupID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithDirection(types.RuleDirection(direction)).
+			WithDirection(aruba.RuleDirection(direction)).
 			WithProtocol(aruba.RuleProtocol(protocol)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		if port != "" {
 			rule = rule.WithPort(port)
 		}
 
-		if types.EndpointTypeDto(targetKind) == types.EndpointTypeSecurityGroup {
-			rule = rule.WithTargetSecurityGroup(aruba.URI(targetValue))
+		if aruba.EndpointTypeDto(targetKind) == aruba.EndpointTypeSecurityGroup {
+			rule = rule.TargetingSecurityGroup(aruba.URI(targetValue))
 		} else {
-			rule = rule.WithTargetCIDR(targetValue)
+			rule = rule.TargetingCIDR(targetValue)
 		}
 
 		resp, err := client.FromNetwork().SecurityGroupRules().Create(ctx, rule)
@@ -418,7 +418,7 @@ var securityruleUpdateCmd = &cobra.Command{
 			rule.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			rule.ReplaceTags(tags...)
+			rule.RetaggedAs(tags...)
 		}
 
 		debugEnabled, _ := rootCmd.PersistentFlags().GetBool("debug")

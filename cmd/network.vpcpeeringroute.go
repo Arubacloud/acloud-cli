@@ -161,13 +161,13 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		route := aruba.NewVPCPeeringRoute().
-			IntoVPCPeering(aruba.VPCPeeringRef(projectID, vpcID, peeringID)).
+			InVPCPeering(aruba.VPCPeeringRef(projectID, vpcID, peeringID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithLocalCIDR(localNetwork).
 			WithRemoteCIDR(remoteNetwork).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -382,7 +382,7 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 			route.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			route.ReplaceTags(tags...)
+			route.RetaggedAs(tags...)
 		}
 		if localNetwork != "" {
 			route.WithLocalCIDR(localNetwork)
@@ -391,7 +391,7 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 			route.WithRemoteCIDR(remoteNetwork)
 		}
 		if billingPeriod != "" {
-			route.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			route.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 
 		updated, err := client.FromNetwork().VPCPeeringRoutes().Update(ctx, route)

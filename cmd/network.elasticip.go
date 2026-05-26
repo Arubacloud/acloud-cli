@@ -112,11 +112,11 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		eip := aruba.NewElasticIP().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -326,7 +326,7 @@ var elasticipUpdateCmd = &cobra.Command{
 			eip.Named(name)
 		}
 		if len(tags) > 0 {
-			eip.ReplaceTags(tags...)
+			eip.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromNetwork().ElasticIPs().Update(ctx, eip)

@@ -482,18 +482,18 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
 		}
 
 		tunnel := aruba.NewVPNTunnel().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			OfType(aruba.VPNType(vpnType)).
 			WithVPNClientProtocol(aruba.VPNClientProtocol(protocol)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
 			WithPeerClientPublicIP(peerIP).
 			WithIPConfig(ipConfig).
 			WithIKESettings(ike).
 			WithESPSettings(esp).
 			WithPSKSettings(pskBuilder).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -574,7 +574,7 @@ var vpntunnelUpdateCmd = &cobra.Command{
 			vpn.Named(name)
 		}
 		if len(tags) > 0 {
-			vpn.ReplaceTags(tags...)
+			vpn.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromNetwork().VPNTunnels().Update(ctx, vpn)

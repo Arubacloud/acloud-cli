@@ -144,12 +144,12 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 		}
 
 		route := aruba.NewVPNRoute().
-			IntoVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
+			InVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithCloudSubnet(cloudSubnet).
 			WithOnPremSubnet(onPremSubnet).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -348,7 +348,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 			route.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			route.ReplaceTags(tags...)
+			route.RetaggedAs(tags...)
 		}
 		if cloudSubnet != "" {
 			route.WithCloudSubnet(cloudSubnet)

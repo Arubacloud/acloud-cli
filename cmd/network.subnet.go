@@ -111,11 +111,11 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 		}
 
 		subnet := aruba.NewSubnet().
-			IntoVPC(aruba.VPCRef(projectID, vpcID)).
+			InVPC(aruba.VPCRef(projectID, vpcID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			OfType(subnetType).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		if cidr != "" {
 			subnet = subnet.WithCIDR(cidr)
@@ -126,13 +126,13 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 			for _, routeStr := range dhcpRoutes {
 				parts := splitRouteString(routeStr)
 				if len(parts) == 2 {
-					dhcp = dhcp.AddRoute(parts[0], parts[1])
+					dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
 				} else {
 					fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 				}
 			}
-			for _, dns := range dhcpDNS {
-				dhcp = dhcp.AddDNS(dns)
+			if len(dhcpDNS) > 0 {
+				dhcp = dhcp.WithDNSServers(dhcpDNS...)
 			}
 			subnet = subnet.WithDHCP(dhcp)
 		}
@@ -358,7 +358,7 @@ var subnetUpdateCmd = &cobra.Command{
 			subnet.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			subnet.ReplaceTags(tags...)
+			subnet.RetaggedAs(tags...)
 		}
 		if cidr != "" {
 			subnet.WithCIDR(cidr)
@@ -378,25 +378,21 @@ var subnetUpdateCmd = &cobra.Command{
 					for _, routeStr := range dhcpRoutes {
 						parts := splitRouteString(routeStr)
 						if len(parts) == 2 {
-							dhcp = dhcp.AddRoute(parts[0], parts[1])
+							dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
 						} else {
 							fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 						}
 					}
 				} else if currentDHCP != nil {
 					for _, r := range currentDHCP.Routes {
-						dhcp = dhcp.AddRoute(r.Address, r.Gateway)
+						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: r.Address, Gateway: r.Gateway})
 					}
 				}
 				// Preserve existing DNS unless new ones provided
 				if len(dhcpDNS) > 0 {
-					for _, dns := range dhcpDNS {
-						dhcp = dhcp.AddDNS(dns)
-					}
-				} else if currentDHCP != nil {
-					for _, dns := range currentDHCP.DNS {
-						dhcp = dhcp.AddDNS(dns)
-					}
+					dhcp = dhcp.WithDNSServers(dhcpDNS...)
+				} else if currentDHCP != nil && len(currentDHCP.DNS) > 0 {
+					dhcp = dhcp.WithDNSServers(currentDHCP.DNS...)
 				}
 				subnet.WithDHCP(dhcp)
 			}
