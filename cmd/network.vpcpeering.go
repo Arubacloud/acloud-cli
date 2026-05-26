@@ -4,16 +4,8 @@ import (
 	"fmt"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func vpcPeeringListPayload(l *aruba.List[*aruba.VPCPeering]) any {
-	if r, ok := l.Raw().(*types.Response[types.VPCPeeringList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 	// Peering
@@ -244,7 +236,7 @@ var vpcpeeringListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, peerVPC, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No VPC peerings found.")
 		}

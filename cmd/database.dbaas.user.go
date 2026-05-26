@@ -236,7 +236,7 @@ var dbaasUserListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{raw.Username, creationDate, createdBy})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No users found")
 		}

@@ -8,16 +8,8 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func securityRuleListPayload(l *aruba.List[*aruba.SecurityRule]) any {
-	if r, ok := l.Raw().(*types.Response[types.SecurityRuleList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 
@@ -364,7 +356,7 @@ var securityruleListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, direction, protocol, port, target, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No security rules found.")
 		}

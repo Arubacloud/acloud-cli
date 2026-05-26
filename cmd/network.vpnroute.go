@@ -6,16 +6,8 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func vpnRouteListPayload(l *aruba.List[*aruba.VPNRoute]) any {
-	if r, ok := l.Raw().(*types.Response[types.VPNRouteList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 	networkCmd.AddCommand(vpnrouteCmd)
@@ -298,7 +290,7 @@ var vpnrouteListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, cloudSubnet, onPremSubnet, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No VPN routes found.")
 		}

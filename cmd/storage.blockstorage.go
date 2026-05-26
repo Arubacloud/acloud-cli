@@ -6,26 +6,11 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 func volumeRef(projectID, volumeID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockstorages/" + volumeID)
-}
-
-func volumeFromRaw(b *aruba.BlockStorage) *types.BlockStorageResponse {
-	if b == nil {
-		return nil
-	}
-	return b.Raw()
-}
-
-func volumeListPayload(l *aruba.List[*aruba.BlockStorage]) any {
-	if r, ok := l.Raw().(*types.Response[types.BlockStorageList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -467,7 +452,7 @@ var blockstorageListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, size, region, zone, volumeType, status})
 			}
 
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No block storage found")
 		}

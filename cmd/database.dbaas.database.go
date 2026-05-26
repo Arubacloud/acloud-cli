@@ -233,7 +233,7 @@ var dbaasDatabaseListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{raw.Name, creationDate, createdBy})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No databases found")
 		}

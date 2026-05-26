@@ -397,7 +397,7 @@ var kaasListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{id, name, version, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No KaaS clusters found")
 		}

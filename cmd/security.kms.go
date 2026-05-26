@@ -6,21 +6,11 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 func kmsRef(projectID, kmsID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
-}
-
-func kmsFromRaw(k *aruba.KMS) *types.KmsResponse { return k.Raw() }
-
-func kmsListPayload(l *aruba.List[*aruba.KMS]) any {
-	if r, ok := l.Raw().(*types.Response[types.KmsList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -298,7 +288,7 @@ var kmsListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No KMS resources found")
 		}

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -52,15 +51,6 @@ func init() {
 func keypairRef(projectID, name string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Compute/keypairs/" + name)
-}
-
-// keypairListPayload extracts the typed list for -o json/yaml; the List wrapper is not
-// JSON-marshalable.
-func keypairListPayload(l *aruba.List[*aruba.KeyPair]) any {
-	if r, ok := l.Raw().(*types.Response[types.KeyPairListResponse]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // completeKeyPairID provides shell completion for keypair names.
@@ -365,7 +355,7 @@ var keypairListCmd = &cobra.Command{
 				fmt.Println("No keypairs found")
 				return nil
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No keypairs found")
 		}

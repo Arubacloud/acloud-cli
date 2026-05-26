@@ -2,12 +2,10 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -45,35 +43,6 @@ func init() {
 	projectListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 }
 
-// projectFromRaw re-parses the full types.ProjectResponse from a Project
-// wrapper's raw HTTP body. The v0.2.0 *aruba.Project has only unexported fields
-// (not JSON-marshalable) and no accessor for Properties.ResourcesNumber, so
-// commands that render the RESOURCES column or emit -o json/yaml re-parse the
-// wire shape here. Returns nil on empty/malformed body — mirrors the v0.1.x
-// `response.Data == nil` async branch.
-func projectFromRaw(p *aruba.Project) *types.ProjectResponse {
-	if p == nil {
-		return nil
-	}
-	_, body := p.RawHTTP()
-	if len(body) == 0 {
-		return nil
-	}
-	var pr types.ProjectResponse
-	if err := json.Unmarshal(body, &pr); err != nil {
-		return nil
-	}
-	return &pr
-}
-
-// projectListPayload extracts the typed *types.ProjectList from a List wrapper
-// for -o json/yaml rendering; the List[*Project] wrapper is not JSON-marshalable.
-func projectListPayload(l *aruba.List[*aruba.Project]) any {
-	if r, ok := l.Raw().(*types.Response[types.ProjectList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 // completeProjectID provides completion for project IDs
 func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -180,7 +149,7 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 				defaultVal = "Yes"
 			}
 			row := []string{created.ID(), created.Name(), defaultVal}
-			PrintOutput(created.Raw(), headers, [][]string{row})
+			PrintOutput(created, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Project", name))
 		}
@@ -212,7 +181,7 @@ var projectGetCmd = &cobra.Command{
 		if p != nil && p.ID() != "" {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(p.Raw(), nil, nil)
+				PrintOutput(p, nil, nil)
 				return nil
 			}
 
@@ -320,7 +289,7 @@ var projectUpdateCmd = &cobra.Command{
 				defaultVal = "Yes"
 			}
 			row := []string{updated.ID(), updated.Name(), defaultVal}
-			PrintOutput(updated.Raw(), headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Project", projectID))
 		}
@@ -433,7 +402,7 @@ var projectListCmd = &cobra.Command{
 			}
 
 			// Print the table
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No projects found")
 		}

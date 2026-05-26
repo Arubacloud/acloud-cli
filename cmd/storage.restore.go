@@ -6,26 +6,11 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 func restoreRef(projectID, backupID, restoreID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID + "/restores/" + restoreID)
-}
-
-func restoreFromRaw(r *aruba.StorageRestore) *types.StorageRestoreResponse {
-	if r == nil {
-		return nil
-	}
-	return r.Raw()
-}
-
-func restoreListPayload(l *aruba.List[*aruba.StorageRestore]) any {
-	if r, ok := l.Raw().(*types.Response[types.StorageRestoreList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -237,7 +222,7 @@ var storageRestoreListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, status})
 			}
 
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No restores found for this backup")
 		}

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -30,13 +29,6 @@ func init() {
 
 func loadBalancerRef(projectID, lbID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/loadbalancers/" + lbID)
-}
-
-func loadBalancerListPayload(l *aruba.List[*aruba.LoadBalancer]) any {
-	if r, ok := l.Raw().(*types.Response[types.LoadBalancerList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // Completion functions for network resources
@@ -140,7 +132,7 @@ var loadbalancerListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, region, address, status})
 			}
 
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No Load Balancers found")
 		}

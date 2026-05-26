@@ -5,20 +5,12 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 // splitRouteString splits a route string in format "destination:gateway"
 func splitRouteString(routeStr string) []string {
 	return strings.SplitN(routeStr, ":", 2)
-}
-
-func subnetListPayload(l *aruba.List[*aruba.Subnet]) any {
-	if r, ok := l.Raw().(*types.Response[types.SubnetList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // INIT
@@ -310,7 +302,7 @@ var subnetListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, region, cidr, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No subnets found.")
 		}

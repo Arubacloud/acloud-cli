@@ -335,7 +335,7 @@ var dbaasListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, engine, version, flavor, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No DBaaS instances found")
 		}

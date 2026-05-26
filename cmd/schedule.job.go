@@ -7,21 +7,11 @@ import (
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 func jobRef(projectID, jobID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
-}
-
-func jobFromRaw(j *aruba.Job) *types.JobResponse { return j.Raw() }
-
-func jobListPayload(l *aruba.List[*aruba.Job]) any {
-	if r, ok := l.Raw().(*types.Response[types.JobList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -375,7 +365,7 @@ var jobListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, jobType, enabledVal, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No jobs found")
 		}

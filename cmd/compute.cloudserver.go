@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -88,15 +87,6 @@ func init() {
 func cloudServerRef(projectID, serverID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Compute/cloudServers/" + serverID)
-}
-
-// csListPayload extracts the typed list for -o json/yaml; the List wrapper is not
-// JSON-marshalable. Mirrors projectListPayload from the #102 playbook.
-func csListPayload(l *aruba.List[*aruba.CloudServer]) any {
-	if r, ok := l.Raw().(*types.Response[types.CloudServerList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // Completion functions for compute resources
@@ -538,7 +528,7 @@ var cloudserverListCmd = &cobra.Command{
 				fmt.Println("No cloud servers found")
 				return nil
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No cloud servers found")
 		}

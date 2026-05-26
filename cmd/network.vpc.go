@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -42,13 +41,6 @@ func init() {
 	vpcGetCmd.ValidArgsFunction = completeVPCID
 	vpcUpdateCmd.ValidArgsFunction = completeVPCID
 	vpcDeleteCmd.ValidArgsFunction = completeVPCID
-}
-
-func vpcListPayload(l *aruba.List[*aruba.VPC]) any {
-	if r, ok := l.Raw().(*types.Response[types.VPCList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // Completion functions for network resources
@@ -398,7 +390,7 @@ var vpcListCmd = &cobra.Command{
 				rows = append(rows, []string{name, id, region, subnets, status})
 			}
 
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No VPCs found")
 		}

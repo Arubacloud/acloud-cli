@@ -325,11 +325,6 @@ func TestDBaaSGrantDeleteCmd(t *testing.T) {
 	}
 }
 
-func TestGrantFromRaw_Nil(t *testing.T) {
-	if grantFromRaw(nil) != nil {
-		t.Error("grantFromRaw(nil) should return nil")
-	}
-}
 
 func TestGrantRef(t *testing.T) {
 	ref := grantRef("proj", "dbaas", "db", "g1")

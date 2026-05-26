@@ -4,20 +4,12 @@ import (
 	"fmt"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 // securityGroupRef is shared with securityrule.go; uses hyphenated path segment (/security-groups/) to match SDK ID parser.
 func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/security-groups/" + sgID)
-}
-
-func securityGroupListPayload(l *aruba.List[*aruba.SecurityGroup]) any {
-	if r, ok := l.Raw().(*types.Response[types.SecurityGroupList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -227,7 +219,7 @@ var securitygroupListCmd = &cobra.Command{
 				}
 				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintOutput(list.Raw(), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No security groups found.")
 		}

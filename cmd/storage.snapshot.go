@@ -6,16 +6,8 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func snapshotListPayload(l *aruba.List[*aruba.Snapshot]) any {
-	if r, ok := l.Raw().(*types.Response[types.SnapshotList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 	storageCmd.AddCommand(snapshotCmd)
@@ -424,7 +416,7 @@ var snapshotListCmd = &cobra.Command{
 			return nil
 		}
 
-		PrintOutput(snapshotListPayload(list), headers, rows)
+		PrintOutput(list, headers, rows)
 		return nil
 	},
 }
