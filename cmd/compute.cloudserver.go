@@ -188,28 +188,32 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
+		subnetRefs := make([]aruba.Ref, len(subnetURIs))
+		for i, s := range subnetURIs {
+			subnetRefs[i] = aruba.URI(s)
+		}
+		sgRefs := make([]aruba.Ref, len(securityGroupURIs))
+		for i, sg := range securityGroupURIs {
+			sgRefs[i] = aruba.URI(sg)
+		}
 		server := aruba.NewCloudServer().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			InZone(aruba.Zone(zone)).
 			OfFlavor(aruba.CloudServerFlavor(flavor)).
-			WithBootVolume(aruba.URI(bootDiskURI)).
+			BootingFrom(aruba.URI(bootDiskURI)).
 			WithVPC(aruba.URI(vpcURI)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			OnSubnets(subnetRefs...).
+			WithSecurityGroups(sgRefs...).
+			RetaggedAs(tags...).
+			BilledBy(aruba.BillingPeriod(billingPeriod))
 
-		for _, s := range subnetURIs {
-			server.AddSubnet(aruba.URI(s))
-		}
-		for _, sg := range securityGroupURIs {
-			server.AddSecurityGroup(aruba.URI(sg))
-		}
 		if elasticIPURI != "" {
 			server.WithElasticIP(aruba.URI(elasticIPURI))
 		}
 		if keypairURI != "" {
-			server.WithKeyPair(aruba.URI(keypairURI))
+			server.UsingKeyPair(aruba.URI(keypairURI))
 		}
 		if userDataFile != "" {
 			fileContent, err := os.ReadFile(userDataFile)
@@ -395,7 +399,7 @@ var cloudserverUpdateCmd = &cobra.Command{
 			server.Named(name)
 		}
 		if len(tags) > 0 {
-			server.ReplaceTags(tags...)
+			server.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromCompute().CloudServers().Update(ctx, server)

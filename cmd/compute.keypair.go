@@ -125,7 +125,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 		}
 
 		kp := aruba.NewKeyPair().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			WithPublicKey(publicKey)
 
