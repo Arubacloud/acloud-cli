@@ -196,7 +196,7 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		kaas := aruba.NewKaaS().
-			IntoProject(aruba.URI("/projects/"+projectID)).
+			InProject(aruba.URI("/projects/"+projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithVPC(aruba.URI(vpcURI)).
@@ -204,15 +204,17 @@ Billing period: Hour (default), Month, or Year.`,
 			WithNodeCIDR(nodeCIDRAddress, nodeCIDRName).
 			WithSecurityGroupName(securityGroupName).
 			WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).
-			WithHA(ha).
-			AddNodePool(nodePool).
-			ReplaceTags(tags...)
+			WithNodePools(nodePool).
+			RetaggedAs(tags...)
+		if ha {
+			kaas.HighlyAvailable()
+		}
 
 		if podCIDR != "" {
 			kaas.WithPodCIDR(podCIDR)
 		}
 		if billingPeriod != "" {
-			kaas.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			kaas.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if len(apiServerAuthorizedIPRanges) > 0 || apiServerEnablePrivateCluster {
 			profile := &types.APIServerAccessProfileProperties{
@@ -449,19 +451,19 @@ var kaasUpdateCmd = &cobra.Command{
 			kaas.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			kaas.ReplaceTags(tags...)
+			kaas.RetaggedAs(tags...)
 		}
 		if kubernetesVersion != "" {
 			kaas.WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion))
 		}
-		if cmd.Flags().Changed("ha") {
-			kaas.WithHA(haFlag)
+		if cmd.Flags().Changed("ha") && haFlag {
+			kaas.HighlyAvailable()
 		}
 		if storageMaxSize > 0 {
 			kaas.WithMaxStorageQuotaGB(int(storageMaxSize))
 		}
 		if billingPeriod != "" {
-			kaas.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			kaas.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if nodePoolName != "" {
 			np := aruba.NewNodePool().

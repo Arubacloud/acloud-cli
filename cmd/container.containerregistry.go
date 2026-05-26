@@ -138,7 +138,7 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		registry := aruba.NewContainerRegistry().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithElasticIP(aruba.URI(publicIPURI)).
@@ -146,13 +146,13 @@ Billing period: Hour (default), Month, or Year.`,
 			WithSubnet(aruba.URI(subnetURI)).
 			WithSecurityGroup(aruba.URI(securityGroupURI)).
 			WithBlockStorage(aruba.URI(blockStorageURI)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		if adminUsername != "" {
 			registry.WithAdminUsername(adminUsername)
 		}
 		if billingPeriod != "" {
-			registry.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			registry.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if concurrentUsers != "" {
 			registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
@@ -394,10 +394,10 @@ var containerregistryUpdateCmd = &cobra.Command{
 			registry.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			registry.ReplaceTags(tags...)
+			registry.RetaggedAs(tags...)
 		}
 		if billingPeriod != "" {
-			registry.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			registry.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if concurrentUsers != "" {
 			registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
