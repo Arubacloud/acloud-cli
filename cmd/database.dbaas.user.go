@@ -112,7 +112,7 @@ separately through your database client after the user is created.`,
 		}
 
 		dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-		user := aruba.NewUser().IntoDBaaS(dbaasRef).WithUsername(username).WithPassword(password)
+		user := aruba.NewUser().InDBaaS(dbaasRef).WithUsername(username).WithPassword(password)
 
 		ctx, cancel := newCtx()
 		defer cancel()

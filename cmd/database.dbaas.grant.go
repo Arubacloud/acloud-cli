@@ -113,9 +113,9 @@ Common roles: liteadmin, readonly, readwrite.`,
 		}
 
 		g := aruba.NewGrant().
-			IntoDatabase(databaseRef(projectID, dbaasID, dbName)).
-			WithUsername(username).
-			WithRoleName(role)
+			InDatabase(databaseRef(projectID, dbaasID, dbName)).
+			ForUser(username).
+			OfRole(role)
 
 		ctx, cancel := newCtx()
 		defer cancel()

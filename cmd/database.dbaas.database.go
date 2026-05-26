@@ -109,7 +109,7 @@ Use 'acloud database dbaas get <dbaas-id>' to check its status.`,
 		}
 
 		dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-		db := aruba.NewDatabase().IntoDBaaS(dbaasRef).Named(name)
+		db := aruba.NewDatabase().InDBaaS(dbaasRef).Named(name)
 
 		ctx, cancel := newCtx()
 		defer cancel()

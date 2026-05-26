@@ -118,13 +118,13 @@ Billing period: Hour (default), Month, or Year.`,
 		databaseURI := dbaasURI + "/databases/" + databaseName
 
 		bkp := aruba.NewDBaaSBackup().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			FromDBaaS(aruba.URI(dbaasURI)).
 			FromDatabase(aruba.URI(databaseURI)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod)).
-			ReplaceTags(tags...)
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()

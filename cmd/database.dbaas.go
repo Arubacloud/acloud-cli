@@ -127,12 +127,12 @@ and users with 'acloud database dbaas user create'.`,
 		}
 
 		dbaas := aruba.NewDBaaS().
-			IntoProject(aruba.URI("/projects/" + projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			OfEngine(aruba.DatabaseEngine(engineID)).
 			OfFlavor(aruba.DBaaSFlavor(flavor)).
-			ReplaceTags(tags...)
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -381,7 +381,7 @@ var dbaasUpdateCmd = &cobra.Command{
 			dbaas.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			dbaas.ReplaceTags(tags...)
+			dbaas.RetaggedAs(tags...)
 		}
 
 		updated, err := client.FromDatabase().DBaaS().Update(ctx, dbaas)
