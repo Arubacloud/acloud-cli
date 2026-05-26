@@ -388,7 +388,7 @@ var cloudserverUpdateCmd = &cobra.Command{
 		if name != "" {
 			server.Named(name)
 		}
-		if len(tags) > 0 {
+		if cmd.Flags().Changed("tags") {
 			server.RetaggedAs(tags...)
 		}
 
