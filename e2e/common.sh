@@ -225,24 +225,7 @@ resolve_project_id_from_uri() {
 ensure_project() {
     [ "$PROJECT_ID" != "your-project-id" ] && return 0
 
-    # Try to resolve from any pre-supplied resource URI
-    local _uri_vars=(ACLOUD_VPC_URI ACLOUD_SUBNET_URI ACLOUD_SECURITY_GROUP_URI
-                     ACLOUD_BOOT_DISK_URI ACLOUD_PUBLIC_IP_URI ACLOUD_BLOCK_STORAGE_URI)
-    local _var _uri _pid
-    for _var in "${_uri_vars[@]}"; do
-        _uri="${!_var:-}"
-        if [ -n "$_uri" ]; then
-            _pid=$(resolve_project_id_from_uri "$_uri")
-            if is_valid_id "$_pid"; then
-                PROJECT_ID="$_pid"
-                setup_context
-                echo "  → resolved PROJECT_ID=$PROJECT_ID from $_var"
-                return 0
-            fi
-        fi
-    done
-
-    # No resource URI to resolve from — create a project
+    # No pre-supplied project — create a project
     echo "Bootstrapping project (ACLOUD_PROJECT_ID not set)..."
     local _out
     _out=$($ACLOUD_CMD management project create \

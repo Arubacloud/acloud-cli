@@ -13,7 +13,6 @@
 #VPC_ID="${ACLOUD_VPC_ID:-69495ef64d0cdc87949b71ec}"
 #PEER_VPC_ID="${ACLOUD_PEER_VPC_ID:-689307f4745108d3c6343b5a}"
 #REGION="${ACLOUD_REGION:-ITBG-Bergamo}"
-#ELASTIC_IP_URI="${ACLOUD_ELASTIC_IP_URI:-}"
 
 # shellcheck source=../common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -879,11 +878,11 @@ test_vpn_tunnel() {
     echo ""
 
     # Create a dedicated Elastic IP for the VPN tunnel (test_elastic_ip's EIP is deleted by its
-    # own CRUD cycle; the hardcoded fallback URI may not exist in the tenant).
-    local vpn_eip_uri="$ELASTIC_IP_URI"
-    if [ -z "$vpn_eip_uri" ]; then
+    # own CRUD cycle; the hardcoded fallback ID may not exist in the tenant).
+    local vpn_eip_id="${ACLOUD_ELASTIC_IP_ID:-}"
+    if [ -z "$vpn_eip_id" ]; then
         echo "Creating prerequisite VPN Elastic IP..."
-        local vpn_eip_out vpn_eip_id
+        local vpn_eip_out
         vpn_eip_out=$($ACLOUD_CMD network elasticip create \
             --name "${RESOURCE_PREFIX}-vpn-eip" \
             --region "$REGION" \
@@ -894,13 +893,12 @@ test_vpn_tunnel() {
             return 1
         fi
         CREATED_ELASTIC_IPS+=("$vpn_eip_id")
-        vpn_eip_uri="/projects/$PROJECT_ID/providers/Aruba.Network/elasticIps/$vpn_eip_id"
         echo "  → Elastic IP $vpn_eip_id created, waiting for readiness..."
         wait_for_elastic_ip_ready "$vpn_eip_id" 120 || \
             echo -e "${YELLOW}  ⚠ Elastic IP may not be ready yet${NC}"
     else
-        echo "Waiting for Elastic IP $vpn_eip_uri..."
-        wait_for_elastic_ip_ready "$vpn_eip_uri" || { fail "vpntunnel: elastic IP not found or not ready"; return 1; }
+        echo "Waiting for Elastic IP $vpn_eip_id..."
+        wait_for_elastic_ip_ready "$vpn_eip_id" || { fail "vpntunnel: elastic IP not found or not ready"; return 1; }
     fi
 
     # The VPN tunnel API creates its own subnet as part of provisioning — do NOT pre-create it.
@@ -911,10 +909,10 @@ test_vpn_tunnel() {
         --name "${RESOURCE_PREFIX}-vpn" \
         --region "$REGION" \
         --peer-ip 210.8.25.187 \
-        --vpc-uri "/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID" \
+        --vpc-id "$VPC_ID" \
         --subnet-cidr "$VPN_SUBNET_CIDR" \
         --subnet-name "${RESOURCE_PREFIX}-vpn-subnet" \
-        --elastic-ip-uri "$vpn_eip_uri" \
+        --elastic-ip-id "$vpn_eip_id" \
         --vpn-type Site-To-Site \
         --protocol ikev2 \
         --ike-lifetime 3600 \
@@ -941,10 +939,10 @@ test_vpn_tunnel() {
             --name "${RESOURCE_PREFIX}-vpn-dbg" \
             --region "$REGION" \
             --peer-ip 210.8.25.187 \
-            --vpc-uri "/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$VPC_ID" \
+            --vpc-id "$VPC_ID" \
             --subnet-cidr "$VPN_SUBNET_CIDR" \
             --subnet-name "${RESOURCE_PREFIX}-vpn-subnet" \
-            --elastic-ip-uri "$vpn_eip_uri" \
+            --elastic-ip-id "$vpn_eip_id" \
             --vpn-type Site-To-Site \
             --protocol ikev2 \
             --ike-lifetime 3600 \

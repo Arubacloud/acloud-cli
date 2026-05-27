@@ -225,8 +225,8 @@ Tests container resources:
 - Container Registry stores images that can be used by [Compute Tests](#compute-tests) Cloud Servers
 
 **Required Environment Variables for KaaS:**
-- `ACLOUD_VPC_URI` - VPC URI for the cluster (e.g., `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
-- `ACLOUD_SUBNET_URI` - Subnet URI for the cluster (e.g., `/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}`)
+- `ACLOUD_VPC_ID` - VPC ID for the cluster
+- `ACLOUD_SUBNET_ID` - Subnet ID for the cluster
 - `ACLOUD_NODE_POOL_INSTANCE` - Instance configuration name for nodes
 - `ACLOUD_NODE_POOL_ZONE` - Datacenter/zone code for nodes
 
@@ -239,11 +239,11 @@ Tests container resources:
 - `ACLOUD_K8S_VERSION` - Kubernetes version (default: `1.28.0`)
 
 **Required Environment Variables for Container Registry:**
-- `ACLOUD_PUBLIC_IP_URI` - Public IP (Elastic IP) URI (e.g., `/projects/{project-id}/providers/Aruba.Network/elasticIps/{elasticip-id}`)
-- `ACLOUD_VPC_URI` - VPC URI (e.g., `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
-- `ACLOUD_SUBNET_URI` - Subnet URI (e.g., `/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}`)
-- `ACLOUD_SECURITY_GROUP_URI` - Security group URI
-- `ACLOUD_BLOCK_STORAGE_URI` - Block storage URI
+- `ACLOUD_PUBLIC_IP_ID` - Public IP (Elastic IP) ID
+- `ACLOUD_VPC_ID` - VPC ID
+- `ACLOUD_SUBNET_ID` - Subnet ID
+- `ACLOUD_SECURITY_GROUP_ID` - Security group ID
+- `ACLOUD_BLOCK_STORAGE_ID` - Block storage ID
 
 **Note:** The KaaS connect test requires `kubectl` to be installed and available in PATH. If kubectl is not found, the connect test will be skipped.
 
@@ -257,13 +257,13 @@ Common environment variables used across tests:
 | `ACLOUD_REGION` | Region code | `ITBG-Bergamo` |
 | `ACLOUD_VPC_ID` | VPC ID for network resources | `69495ef64d0cdc87949b71ec` |
 | `ACLOUD_PEER_VPC_ID` | Peer VPC ID for peering | `69485a584d0cdc87949b6ff8` |
-| `ACLOUD_VPC_URI` | VPC URI for KaaS clusters and Container Registry | `/projects/{id}/providers/Aruba.Network/vpcs/{vpc-id}` |
-| `ACLOUD_SUBNET_URI` | Subnet URI for KaaS clusters and Container Registry | `/projects/{id}/providers/Aruba.Network/subnets/{subnet-id}` |
+| `ACLOUD_VPC_ID` | VPC ID for KaaS clusters and Container Registry | `69495ef64d0cdc87949b71ec` |
+| `ACLOUD_SUBNET_ID` | Subnet ID for KaaS clusters and Container Registry | `69495ef64d0cdc87949b71ed` |
 | `ACLOUD_NODE_POOL_INSTANCE` | Instance type for KaaS node pool | `small` |
 | `ACLOUD_NODE_POOL_ZONE` | Zone for KaaS node pool | `ITBG-Bergamo-A` |
-| `ACLOUD_PUBLIC_IP_URI` | Public IP URI for Container Registry | `/projects/{id}/providers/Aruba.Network/elasticIps/{elasticip-id}` |
-| `ACLOUD_SECURITY_GROUP_URI` | Security group URI for Container Registry | `/projects/{id}/providers/Aruba.Network/securityGroups/{sg-id}` |
-| `ACLOUD_BLOCK_STORAGE_URI` | Block storage URI for Container Registry | `/projects/{id}/providers/Aruba.Storage/volumes/{volume-id}` |
+| `ACLOUD_PUBLIC_IP_ID` | Public IP ID for Container Registry | `69495ef64d0cdc87949b71ee` |
+| `ACLOUD_SECURITY_GROUP_ID` | Security group ID for Container Registry | `69495ef64d0cdc87949b71ef` |
+| `ACLOUD_BLOCK_STORAGE_ID` | Block storage ID for Container Registry | `69495ef64d0cdc87949b71f0` |
 
 See individual test scripts for category-specific variables.
 
