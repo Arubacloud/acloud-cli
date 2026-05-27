@@ -156,7 +156,7 @@ Billing period: Hour (default), Month, or Year.`,
 				statusVal = string(*raw.Status.State)
 			}
 			row := []string{id, nameVal, regionVal, statusVal}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(created, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("KMS", name))
 		}
@@ -193,7 +193,7 @@ var kmsGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(kms, nil, nil)
 				return nil
 			}
 

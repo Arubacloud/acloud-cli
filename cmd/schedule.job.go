@@ -233,7 +233,7 @@ The job is enabled by default; pass --enabled=false to create it disabled.`,
 			if raw.Metadata.LocationResponse != nil {
 				regionVal = string(raw.Metadata.LocationResponse.Value)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, jobTypeVal, enabledVal, regionVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, jobTypeVal, enabledVal, regionVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Job", name))
 		}
@@ -270,7 +270,7 @@ var jobGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(job, nil, nil)
 				return nil
 			}
 

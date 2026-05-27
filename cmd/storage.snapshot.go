@@ -151,7 +151,7 @@ or restore data with 'acloud storage blockstorage create --snapshot-id'.`,
 			if raw.Status.State != nil {
 				statusVal = string(*raw.Status.State)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, regionVal, statusVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Snapshot", name))
 		}
@@ -188,7 +188,7 @@ var snapshotGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(snap, nil, nil)
 				return nil
 			}
 

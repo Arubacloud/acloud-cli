@@ -162,7 +162,7 @@ idle before starting a restore to avoid data corruption.`,
 			if raw.Status.State != nil {
 				statusVal = string(*raw.Status.State)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, statusVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Restore operation", name))
 		}
@@ -260,7 +260,7 @@ var storageRestoreGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(restore, nil, nil)
 				return nil
 			}
 

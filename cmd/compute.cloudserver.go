@@ -257,7 +257,7 @@ Billing period: Hour (default), Month, or Year.`,
 				fmt.Sprintf("%d", hd),
 				regionValue,
 			}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Cloud server", name))
 		}
@@ -294,7 +294,7 @@ var cloudserverGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(server, nil, nil)
 				return nil
 			}
 

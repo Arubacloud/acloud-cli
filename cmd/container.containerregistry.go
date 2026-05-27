@@ -189,7 +189,7 @@ Billing period: Hour (default), Month, or Year.`,
 			if raw.Status.State != nil {
 				statusVal = string(*raw.Status.State)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, regionVal, statusVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Container registry", name))
 		}
@@ -227,7 +227,7 @@ var containerregistryGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(registry, nil, nil)
 				return nil
 			}
 

@@ -162,7 +162,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 				status = string(*raw.Status.State)
 			}
 			row := []string{name, id, createRegion, displayCIDR, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Subnet", name))
 		}
@@ -418,7 +418,7 @@ var subnetUpdateCmd = &cobra.Command{
 			if raw.Status.State != nil {
 				status = string(*raw.Status.State)
 			}
-			PrintOutput(raw, headers, [][]string{{nameVal, id, cidrVal, status}})
+			PrintOutput(updated, headers, [][]string{{nameVal, id, cidrVal, status}})
 		} else {
 			fmt.Println(msgUpdatedAsync("Subnet", subnetID))
 		}

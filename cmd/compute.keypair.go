@@ -153,7 +153,7 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 				id = *raw.Metadata.ID
 			}
 			row := []string{nameVal, id, publicKeyValue, "Active"}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Keypair", name))
 		}
@@ -190,7 +190,7 @@ var keypairGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(kp, nil, nil)
 				return nil
 			}
 

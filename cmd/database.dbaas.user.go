@@ -166,7 +166,7 @@ var dbaasUserGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(u, nil, nil)
 				return nil
 			}
 

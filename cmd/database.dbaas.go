@@ -196,7 +196,7 @@ and users with 'acloud database dbaas user create'.`,
 			if raw.Metadata.LocationResponse != nil {
 				regionVal = string(raw.Metadata.LocationResponse.Value)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, engine, version, flavorVal, regionVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, engine, version, flavorVal, regionVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("DBaaS instance", name))
 		}
@@ -233,7 +233,7 @@ var dbaasGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(dbaas, nil, nil)
 				return nil
 			}
 

@@ -170,7 +170,7 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 				status = string(*raw.Status.State)
 			}
 			row := []string{name, id, cloudSubnetVal, onPremSubnetVal, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPN route", name))
 		}
@@ -378,7 +378,7 @@ var vpnrouteUpdateCmd = &cobra.Command{
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, cloudSubnetVal, onPremSubnetVal, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPN route", routeID))
 		}

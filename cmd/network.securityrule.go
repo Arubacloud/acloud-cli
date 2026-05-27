@@ -216,7 +216,7 @@ Example target values:
 				status = string(*raw.Status.State)
 			}
 			row := []string{name, id, direction, protocol, port, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Security rule", name))
 		}
@@ -453,7 +453,7 @@ var securityruleUpdateCmd = &cobra.Command{
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, string(raw.Properties.Direction), string(raw.Properties.Protocol), raw.Properties.Port, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security rule", securityRuleID))
 		}

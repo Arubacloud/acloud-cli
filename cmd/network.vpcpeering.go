@@ -114,7 +114,7 @@ peering is established.`,
 				status = string(*raw.Status.State)
 			}
 			row := []string{name, id, peerVPC, regionVal, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPC peering", name))
 		}
@@ -317,7 +317,7 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, peerVPC, regionVal, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC peering", peeringID))
 		}

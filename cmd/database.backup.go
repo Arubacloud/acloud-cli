@@ -157,7 +157,7 @@ Billing period: Hour (default), Month, or Year.`,
 			if raw.Status.State != nil {
 				statusVal = string(*raw.Status.State)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, regionVal, statusVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Backup", name))
 		}
@@ -194,7 +194,7 @@ var backupGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(backup, nil, nil)
 				return nil
 			}
 

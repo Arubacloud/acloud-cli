@@ -257,7 +257,7 @@ Billing period: Hour (default), Month, or Year.`,
 			if raw.Metadata.LocationResponse != nil {
 				regionVal = string(raw.Metadata.LocationResponse.Value)
 			}
-			PrintOutput(raw, headers, [][]string{{id, nameVal, version, regionVal}})
+			PrintOutput(created, headers, [][]string{{id, nameVal, version, regionVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("KaaS cluster", name))
 		}
@@ -295,7 +295,7 @@ var kaasGetCmd = &cobra.Command{
 
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(raw, nil, nil)
+				PrintOutput(kaas, nil, nil)
 				return nil
 			}
 

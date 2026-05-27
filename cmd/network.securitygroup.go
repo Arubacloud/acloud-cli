@@ -102,7 +102,7 @@ after the group is created.`,
 				status = string(*raw.Status.State)
 			}
 			row := []string{name, id, region, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Security group", name))
 		}
@@ -295,7 +295,7 @@ var securitygroupUpdateCmd = &cobra.Command{
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, updateRegion, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security group", sgID))
 		}

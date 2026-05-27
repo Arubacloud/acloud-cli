@@ -198,7 +198,7 @@ Billing period: Hour (default), Month, or Year.`,
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, localNet, remoteNet, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPC peering route", name))
 		}
@@ -415,7 +415,7 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 				status = string(*raw.Status.State)
 			}
 			row := []string{nameVal, id, localNet, remoteNet, status}
-			PrintOutput(raw, headers, [][]string{row})
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC peering route", routeID))
 		}
