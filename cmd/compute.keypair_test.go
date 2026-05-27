@@ -316,3 +316,58 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 		})
 	}
 }
+
+func TestKeypairCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-001", "my-keypair"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	pubKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Properties: types.KeyPairPropertiesResult{Value: pubKey},
+		Status:     types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"compute", "keypair", "create",
+		"--project-id", "proj-123",
+		"--name", "my-keypair",
+		"--region", "IT-BG",
+		"--public-key", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKeypairListCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-001", "my-keypair"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	pubKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
+		Values: []types.KeyPairResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.KeyPairPropertiesResult{Value: pubKey},
+				Status:     types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "keypair", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}

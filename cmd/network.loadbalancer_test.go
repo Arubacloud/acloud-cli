@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -144,5 +145,64 @@ func TestLoadBalancerGetCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestLoadBalancerListCmd_WithAllFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "lb-001", "my-lb"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	addr := "192.0.2.1"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
+		Values: []types.LoadBalancerResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.LoadBalancerPropertiesResponse{Address: &addr},
+				Status:     types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "loadbalancer", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "lb-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestLoadBalancerGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "lb-001", "my-lb"
+	uri := "/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	addr := "192.0.2.1"
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001", jsonResponse(200, types.LoadBalancerResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.LoadBalancerPropertiesResponse{Address: &addr},
+		Status:     types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "loadbalancer", "get", "lb-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "lb-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

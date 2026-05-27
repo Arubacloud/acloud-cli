@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -472,5 +473,205 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 			_, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 		})
+	}
+}
+
+func TestJobCreateCmd_Disabled(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "IT-BG",
+		"--job-type", "OneShot",
+		"--schedule-at", "2026-06-01T10:00:00Z",
+		"--enabled=false",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestJobCreateCmd_InvalidScheduleAt(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "IT-BG",
+		"--job-type", "OneShot",
+		"--schedule-at", "not-a-date",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid --schedule-at, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid --schedule-at") {
+		t.Errorf("expected 'invalid --schedule-at' in error, got: %v", err)
+	}
+}
+
+func TestJobCreateCmd_InvalidExecuteUntil(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "IT-BG",
+		"--job-type", "Recurring",
+		"--cron", "0 0 * * *",
+		"--execute-until", "not-a-date",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid --execute-until, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid --execute-until") {
+		t.Errorf("expected 'invalid --execute-until' in error, got: %v", err)
+	}
+}
+
+func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Properties: types.JobPropertiesResponse{
+			Enabled: true,
+			JobType: types.JobTypeOneShot,
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "IT-BG",
+		"--job-type", "OneShot",
+		"--schedule-at", "2026-06-01T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestJobListCmd_WithEnabledAndLocation(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+		Values: []types.JobResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.JobPropertiesResponse{
+					Enabled: true,
+					JobType: types.JobTypeOneShot,
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"schedule", "job", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestJobGetCmd_JSONOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"schedule", "job", "get", "job-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON output, got: %s", out)
+	}
+}
+
+func TestJobGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	uri := "/projects/proj-123/providers/Aruba.Schedule/jobs/job-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	createdBy := "test-user@example.com"
+	schedAt := "2026-06-01T10:00:00Z"
+	execUntil := "2027-01-01T00:00:00Z"
+	cronExpr := "0 0 * * *"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.JobPropertiesResponse{
+			Enabled:      true,
+			JobType:      types.JobTypeRecurring,
+			ScheduleAt:   &schedAt,
+			ExecuteUntil: &execUntil,
+			Cron:         &cronExpr,
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"schedule", "job", "get", "job-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestJobUpdateCmd_WithEnabledAndTags(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	updID, updName := "job-001", "my-job"
+	srv.OnPut("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:   &updID,
+			Name: &updName,
+			Tags: []string{"env=prod"},
+		},
+		Properties: types.JobPropertiesResponse{Enabled: true},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"schedule", "job", "update", "job-001",
+		"--project-id", "proj-123",
+		"--enabled",
+		"--tags", "env=prod",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

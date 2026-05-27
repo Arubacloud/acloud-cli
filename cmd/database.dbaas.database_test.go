@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -276,6 +277,66 @@ func TestDBaaSDatabaseDeleteCmd(t *testing.T) {
 	}
 }
 
+// TestDBaaSDatabaseGetCmd_FullDetail exercises all nil-guard branches in GET detail output.
+func TestDBaaSDatabaseGetCmd_FullDetail(t *testing.T) {
+	t.Run("detail with all optional fields", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		createdBy := "user@example.com"
+		ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+		srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", jsonResponse(200, types.DatabaseResponse{
+			Name:         "my-db",
+			CreatedBy:    &createdBy,
+			CreationDate: &ts,
+		}))
+		out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "database", "get", "dbaas-001", "my-db", "--project-id", "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "my-db") {
+			t.Errorf("expected name in output, got: %s", out)
+		}
+		if !strings.Contains(out, "user@example.com") {
+			t.Errorf("expected createdBy in output, got: %s", out)
+		}
+	})
+	t.Run("--output json emits valid JSON", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/my-db", jsonResponse(200, types.DatabaseResponse{
+			Name: "my-db",
+		}))
+		out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "database", "get", "dbaas-001", "my-db", "--project-id", "proj-123", "--output", "json"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+			t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+		}
+	})
+}
+
+// TestDBaaSDatabaseListCmd_AllOptionalFields exercises all nil-guard branches in LIST output.
+func TestDBaaSDatabaseListCmd_AllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	createdBy := "user@example.com"
+	ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+		Values: []types.DatabaseResponse{
+			{Name: "my-db", CreatedBy: &createdBy, CreationDate: &ts},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "my-db") {
+		t.Errorf("expected name in output, got: %s", out)
+	}
+	if !strings.Contains(out, "user@example.com") {
+		t.Errorf("expected createdBy in output, got: %s", out)
+	}
+}
+
 func TestDBaaSDatabaseUpdateCmd(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -344,5 +405,23 @@ func TestDBaaSDatabaseUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestDBaaSDatabaseCreateCmd_WithCreationDate(t *testing.T) {
+	srv := newArubaTestServer(t)
+	now := time.Now()
+	dbName := "myapp_db"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseResponse{
+		Name:         dbName,
+		CreationDate: &now,
+	}))
+	err := runCmd(srv.Client(), []string{
+		"database", "dbaas", "database", "create", "dbaas-001",
+		"--project-id", "proj-123",
+		"--name", "myapp_db",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

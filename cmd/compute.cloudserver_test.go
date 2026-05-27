@@ -608,3 +608,215 @@ func removeFlag(args []string, flag, value string) []string {
 	_ = value
 	return out
 }
+
+func TestCloudServerCreateCmd_WithElasticIPAndKeypair(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "server-001", "my-server"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"compute", "cloudserver", "create",
+		"--project-id", "proj-123",
+		"--name", "my-server",
+		"--region", "IT-BG",
+		"--zone", "IT-BG-1",
+		"--flavor", "flavor-001",
+		"--boot-disk-id", "vol-001",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--security-group-id", "sg-001",
+		"--elasticip-id", "eip-001",
+		"--keypair-id", "kp-001",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCloudServerCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "server-001", "my-server"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Properties: types.CloudServerPropertiesResult{
+			Flavor: types.CloudServerFlavorResponse{
+				Name: types.CloudServerFlavor("my-flavor"),
+				CPU:  2,
+				RAM:  4096,
+				HD:   50,
+			},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"compute", "cloudserver", "create",
+		"--project-id", "proj-123",
+		"--name", "my-server",
+		"--region", "IT-BG",
+		"--zone", "IT-BG-1",
+		"--flavor", "flavor-001",
+		"--boot-disk-id", "vol-001",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--security-group-id", "sg-001",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCloudServerGetCmd_JSONOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "server-001", "my-server"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/server-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "get", "server-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON output, got: %s", out)
+	}
+}
+
+func TestCloudServerGetCmd_WithFullDetailFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.CloudServerPropertiesResult{
+			Flavor: types.CloudServerFlavorResponse{
+				Name: types.CloudServerFlavor("my-flavor"),
+				CPU:  2,
+				RAM:  4,
+				HD:   50,
+			},
+			BootVolume: types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			KeyPair:    types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001"},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "get", "cs-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cs-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestCloudServerPowerOnCmd_Success(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweron", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "power-on", "cs-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cs-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestCloudServerPowerOffCmd_Success(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweroff", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "power-off", "cs-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cs-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestCloudServerConnectCmd_Success(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	eipID := "eip-001"
+	eipURI := "/projects/proj-123/providers/Aruba.Network/elasticIps/" + eipID
+	addr := "203.0.113.1"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.CloudServerPropertiesResult{
+			LinkedResources: []types.LinkedResource{
+				{URI: eipURI},
+			},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+		Metadata:   types.ResourceMetadataResponse{ID: &eipID},
+		Properties: types.ElasticIPPropertiesResponse{Address: &addr},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"compute", "cloudserver", "connect", "cs-001",
+		"--project-id", "proj-123",
+		"--user", "ubuntu",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "203.0.113.1") {
+		t.Errorf("expected IP in output, got: %s", out)
+	}
+}
+
+func TestCloudServerUpdateCmd_Success(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	newName := "updated-server"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &newName},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"compute", "cloudserver", "update", "cs-001",
+		"--project-id", "proj-123",
+		"--name", "updated-server",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cs-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}

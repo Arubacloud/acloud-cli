@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -345,5 +346,141 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestBlockStorageListCmd_AllOptionalFields(t *testing.T) {
+	// Covers: Status.State nil-guard in list loop (lines 194-195).
+	srv := newArubaTestServer(t)
+	id, name := "vol-001", "my-volume"
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	bootable := true
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
+		Values: []types.BlockStorageResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.BlockStoragePropertiesResponse{
+					SizeGB:   50,
+					Bootable: &bootable,
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"storage", "blockstorage", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vol-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "IT-BG") {
+		t.Errorf("expected region in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Active") {
+		t.Errorf("expected status in output, got: %s", out)
+	}
+}
+
+func TestBlockStorageGetCmd_AllOptionalFields(t *testing.T) {
+	// Covers: URI, LocationResponse, Bootable, Status.State, CreationDate, CreatedBy, Tags detail block.
+	// Also covers the JSON early-return path (PrintOutput(vol, nil, nil)).
+	id, name := "vol-001", "my-volume"
+	uri := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
+	createdBy := "user@example.com"
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	bootable := true
+	now := time.Now()
+	makeResponse := func() types.BlockStorageResponse {
+		return types.BlockStorageResponse{
+			Metadata: types.ResourceMetadataResponse{
+				ID:               &id,
+				Name:             &name,
+				URI:              &uri,
+				LocationResponse: &types.LocationResponse{Value: region},
+				CreationDate:     &now,
+				CreatedBy:        &createdBy,
+				Tags:             []string{"env=test"},
+			},
+			Properties: types.BlockStoragePropertiesResponse{
+				SizeGB:   50,
+				Bootable: &bootable,
+			},
+			Status: types.ResourceStatus{State: &state},
+		}
+	}
+
+	t.Run("detail output with all optional fields", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, makeResponse()))
+		out, err := runCmdCapture(srv.Client(), []string{"storage", "blockstorage", "get", "vol-001", "--project-id", "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "vol-001") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+		if !strings.Contains(out, "IT-BG") {
+			t.Errorf("expected region in output, got: %s", out)
+		}
+		if !strings.Contains(out, "user@example.com") {
+			t.Errorf("expected createdBy in output, got: %s", out)
+		}
+		if !strings.Contains(out, "env=test") {
+			t.Errorf("expected tags in output, got: %s", out)
+		}
+		if !strings.Contains(out, "Active") {
+			t.Errorf("expected status in output, got: %s", out)
+		}
+	})
+
+	t.Run("output json hits early return", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, makeResponse()))
+		out, err := runCmdCapture(srv.Client(), []string{"storage", "blockstorage", "get", "vol-001", "--project-id", "proj-123", "--output", "json"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+			t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+		}
+	})
+}
+
+func TestBlockStorageUpdateCmd_NoFlagsError(t *testing.T) {
+	// Covers: "at least one" error branch (line 296).
+	srv := newArubaTestServer(t)
+	_, err := runCmdCapture(srv.Client(), []string{"storage", "blockstorage", "update", "vol-001", "--project-id", "proj-123"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "at least one") {
+		t.Errorf("expected 'at least one' in error, got: %v", err)
+	}
+}
+
+func TestBlockStorageCreateCmd_WithSnapshotID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vol-002", "my-volume"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"storage", "blockstorage", "create",
+		"--project-id", "proj-123",
+		"--name", "my-volume",
+		"--region", "IT-BG",
+		"--size", "50",
+		"--snapshot-id", "snap-001",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -60,6 +60,39 @@ func TestDBaaSListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "list items with all optional fields covers nil-guards",
+			args: []string{"database", "dbaas", "list", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-rich", "rich-dbaas"
+				engineType, engineVersion := "postgresql", "14"
+				flavorName := "db.small"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+					Values: []types.DBaaSResponse{
+						{
+							Metadata: types.ResourceMetadataResponse{
+								ID:               &id,
+								Name:             &name,
+								LocationResponse: &types.LocationResponse{Value: types.Region("IT-BG")},
+							},
+							Properties: types.DBaaSPropertiesResponse{
+								Engine: &types.DBaaSEngineResponse{Type: &engineType, Version: &engineVersion},
+								Flavor: &types.DBaaSFlavorResponse{Name: &flavorName},
+							},
+							Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						},
+					},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-rich") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+				if !strings.Contains(out, "postgresql") {
+					t.Errorf("expected engine type in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			args: []string{"database", "dbaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
@@ -96,6 +129,7 @@ func TestDBaaSListCmd(t *testing.T) {
 func TestDBaaSGetCmd(t *testing.T) {
 	tests := []struct {
 		name        string
+		args        []string
 		setupSrv    func(*arubaTestServer)
 		wantErr     bool
 		errContains string
@@ -103,6 +137,7 @@ func TestDBaaSGetCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
+			args: []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-001", "my-dbaas"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
@@ -116,7 +151,66 @@ func TestDBaaSGetCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "detail output with all optional fields covers nil-guards",
+			args: []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				uri := "/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001"
+				engineType, engineVersion, engineName := "postgresql", "14", "PostgreSQL 14"
+				flavorName := "db.small"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{
+						ID:               &id,
+						Name:             &name,
+						URI:              &uri,
+						LocationResponse: &types.LocationResponse{Value: types.Region("IT-BG")},
+						Tags:             []string{"env=prod"},
+					},
+					Properties: types.DBaaSPropertiesResponse{
+						Engine: &types.DBaaSEngineResponse{
+							Type:    &engineType,
+							Version: &engineVersion,
+							Name:    &engineName,
+						},
+						Flavor: &types.DBaaSFlavorResponse{Name: &flavorName},
+					},
+					Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+				if !strings.Contains(out, "postgresql") {
+					t.Errorf("expected engine type in output, got: %s", out)
+				}
+				if !strings.Contains(out, "IT-BG") {
+					t.Errorf("expected region in output, got: %s", out)
+				}
+				if !strings.Contains(out, "env=prod") {
+					t.Errorf("expected tag in output, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--output json emits valid JSON",
+			args: []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
+			args: []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -125,6 +219,7 @@ func TestDBaaSGetCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
+			args: []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -138,7 +233,7 @@ func TestDBaaSGetCmd(t *testing.T) {
 			if tc.setupSrv != nil {
 				tc.setupSrv(srv)
 			}
-			out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "get", "dbaas-001", "--project-id", "proj-123"})
+			out, err := runCmdCapture(srv.Client(), tc.args)
 			checkErr(t, err, tc.wantErr, tc.errContains)
 			if tc.assertOut != nil {
 				tc.assertOut(t, out)
@@ -335,6 +430,24 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success with tags covers RetaggedAs branch",
+			args: []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123", "--tags", "env=test"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, Tags: []string{"env=test"}},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name:        "no flags error",
 			args:        []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123"},
 			wantErr:     true,
@@ -375,5 +488,59 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestDBaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-001", "my-db"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"database", "dbaas", "create",
+		"--project-id", "proj-123",
+		"--name", "my-db",
+		"--region", "IT-BG",
+		"--zone", "IT-BG-1",
+		"--engine-id", "mysql-8.0",
+		"--flavor", "DBO4A8",
+		"--storage-size", "50",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDBaaSListCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-001", "my-db"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+		Values: []types.DBaaSResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"database", "dbaas", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "dbaas-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

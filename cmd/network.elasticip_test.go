@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -359,5 +360,182 @@ func TestElasticIPDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestElasticIPCreateCmd_WithAddressAndTags(t *testing.T) {
+	// Covers: Properties.Address and Metadata.Tags nil-guards in create response (lines 137-141).
+	srv := newArubaTestServer(t)
+	id, name := "eip-001", "my-eip"
+	addr := "1.2.3.4"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:   &id,
+			Name: &name,
+			Tags: []string{"env=prod"},
+		},
+		Properties: types.ElasticIPPropertiesResponse{
+			Address: &addr,
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "1.2.3.4") {
+		t.Errorf("expected address in output, got: %s", out)
+	}
+	if !strings.Contains(out, "env=prod") {
+		t.Errorf("expected tags in output, got: %s", out)
+	}
+}
+
+func TestElasticIPListCmd_AllOptionalFields(t *testing.T) {
+	// Covers: LocationResponse, Address, Status.State nil-guards in list loop.
+	srv := newArubaTestServer(t)
+	id, name := "eip-001", "my-eip"
+	addr := "1.2.3.4"
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+		Values: []types.ElasticIPResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.ElasticIPPropertiesResponse{
+					Address: &addr,
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "eip-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "IT-BG") {
+		t.Errorf("expected region in output, got: %s", out)
+	}
+	if !strings.Contains(out, "1.2.3.4") {
+		t.Errorf("expected address in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Active") {
+		t.Errorf("expected status in output, got: %s", out)
+	}
+}
+
+func TestElasticIPGetCmd_AllOptionalFields(t *testing.T) {
+	// Covers: URI, LocationResponse, Address, BillingPlan.BillingPeriod detail block.
+	id, name := "eip-001", "my-eip"
+	uri := "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"
+	addr := "1.2.3.4"
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	billingPeriod := types.BillingPeriodHour
+	now := time.Now()
+	createdBy := "user@example.com"
+	makeResponse := func() types.ElasticIPResponse {
+		return types.ElasticIPResponse{
+			Metadata: types.ResourceMetadataResponse{
+				ID:               &id,
+				Name:             &name,
+				URI:              &uri,
+				LocationResponse: &types.LocationResponse{Value: region},
+				CreationDate:     &now,
+				CreatedBy:        &createdBy,
+				Tags:             []string{"env=test"},
+			},
+			Properties: types.ElasticIPPropertiesResponse{
+				Address:     &addr,
+				BillingPlan: &types.BillingPlan{BillingPeriod: &billingPeriod},
+			},
+			Status: types.ResourceStatus{State: &state},
+		}
+	}
+
+	t.Run("detail output with all optional fields", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, makeResponse()))
+		out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "eip-001") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+		if !strings.Contains(out, "1.2.3.4") {
+			t.Errorf("expected address in output, got: %s", out)
+		}
+		if !strings.Contains(out, "IT-BG") {
+			t.Errorf("expected region in output, got: %s", out)
+		}
+		if !strings.Contains(out, "Hour") {
+			t.Errorf("expected billing period in output, got: %s", out)
+		}
+	})
+}
+
+func TestElasticIPListCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-001", "my-eip"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	addr := "203.0.113.1"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+		Values: []types.ElasticIPResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.ElasticIPPropertiesResponse{Address: &addr},
+				Status:     types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "eip-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestElasticIPGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-001", "my-eip"
+	uri := "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	addr := "203.0.113.1"
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.ElasticIPPropertiesResponse{Address: &addr},
+		Status:     types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "eip-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

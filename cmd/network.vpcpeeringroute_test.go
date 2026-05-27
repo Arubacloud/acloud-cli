@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -398,5 +399,65 @@ func TestVPCPeeringRouteDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestVPCPeeringRouteListCmd_WithProperties(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	state := types.StateActive
+	period := types.BillingPeriodHour
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteList{
+		Values: []types.VPCPeeringRouteResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				Properties: types.VPCPeeringRoutePropertiesResponse{
+					LocalNetworkAddress:  "10.0.0.0/24",
+					RemoteNetworkAddress: "10.1.0.0/24",
+					BillingPlan:          &types.BillingPlan{BillingPeriod: &period},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "route-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPCPeeringRouteGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	uri := "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001"
+	state := types.StateActive
+	createdBy := "test-user@example.com"
+	period := types.BillingPeriodHour
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001", jsonResponse(200, types.VPCPeeringRouteResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:           &id,
+			Name:         &name,
+			URI:          &uri,
+			CreationDate: &now,
+			CreatedBy:    &createdBy,
+			Tags:         []string{"env=test"},
+		},
+		Properties: types.VPCPeeringRoutePropertiesResponse{
+			LocalNetworkAddress:  "10.0.0.0/24",
+			RemoteNetworkAddress: "10.1.0.0/24",
+			BillingPlan:          &types.BillingPlan{BillingPeriod: &period},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "route-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

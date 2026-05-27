@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -397,5 +398,79 @@ func TestVPNRouteDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestVPNRouteCreateCmd_WithStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"network", "vpnroute", "create", "vpn-001",
+		"--project-id", "proj-123",
+		"--name", "my-route",
+		"--region", "IT-BG",
+		"--cloud-subnet", "10.0.0.0/24",
+		"--onprem-subnet", "192.168.1.0/24",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVPNRouteListCmd_WithStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteList{
+		Values: []types.VPNRouteResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				Status:   types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpnroute", "list", "vpn-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "route-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPNRouteGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	uri := "/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001", jsonResponse(200, types.VPNRouteResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.VPNRoutePropertiesResponse{
+			OnPremSubnet: "192.168.1.0/24",
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpnroute", "get", "vpn-001", "route-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "route-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }
