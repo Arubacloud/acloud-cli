@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -153,11 +154,11 @@ func TestContainerRegistryCreateCmd(t *testing.T) {
 		"--project-id", "proj-123",
 		"--name", "my-registry",
 		"--region", "IT-BG",
-		"--public-ip-uri", "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001",
-		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-		"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
-		"--security-group-uri", "/projects/proj-123/providers/Aruba.Network/securityGroups/sg-001",
-		"--block-storage-uri", "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001",
+		"--public-ip-id", "eip-001",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--security-group-id", "sg-001",
+		"--block-storage-id", "vol-001",
 	}
 	tests := []struct {
 		name        string
@@ -366,5 +367,134 @@ func TestContainerRegistryUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestContainerRegistryCreateCmd_OptionalFlags(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"container", "containerregistry", "create",
+		"--project-id", "proj-123",
+		"--name", "my-registry",
+		"--region", "IT-BG",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--security-group-id", "sg-001",
+		"--public-ip-id", "eip-001",
+		"--block-storage-id", "vol-001",
+		"--admin-username", "admin",
+		"--billing-period", "Month",
+		"--concurrent-users", "Small",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestContainerRegistryListCmd_WithLocation(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+		Values: []types.ContainerRegistryResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cr-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestContainerRegistryGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	uri := "/projects/proj-123/providers/Aruba.Container/registries/cr-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "get", "cr-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cr-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestContainerRegistryGetCmd_JSONOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "get", "cr-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON output, got: %s", out)
+	}
+}
+
+func TestContainerRegistryGetCmd_WithAllOptionalProps(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	period := types.BillingPeriodHour
+	concurrentUsers := "Small"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.ContainerRegistryPropertiesResult{
+			PublicIp:        types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
+			VPC:             types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
+			Subnet:          types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
+			SecurityGroup:   types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
+			BlockStorage:    types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			BillingPlan:     &types.BillingPlan{BillingPeriod: &period},
+			AdminUser:       &types.UserCredential{Username: "admin"},
+			ConcurrentUsers: &concurrentUsers,
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "get", "cr-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "cr-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

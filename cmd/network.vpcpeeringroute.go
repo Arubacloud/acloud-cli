@@ -6,16 +6,8 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func vpcPeeringRouteListPayload(l *aruba.List[*aruba.VPCPeeringRoute]) any {
-	if r, ok := l.Raw().(*types.Response[types.VPCPeeringRouteList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 
@@ -33,7 +25,7 @@ func init() {
 	vpcpeeringrouteCreateCmd.Flags().String("local-network", "", "Local network address in CIDR notation (required)")
 	vpcpeeringrouteCreateCmd.Flags().String("remote-network", "", "Remote network address in CIDR notation (required)")
 	vpcpeeringrouteCreateCmd.Flags().String("region", "", "Region code (required)")
-	vpcpeeringrouteCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	vpcpeeringrouteCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	vpcpeeringrouteCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	vpcpeeringrouteCreateCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	vpcpeeringrouteCreateCmd.MarkFlagRequired("name")
@@ -91,13 +83,12 @@ func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete str
 	var completions []string
 	if list != nil {
 		for _, route := range list.Items() {
-			id := route.VPCPeeringRouteID()
-			name := route.Name()
-			if id == "" {
-				continue
-			}
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+			raw := route.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -148,6 +139,7 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
+		// Debug output if verbose
 		if verbose {
 			fmt.Println("Creating VPC peering route with the following parameters:")
 			fmt.Printf("  Name:            %s\n", name)
@@ -161,25 +153,23 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		route := aruba.NewVPCPeeringRoute().
-			IntoVPCPeering(aruba.VPCPeeringRef(projectID, vpcID, peeringID)).
+			InVPCPeering(aruba.VPCPeeringRef(projectID, vpcID, peeringID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithLocalCIDR(localNetwork).
 			WithRemoteCIDR(remoteNetwork).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
-		if len(tags) > 0 {
-			route.ReplaceTags(tags...)
-		}
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		created, err := client.FromNetwork().VPCPeeringRoutes().Create(ctx, route)
+		resp, err := client.FromNetwork().VPCPeeringRoutes().Create(ctx, route)
 		if err != nil {
 			return fmt.Errorf("creating VPC peering route: %w", apiErrFromV2(err))
 		}
 
-		r := created.Raw()
-		if r != nil {
+		if resp != nil && resp.Raw() != nil {
+			raw := resp.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -187,19 +177,28 @@ Billing period: Hour (default), Month, or Year.`,
 				{Header: "REMOTE NETWORK", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			id := ""
-			if r.Metadata.ID != nil {
-				id = *r.Metadata.ID
+			nameVal := name
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			createdName := name
-			if r.Metadata.Name != nil {
-				createdName = *r.Metadata.Name
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			localNet := ""
+			if raw.Properties.LocalNetworkAddress != "" {
+				localNet = raw.Properties.LocalNetworkAddress
+			}
+			remoteNet := ""
+			if raw.Properties.RemoteNetworkAddress != "" {
+				remoteNet = raw.Properties.RemoteNetworkAddress
 			}
 			status := ""
-			if r.Status.State != nil {
-				status = *r.Status.State
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(r, headers, [][]string{{createdName, id, localNetwork, remoteNetwork, status}})
+			row := []string{nameVal, id, localNet, remoteNet, status}
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPC peering route", name))
 		}
@@ -228,31 +227,35 @@ var vpcpeeringrouteGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPCPeeringRoutes().Get(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
+		route, err := client.FromNetwork().VPCPeeringRoutes().Get(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
 		if err != nil {
 			return fmt.Errorf("getting VPC peering route: %w", apiErrFromV2(err))
 		}
 
-		route := got.Raw()
-		if route != nil {
+		if route != nil && route.Raw() != nil {
+			raw := route.Raw()
 			fmt.Println("\nVPC Peering Route Details:")
 			fmt.Println("==========================")
-			fmt.Printf("ID:              %s\n", routeID)
-			if route.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *route.Metadata.Name)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+			} else {
+				fmt.Printf("ID:              %s\n", routeID)
 			}
-			fmt.Printf("Local Network:    %s\n", route.Properties.LocalNetworkAddress)
-			fmt.Printf("Remote Network:   %s\n", route.Properties.RemoteNetworkAddress)
-			if route.Properties.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", string(*route.Properties.BillingPeriod))
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if len(route.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", route.Metadata.Tags)
+			fmt.Printf("Local Network:    %s\n", raw.Properties.LocalNetworkAddress)
+			fmt.Printf("Remote Network:   %s\n", raw.Properties.RemoteNetworkAddress)
+			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
+				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlan.BillingPeriod)
+			}
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
-			if route.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *route.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		} else {
 			fmt.Println("VPC peering route not found or no data returned.")
@@ -281,7 +284,7 @@ var vpcpeeringrouteListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().VPCPeeringRoutes().List(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID), listOpts(cmd)...)
+		list, err := client.FromNetwork().VPCPeeringRoutes().List(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil {
 			return fmt.Errorf("listing VPC peering routes: %w", apiErrFromV2(err))
 		}
@@ -296,22 +299,27 @@ var vpcpeeringrouteListCmd = &cobra.Command{
 			}
 			var rows [][]string
 			for _, route := range list.Items() {
-				r := route.Raw()
-				name := route.Name()
-				id := route.VPCPeeringRouteID()
-				localNetwork := ""
-				remoteNetwork := ""
+				raw := route.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				localNetwork := raw.Properties.LocalNetworkAddress
+				remoteNetwork := raw.Properties.RemoteNetworkAddress
 				status := ""
-				if r != nil {
-					localNetwork = r.Properties.LocalNetworkAddress
-					remoteNetwork = r.Properties.RemoteNetworkAddress
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
 				}
 				rows = append(rows, []string{name, id, localNetwork, remoteNetwork, status})
 			}
-			PrintOutput(vpcPeeringRouteListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No VPC peering routes found.")
 		}
@@ -351,41 +359,40 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().VPCPeeringRoutes().Get(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
-		if err != nil {
+		// Fetch current VPC peering route details
+		route, err := client.FromNetwork().VPCPeeringRoutes().Get(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
+		if err != nil || route == nil || route.Raw() == nil {
 			return fmt.Errorf("fetching current VPC peering route: %w", apiErrFromV2(err))
 		}
-		r := cur.Raw()
-		if r == nil {
-			return fmt.Errorf("VPC peering route not found")
-		}
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+
+		// Block update if VPC peering route is in 'InCreation' state
+		if route.Raw().Status.State != nil && *route.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update VPC peering route while it is in 'InCreation' state. Please wait until the VPC peering route is fully created")
 		}
 
 		if name != "" {
-			cur.Named(name)
+			route.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+			route.RetaggedAs(tags...)
 		}
 		if localNetwork != "" {
-			cur.WithLocalCIDR(localNetwork)
+			route.WithLocalCIDR(localNetwork)
 		}
 		if remoteNetwork != "" {
-			cur.WithRemoteCIDR(remoteNetwork)
+			route.WithRemoteCIDR(remoteNetwork)
 		}
 		if billingPeriod != "" {
-			cur.WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
+			route.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 
-		updated, err := client.FromNetwork().VPCPeeringRoutes().Update(ctx, cur)
+		updated, err := client.FromNetwork().VPCPeeringRoutes().Update(ctx, route)
 		if err != nil {
 			return fmt.Errorf("updating VPC peering route: %w", apiErrFromV2(err))
 		}
 
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -393,19 +400,22 @@ var vpcpeeringrouteUpdateCmd = &cobra.Command{
 				{Header: "REMOTE NETWORK", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			updName := ""
-			if ur.Metadata.Name != nil {
-				updName = *ur.Metadata.Name
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			updID := routeID
-			if ur.Metadata.ID != nil {
-				updID = *ur.Metadata.ID
+			id := routeID
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			updStatus := ""
-			if ur.Status.State != nil {
-				updStatus = *ur.Status.State
+			localNet := raw.Properties.LocalNetworkAddress
+			remoteNet := raw.Properties.RemoteNetworkAddress
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(ur, headers, [][]string{{updName, updID, ur.Properties.LocalNetworkAddress, ur.Properties.RemoteNetworkAddress, updStatus}})
+			row := []string{nameVal, id, localNet, remoteNet, status}
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPC peering route", routeID))
 		}
@@ -456,7 +466,8 @@ var vpcpeeringrouteDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPCPeeringRoutes().Delete(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID)); err != nil {
+		err = client.FromNetwork().VPCPeeringRoutes().Delete(ctx, aruba.VPCPeeringRouteRef(projectID, vpcID, peeringID, routeID))
+		if err != nil {
 			return fmt.Errorf("deleting VPC peering route: %w", apiErrFromV2(err))
 		}
 

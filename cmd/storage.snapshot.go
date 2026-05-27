@@ -6,27 +6,8 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func snapshotRef(projectID, snapshotID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/snapshots/" + snapshotID)
-}
-
-func snapshotFromRaw(s *aruba.Snapshot) *types.SnapshotResponse {
-	if s == nil {
-		return nil
-	}
-	return s.Raw()
-}
-
-func snapshotListPayload(l *aruba.List[*aruba.Snapshot]) any {
-	if r, ok := l.Raw().(*types.Response[types.SnapshotList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 	storageCmd.AddCommand(snapshotCmd)
@@ -39,12 +20,12 @@ func init() {
 	snapshotCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	snapshotCreateCmd.Flags().String("name", "", "Name for the snapshot (required)")
 	snapshotCreateCmd.Flags().String("region", "", "Region code (required)")
-	snapshotCreateCmd.Flags().String("volume-uri", "", "Source volume URI (required)")
+	snapshotCreateCmd.Flags().String("volume-id", "", "Source volume ID (required)")
 	snapshotCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	snapshotCreateCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
 	snapshotCreateCmd.MarkFlagRequired("name")
 	snapshotCreateCmd.MarkFlagRequired("region")
-	snapshotCreateCmd.MarkFlagRequired("volume-uri")
+	snapshotCreateCmd.MarkFlagRequired("volume-id")
 
 	snapshotGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -57,11 +38,10 @@ func init() {
 	snapshotDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
 	snapshotListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
-	snapshotListCmd.Flags().String("volume-uri", "", "Block storage volume URI (required)")
-	snapshotListCmd.Flags().BoolP("verbose", "v", false, "Show detailed debug information")
+	snapshotListCmd.Flags().String("volume-id", "", "Block storage volume ID to filter by (optional)")
 	snapshotListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	snapshotListCmd.Flags().Int32("offset", 0, "Number of results to skip")
-	snapshotListCmd.MarkFlagRequired("volume-uri")
+	snapshotListCmd.MarkFlagRequired("volume-id")
 
 	snapshotGetCmd.ValidArgsFunction = completeSnapshotID
 	snapshotUpdateCmd.ValidArgsFunction = completeSnapshotID
@@ -80,17 +60,20 @@ func completeSnapshotID(cmd *cobra.Command, args []string, toComplete string) ([
 	}
 
 	ctx := context.Background()
-	list, err := client.FromStorage().Snapshots().List(ctx, projectRef(projectID))
+	list, err := client.FromStorage().Snapshots().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var completions []string
 	if list != nil {
-		for _, s := range list.Items() {
-			id := s.ID()
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, s.Name()))
+		for _, snap := range list.Items() {
+			raw := snap.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -109,10 +92,10 @@ var snapshotCreateCmd = &cobra.Command{
 	Short: "Create a new snapshot",
 	Long: `Create a point-in-time snapshot of an existing block storage volume.
 
-The volume URI is required. Snapshots can later be used to create new volumes
-or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
+The volume ID is required. Snapshots can later be used to create new volumes
+or restore data with 'acloud storage blockstorage create --snapshot-id'.`,
 	Example: `  acloud storage snapshot create --name my-snap --region IT-BG \
-    --volume-uri /projects/<proj-id>/providers/Aruba.Storage/blockStorages/<vol-id>`,
+    --volume-id <vol-id>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := GetProjectID(cmd)
@@ -122,32 +105,20 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 
 		name, _ := cmd.Flags().GetString("name")
 		region, _ := cmd.Flags().GetString("region")
-		volumeURI, _ := cmd.Flags().GetString("volume-uri")
+		volumeID, _ := cmd.Flags().GetString("volume-id")
 		tags, _ := cmd.Flags().GetStringSlice("tags")
-		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
-		if verbose {
-			fmt.Println("Creating snapshot with the following parameters:")
-			fmt.Printf("  Name:       %s\n", name)
-			fmt.Printf("  Region:     %s\n", region)
-			fmt.Printf("  Volume URI: %s\n", volumeURI)
-			fmt.Printf("  Tags:       %v\n", tags)
-			fmt.Println()
-		}
-
 		snap := aruba.NewSnapshot().
-			IntoProject(projectRef(projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			FromVolume(aruba.URI(volumeURI))
-		if len(tags) > 0 {
-			snap.ReplaceTags(tags...)
-		}
+			FromVolume(volumeRef(projectID, volumeID)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -156,18 +127,31 @@ or restore data with 'acloud storage blockstorage create --snapshot-uri'.`,
 			return fmt.Errorf("creating snapshot: %w", apiErrFromV2(err))
 		}
 
-		resource := snapshotFromRaw(created)
-		if resource != nil {
-			fmt.Printf("\n%s\n", msgCreated("Snapshot", name))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
+			headers := []TableColumn{
+				{Header: "ID", Width: 30},
+				{Header: "NAME", Width: 40},
+				{Header: "REGION", Width: 20},
+				{Header: "STATUS", Width: 15},
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			if resource.Metadata.CreationDate != nil && !resource.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", resource.Metadata.CreationDate.Format(DateLayout))
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
+			regionVal := ""
+			if raw.Metadata.LocationResponse != nil {
+				regionVal = string(raw.Metadata.LocationResponse.Value)
+			}
+			statusVal := ""
+			if raw.Status.State != nil {
+				statusVal = string(*raw.Status.State)
+			}
+			PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 		} else {
 			fmt.Println(msgCreatedAsync("Snapshot", name))
 		}
@@ -194,53 +178,51 @@ var snapshotGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromStorage().Snapshots().Get(ctx, snapshotRef(projectID, snapshotID))
+		snap, err := client.FromStorage().Snapshots().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 		if err != nil {
-			return fmt.Errorf("getting snapshot details: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting snapshot: %w", apiErrFromV2(err))
 		}
 
-		snapshot := snapshotFromRaw(got)
-		if snapshot != nil {
+		if snap != nil && snap.Raw() != nil {
+			raw := snap.Raw()
+
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(snapshot, nil, nil)
+				PrintOutput(snap, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nSnapshot Details:")
 			fmt.Println("=================")
-
-			if snapshot.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *snapshot.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if snapshot.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *snapshot.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if snapshot.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *snapshot.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if snapshot.Properties.SizeGB != nil {
-				fmt.Printf("Size (GB):       %d\n", *snapshot.Properties.SizeGB)
+			if raw.Properties.SizeGB != nil {
+				fmt.Printf("Size (GB):       %d\n", *raw.Properties.SizeGB)
 			}
-			if snapshot.Properties.Volume != nil && snapshot.Properties.Volume.URI != nil {
-				fmt.Printf("Source Volume:   %s\n", *snapshot.Properties.Volume.URI)
+			if raw.Properties.Volume != nil && raw.Properties.Volume.URI != nil {
+				fmt.Printf("Source Volume:   %s\n", *raw.Properties.Volume.URI)
 			}
-			if snapshot.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", snapshot.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			status := ""
-			if snapshot.Status.State != nil {
-				status = *snapshot.Status.State
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
 			}
-			fmt.Printf("Status:          %s\n", status)
-			if snapshot.Metadata.CreationDate != nil && !snapshot.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", snapshot.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if snapshot.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *snapshot.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(snapshot.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", snapshot.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -278,38 +260,37 @@ var snapshotUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		current, err := client.FromStorage().Snapshots().Get(ctx, snapshotRef(projectID, snapshotID))
+		snap, err := client.FromStorage().Snapshots().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 		if err != nil {
-			return fmt.Errorf("getting snapshot details: %w", apiErrFromV2(err))
+			return fmt.Errorf("getting snapshot: %w", apiErrFromV2(err))
 		}
-
-		if current.Raw() == nil {
+		if snap == nil || snap.Raw() == nil {
 			return fmt.Errorf("snapshot not found")
 		}
 
 		if name != "" {
-			current.Named(name)
+			snap.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			current.ReplaceTags(tags...)
+			snap.RetaggedAs(tags...)
 		}
 
-		updated, err := client.FromStorage().Snapshots().Update(ctx, current)
+		updated, err := client.FromStorage().Snapshots().Update(ctx, snap)
 		if err != nil {
 			return fmt.Errorf("updating snapshot: %w", apiErrFromV2(err))
 		}
 
-		resource := snapshotFromRaw(updated)
-		if resource != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			fmt.Printf("\n%s\n", msgUpdated("Snapshot", snapshotID))
-			if resource.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *resource.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if resource.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *resource.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if len(resource.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", resource.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("Snapshot", snapshotID))
@@ -325,8 +306,8 @@ var snapshotDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		snapshotID := args[0]
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
+		confirm, _ := cmd.Flags().GetBool("yes")
+		if !confirm {
 			ok, err := confirmDelete("snapshot", snapshotID)
 			if err != nil {
 				return err
@@ -351,7 +332,7 @@ var snapshotDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromStorage().Snapshots().Get(ctx, snapshotRef(projectID, snapshotID))
+			_, err = client.FromStorage().Snapshots().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
 			if err != nil {
 				return fmt.Errorf("dry-run: snapshot not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -359,7 +340,8 @@ var snapshotDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromStorage().Snapshots().Delete(ctx, snapshotRef(projectID, snapshotID)); err != nil {
+		err = client.FromStorage().Snapshots().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/snapshots/"+snapshotID))
+		if err != nil {
 			return fmt.Errorf("deleting snapshot: %w", apiErrFromV2(err))
 		}
 
@@ -378,7 +360,7 @@ var snapshotListCmd = &cobra.Command{
 			return err
 		}
 
-		volumeURI, _ := cmd.Flags().GetString("volume-uri")
+		volumeID, _ := cmd.Flags().GetString("volume-id")
 
 		client, err := GetArubaClient()
 		if err != nil {
@@ -387,45 +369,54 @@ var snapshotListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromStorage().Snapshots().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromStorage().Snapshots().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing snapshots: %w", apiErrFromV2(err))
 		}
 
-		if list != nil && len(list.Items()) > 0 {
-			var filtered []*aruba.Snapshot
-			for _, s := range list.Items() {
-				if s.VolumeURI() == volumeURI {
-					filtered = append(filtered, s)
-				}
-			}
-
-			if len(filtered) == 0 {
-				fmt.Printf("No snapshots found for volume: %s\n", volumeURI)
-				return nil
-			}
-
-			headers := []TableColumn{
-				{Header: "NAME", Width: 30},
-				{Header: "ID", Width: 26},
-				{Header: "SIZE(GB)", Width: 12},
-				{Header: "STATUS", Width: 15},
-			}
-
-			var rows [][]string
-			for _, s := range filtered {
-				sizeStr := "0"
-				r := snapshotFromRaw(s)
-				if r != nil && r.Properties.SizeGB != nil {
-					sizeStr = fmt.Sprintf("%d", *r.Properties.SizeGB)
-				}
-				rows = append(rows, []string{s.Name(), s.ID(), sizeStr, s.State()})
-			}
-
-			PrintOutput(snapshotListPayload(list), headers, rows)
-		} else {
-			fmt.Println("No snapshots found")
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "SIZE(GB)", Width: 12},
+			{Header: "STATUS", Width: 15},
 		}
+
+		var rows [][]string
+		if list != nil {
+			for _, snap := range list.Items() {
+				if snap.VolumeURI() != volumeRef(projectID, volumeID).URI() {
+					continue
+				}
+				raw := snap.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				size := "0"
+				if raw.Properties.SizeGB != nil {
+					size = fmt.Sprintf("%d", *raw.Properties.SizeGB)
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
+				rows = append(rows, []string{name, id, size, status})
+			}
+		}
+
+		if len(rows) == 0 {
+			fmt.Printf("No snapshots found for volume: %s\n", volumeID)
+			return nil
+		}
+
+		PrintOutput(list, headers, rows)
 		return nil
 	},
 }

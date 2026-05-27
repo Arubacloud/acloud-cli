@@ -218,22 +218,13 @@ test_snapshot() {
     fi
     
     echo -e "${YELLOW}--- Testing Snapshot CRUD ---${NC}\n"
-    
-    # Get volume URI
-    VOLUME_GET=$($ACLOUD_CMD storage blockstorage get "$volume_id" 2>&1)
-    VOLUME_URI=$(echo "$VOLUME_GET" | grep -i "URI:" | awk '{print $2}')
-    
-    if [ -z "$VOLUME_URI" ]; then
-        echo -e "${YELLOW}Could not extract volume URI, skipping snapshot test${NC}\n"
-        return 0
-    fi
-    
+
     # CREATE
     echo -e "${GREEN}[CREATE]${NC} Creating snapshot: $snapshot_name"
     CREATE_OUTPUT=$($ACLOUD_CMD storage snapshot create \
         --name "$snapshot_name" \
         --region "$REGION" \
-        --volume-uri "$VOLUME_URI" \
+        --volume-id "$volume_id" \
         --tags "e2e-test,snapshot" 2>&1) || {
         echo -e "${RED}CREATE failed:${NC}"
         echo "$CREATE_OUTPUT"
@@ -261,7 +252,7 @@ test_snapshot() {
 
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing snapshots..."
-    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list --volume-uri "$VOLUME_URI" 2>&1) || {
+    LIST_OUTPUT=$($ACLOUD_CMD storage snapshot list --volume-id "$volume_id" 2>&1) || {
         echo -e "${RED}LIST failed:${NC}"
         echo "$LIST_OUTPUT"
         return 1

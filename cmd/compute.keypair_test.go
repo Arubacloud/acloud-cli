@@ -22,7 +22,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
 					Values: []types.KeyPairResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
 					},
@@ -38,7 +38,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
 					Values: []types.KeyPairResponse{
 						{Metadata: types.ResourceMetadataResponse{Name: &kpName}},
 						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
@@ -59,7 +59,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-001", "my-kp"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
 					Values: []types.KeyPairResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName}},
 					},
@@ -76,7 +76,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			name: "server error propagates",
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "listing",
@@ -85,7 +85,7 @@ func TestKeyPairListCmd(t *testing.T) {
 			name: "API error propagates",
 			args: []string{"compute", "keypair", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -118,7 +118,7 @@ func TestKeyPairGetCmd(t *testing.T) {
 			name: "success",
 			setupSrv: func(srv *arubaTestServer) {
 				kpName := "my-kp"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, types.KeyPairResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", jsonResponse(200, types.KeyPairResponse{
 					Metadata: types.ResourceMetadataResponse{Name: &kpName},
 				}))
 			},
@@ -131,7 +131,7 @@ func TestKeyPairGetCmd(t *testing.T) {
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(500, "Internal Server Error", "boom"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
 			wantErr:     true,
 			errContains: "getting",
@@ -139,7 +139,7 @@ func TestKeyPairGetCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -171,10 +171,10 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-new", "my-kp"
-				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairResponse{
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &kpID, Name: &kpName},
 				}))
 			},
@@ -186,30 +186,36 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --public-key",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--region", "IT-BG"},
 			wantErr:     true,
 			errContains: "public-key",
 		},
 		{
+			name:        "missing required flag --region",
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			wantErr:     true,
+			errContains: "region",
+		},
+		{
 			name: "server error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(500, "Internal Server Error", "duplicate name"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "duplicate name"))
 			},
 			wantErr:     true,
 			errContains: "creating",
 		},
 		{
 			name: "API error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keypairs", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -252,7 +258,7 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 		{
 			name: "success with --yes",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, nil))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", jsonResponse(200, nil))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "kp-001") {
@@ -265,7 +271,7 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				kpName := "my-kp"
 				// Only register Get; an erroneous DELETE would trip the harness t.Errorf.
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", jsonResponse(200, types.KeyPairResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", jsonResponse(200, types.KeyPairResponse{
 					Metadata: types.ResourceMetadataResponse{Name: &kpName},
 				}))
 			},
@@ -278,7 +284,7 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(500, "Internal Server Error", "not found"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", errorResponse(500, "Internal Server Error", "not found"))
 			},
 			wantErr:     true,
 			errContains: "deleting",
@@ -286,7 +292,7 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 		{
 			name: "API error propagates",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
+				srv.OnDelete("/projects/proj-123/providers/Aruba.Compute/keyPairs/kp-001", errorResponse(404, "Not Found", "resource not found"))
 			},
 			wantErr:     true,
 			errContains: "API error (status 404): Not Found",
@@ -308,5 +314,60 @@ func TestKeyPairDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestKeypairCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-001", "my-keypair"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	pubKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Properties: types.KeyPairPropertiesResult{Value: pubKey},
+		Status:     types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"compute", "keypair", "create",
+		"--project-id", "proj-123",
+		"--name", "my-keypair",
+		"--region", "IT-BG",
+		"--public-key", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKeypairListCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-001", "my-keypair"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	pubKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
+		Values: []types.KeyPairResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.KeyPairPropertiesResult{Value: pubKey},
+				Status:     types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"compute", "keypair", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

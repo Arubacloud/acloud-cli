@@ -32,7 +32,7 @@ func TestCompleteCloudServerID_NoProjectID(t *testing.T) {
 func TestCompleteKeyPairID(t *testing.T) {
 	name := "my-keypair"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keypairs", jsonResponse(200, types.KeyPairListResponse{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
 		Values: []types.KeyPairResponse{
 			{Metadata: types.ResourceMetadataResponse{Name: &name}},
 		},
@@ -311,7 +311,7 @@ func TestCompleteElasticIPID_NoProjectID(t *testing.T) {
 func TestCompleteLoadBalancerID(t *testing.T) {
 	id, name := "lb-001", "my-lb"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadbalancers", jsonResponse(200, types.LoadBalancerList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
 		Values: []types.LoadBalancerResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -347,7 +347,7 @@ func TestCompleteSecurityRuleID_InsufficientArgs(t *testing.T) {
 func TestCompleteSecurityRuleID(t *testing.T) {
 	id, name := "rule-001", "my-rule"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securitygroups/sg-001/securityrules", jsonResponse(200, types.SecurityRuleList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleList{
 		Values: []types.SecurityRuleResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -563,7 +563,7 @@ func TestCompleteBackupID_NoProjectID(t *testing.T) {
 func TestCompleteBlockStorageID(t *testing.T) {
 	id, name := "vol-001", "my-volume"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages", jsonResponse(200, types.BlockStorageList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
 		Values: []types.BlockStorageResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},

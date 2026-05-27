@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -197,8 +198,8 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 		"--name", "my-tunnel",
 		"--region", "IT-BG",
 		"--peer-ip", "1.2.3.4",
-		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-		"--elastic-ip-uri", "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001",
+		"--vpc-id", "vpc-001",
+		"--elastic-ip-id", "eip-001",
 		"--subnet-cidr", "10.0.1.0/24",
 	}
 	tests := []struct {
@@ -238,10 +239,10 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 			errContains: "peer-ip",
 		},
 		{
-			name:        "missing required flag --vpc-uri",
-			args:        removeFlag(baseArgs, "--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"),
+			name:        "missing required flag --vpc-id",
+			args:        removeFlag(baseArgs, "--vpc-id", "vpc-001"),
 			wantErr:     true,
-			errContains: "vpc-uri",
+			errContains: "vpc-id",
 		},
 		{
 			name:        "rejects invalid --ike-encryption before API call",
@@ -325,7 +326,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "vpn-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
@@ -354,7 +355,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -471,28 +472,28 @@ func TestVPNValidateEnum(t *testing.T) {
 		wantErr bool
 		errMsg  string
 	}{
-		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
-		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms},
-		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnIKEHashAlgorithms},
-		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnIKEDHGroups},
-		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnIKEDPDActions},
-		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnESPPFSGroups},
-		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnESPEncryptionAlgorithms},
-		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnESPHashAlgorithms},
+		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnHashAlgorithms},
+		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnDHGroups},
+		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnDPDActions},
+		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnPFSGroups},
+		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnEncryptionAlgorithms},
+		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnHashAlgorithms},
 		{
-			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnIKEEncryptionAlgorithms,
+			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnEncryptionAlgorithms,
 			wantErr: true, errMsg: `--ike-encryption "rot13" is not a valid value`,
 		},
 		{
-			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnIKEHashAlgorithms,
+			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnHashAlgorithms,
 			wantErr: true, errMsg: "--ike-hash",
 		},
 		{
-			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnIKEDPDActions,
+			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnDPDActions,
 			wantErr: true, errMsg: "--ike-dpd-action",
 		},
 		{
-			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnESPPFSGroups,
+			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnPFSGroups,
 			wantErr: true, errMsg: "--esp-pfs",
 		},
 	}
@@ -512,5 +513,174 @@ func TestVPNValidateEnum(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVPNTunnelListCmd_WithAllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-001", "my-tunnel"
+	region := types.Region("IT-BG")
+	vpnType := types.VPNTypeSiteToSite
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelList{
+		Values: []types.VPNTunnelResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.VPNTunnelPropertiesResponse{
+					VPNType: &vpnType,
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpntunnel", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vpn-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPNTunnelGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-001", "my-tunnel"
+	uri := "/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001"
+	region := types.Region("IT-BG")
+	vpnType := types.VPNTypeSiteToSite
+	state := types.StateActive
+	peerIP := "203.0.113.1"
+	protocol := types.VPNClientProtocol("ikev2")
+	period := types.BillingPeriodHour
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.VPNTunnelPropertiesResponse{
+			VPNType:           &vpnType,
+			VPNClientProtocol: &protocol,
+			VPNClientSettings: &types.VPNClientSettings{
+				PeerClientPublicIP: &peerIP,
+			},
+			BillingPlan: &types.BillingPlan{BillingPeriod: &period},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vpn-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPNTunnelGetCmd_WithIPConfig(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-001", "my-tunnel"
+	vpcURI := "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"
+	pubIPURI := "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"
+	vpnType := types.VPNTypeSiteToSite
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.VPNTunnelPropertiesResponse{
+			VPNType: &vpnType,
+			IPConfigurations: &types.IPConfigurations{
+				VPC:      &types.ReferenceResource{URI: vpcURI},
+				Subnet:   &types.SubnetInfo{CIDR: "10.0.0.0/24", Name: "my-subnet"},
+				PublicIP: &types.ReferenceResource{URI: pubIPURI},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vpn-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPNTunnelCreateCmd_WithTypeAndProtocol(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-new", "my-tunnel"
+	uri := "/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-new"
+	vpnType := types.VPNTypeSiteToSite
+	protocol := types.VPNClientProtocolIKEv2
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:   &id,
+			Name: &name,
+			URI:  &uri,
+			Tags: []string{"env=test"},
+		},
+		Properties: types.VPNTunnelPropertiesResponse{
+			VPNType:           &vpnType,
+			VPNClientProtocol: &protocol,
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"network", "vpntunnel", "create",
+		"--project-id", "proj-123",
+		"--name", "my-tunnel",
+		"--region", "IT-BG",
+		"--vpn-type", "Site-To-Site",
+		"--protocol", "ikev2",
+		"--billing-period", "Hour",
+		"--peer-ip", "203.0.113.1",
+		"--vpc-id", "vpc-001",
+		"--elastic-ip-id", "eip-001",
+		"--subnet-cidr", "10.0.1.0/24",
+		"--ike-encryption", "aes256",
+		"--ike-lifetime", "28800",
+		"--esp-encryption", "aes256",
+		"--esp-lifetime", "3600",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vpn-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestVPNTunnelUpdateCmd_WithTagsOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-001", "my-tunnel"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatus{State: &state},
+	}))
+	updID, updName := "vpn-001", "my-tunnel"
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:   &updID,
+			Name: &updName,
+			Tags: []string{"env=prod"},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"network", "vpntunnel", "update", "vpn-001",
+		"--project-id", "proj-123",
+		"--tags", "env=prod",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "vpn-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

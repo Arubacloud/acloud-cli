@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +23,7 @@ func init() {
 	elasticipCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipCreateCmd.Flags().String("name", "", "Name for the Elastic IP")
 	elasticipCreateCmd.Flags().String("region", "", "Region code (e.g., IT-BG)")
-	elasticipCreateCmd.Flags().String("billing-period", "Hour", "Billing period: Hour, Month, Year")
+	elasticipCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	elasticipCreateCmd.MarkFlagRequired("name")
 	elasticipCreateCmd.MarkFlagRequired("region")
 	elasticipCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
@@ -45,15 +44,6 @@ func init() {
 	elasticipDeleteCmd.ValidArgsFunction = completeElasticIPID
 }
 
-func elasticIPListPayload(l *aruba.List[*aruba.ElasticIP]) any {
-	if r, ok := l.Raw().(*types.Response[types.ElasticList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
-
-// Completion functions for network resources
-
 func completeElasticIPID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
@@ -66,7 +56,7 @@ func completeElasticIPID(cmd *cobra.Command, args []string, toComplete string) (
 	}
 
 	ctx := context.Background()
-	list, err := client.FromNetwork().ElasticIPs().List(ctx, projectRef(projectID))
+	list, err := client.FromNetwork().ElasticIPs().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -74,13 +64,12 @@ func completeElasticIPID(cmd *cobra.Command, args []string, toComplete string) (
 	var completions []string
 	if list != nil {
 		for _, eip := range list.Items() {
-			id := eip.ElasticIPID()
-			name := eip.Name()
-			if id == "" {
-				continue
-			}
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+			raw := eip.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
 			}
 		}
 	}
@@ -123,13 +112,11 @@ Billing period: Hour (default), Month, or Year.`,
 		}
 
 		eip := aruba.NewElasticIP().
-			IntoProject(projectRef(projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
-			WithBillingPeriod(aruba.BillingPeriod(billingPeriod))
-		if len(tags) > 0 {
-			eip.ReplaceTags(tags...)
-		}
+			BilledBy(aruba.BillingPeriod(billingPeriod)).
+			RetaggedAs(tags...)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -138,20 +125,20 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating Elastic IP: %w", apiErrFromV2(err))
 		}
 
-		r := created.Raw()
-		if r != nil {
+		if created != nil && created.Raw() != nil {
+			raw := created.Raw()
 			fmt.Printf("\n%s\n", msgCreated("Elastic IP", name))
-			if r.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *r.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 			}
-			if r.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *r.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
 			}
-			if r.Properties.Address != nil {
-				fmt.Printf("Address: %s\n", *r.Properties.Address)
+			if raw.Properties.Address != nil {
+				fmt.Printf("Address: %s\n", *raw.Properties.Address)
 			}
-			if len(r.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", r.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgCreatedAsync("Elastic IP", name))
@@ -177,7 +164,7 @@ var elasticipListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().ElasticIPs().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromNetwork().ElasticIPs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing Elastic IPs: %w", apiErrFromV2(err))
 		}
@@ -193,29 +180,34 @@ var elasticipListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, eip := range list.Items() {
-				r := eip.Raw()
-				name := eip.Name()
-				id := eip.ElasticIPID()
-
-				region := ""
-				address := ""
-				status := ""
-				if r != nil {
-					if r.Metadata.LocationResponse != nil {
-						region = string(r.Metadata.LocationResponse.Value)
-					}
-					if r.Properties.Address != nil {
-						address = *r.Properties.Address
-					}
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				raw := eip.Raw()
+				if raw == nil {
+					continue
 				}
-
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
+				address := ""
+				if raw.Properties.Address != nil {
+					address = *raw.Properties.Address
+				}
+				status := ""
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
+				}
 				rows = append(rows, []string{name, id, region, address, status})
 			}
 
-			PrintOutput(elasticIPListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No Elastic IPs found")
 		}
@@ -242,52 +234,49 @@ var elasticipGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
+		eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
 			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
 
-		eip := got.Raw()
-		if eip != nil {
+		if eip != nil && eip.Raw() != nil {
+			raw := eip.Raw()
+
 			fmt.Println("\nElastic IP Details:")
 			fmt.Println("===================")
 
-			if eip.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *eip.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if eip.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *eip.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if eip.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *eip.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if eip.Metadata.LocationResponse != nil && eip.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", eip.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
+				fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
 			}
-			if eip.Properties.Address != nil {
-				fmt.Printf("Address:         %s\n", *eip.Properties.Address)
+			if raw.Properties.Address != nil {
+				fmt.Printf("Address:         %s\n", *raw.Properties.Address)
 			}
-
-			if eip.Properties.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", *eip.Properties.BillingPeriod)
+			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
+				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlan.BillingPeriod)
 			}
-			fmt.Printf("Linked Resources: %d\n", len(eip.Properties.LinkedResources))
-
-			if eip.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", eip.Metadata.CreationDate.Format(DateLayout))
+			fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if eip.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *eip.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-
-			if len(eip.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", eip.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
-
-			if eip.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *eip.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		}
 		return nil
@@ -320,43 +309,42 @@ var elasticipUpdateCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		cur, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
+		eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, eipID))
 		if err != nil {
 			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 		}
 
-		r := cur.Raw()
-		if r == nil {
+		if eip == nil || eip.Raw() == nil {
 			return fmt.Errorf("Elastic IP not found")
 		}
 
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+		if eip.Raw().Status.State != nil && *eip.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update Elastic IP while it is in 'InCreation' state. Please wait until the Elastic IP is fully created")
 		}
 
 		if name != "" {
-			cur.Named(name)
+			eip.Named(name)
 		}
-		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+		if len(tags) > 0 {
+			eip.RetaggedAs(tags...)
 		}
 
-		updated, err := client.FromNetwork().ElasticIPs().Update(ctx, cur)
+		updated, err := client.FromNetwork().ElasticIPs().Update(ctx, eip)
 		if err != nil {
 			return fmt.Errorf("updating Elastic IP: %w", apiErrFromV2(err))
 		}
 
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			fmt.Printf("\n%s\n", msgUpdated("Elastic IP", eipID))
-			if ur.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *ur.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 			}
-			if ur.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *ur.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
 			}
-			if len(ur.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", ur.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("Elastic IP", eipID))
@@ -407,7 +395,8 @@ var elasticipDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().ElasticIPs().Delete(ctx, aruba.ElasticIPRef(projectID, eipID)); err != nil {
+		err = client.FromNetwork().ElasticIPs().Delete(ctx, aruba.ElasticIPRef(projectID, eipID))
+		if err != nil {
 			return fmt.Errorf("deleting Elastic IP: %w", apiErrFromV2(err))
 		}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -353,5 +354,112 @@ func TestProjectDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+// TestProjectGetCmd_FullDetail exercises all nil-guard branches in GET detail output.
+func TestProjectGetCmd_FullDetail(t *testing.T) {
+	t.Run("detail with all optional fields covers nil-guards", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "proj-001", "my-project"
+		createdBy := "user@example.com"
+		updatedBy := "admin@example.com"
+		desc := "My test project"
+		ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+		srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+			Metadata: types.ResourceMetadataResponse{
+				ID:           &id,
+				Name:         &name,
+				Tags:         []string{"env=test"},
+				CreationDate: &ts,
+				CreatedBy:    &createdBy,
+				UpdateDate:   &ts,
+				UpdatedBy:    &updatedBy,
+			},
+			Properties: types.ProjectPropertiesResponse{
+				Description: &desc,
+			},
+		}))
+		out, err := runCmdCapture(srv.Client(), []string{"management", "project", "get", "proj-001"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "proj-001") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+		if !strings.Contains(out, "user@example.com") {
+			t.Errorf("expected createdBy in output, got: %s", out)
+		}
+		if !strings.Contains(out, "admin@example.com") {
+			t.Errorf("expected updatedBy in output, got: %s", out)
+		}
+		if !strings.Contains(out, "My test project") {
+			t.Errorf("expected description in output, got: %s", out)
+		}
+		if !strings.Contains(out, "env=test") {
+			t.Errorf("expected tags in output, got: %s", out)
+		}
+	})
+
+	t.Run("--output json hits early return", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "proj-001", "my-project"
+		srv.OnGet("/projects/proj-001", jsonResponse(200, types.ProjectResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		out, err := runCmdCapture(srv.Client(), []string{"management", "project", "get", "proj-001", "--output", "json"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+			t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+		}
+	})
+}
+
+// TestProjectListCmd_AllOptionalFields exercises nil-guard branches in LIST output.
+func TestProjectListCmd_AllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-001", "my-project"
+	desc := "My test project"
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+		Values: []types.ProjectResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:   &id,
+					Name: &name,
+					Tags: []string{"env=test"},
+				},
+				Properties: types.ProjectPropertiesResponse{
+					Description: &desc,
+					Default:     true,
+				},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"management", "project", "list"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "proj-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestProjectListCmd_WithProjectData(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-001", "my-project"
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+		Values: []types.ProjectResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"management", "project", "list"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "proj-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

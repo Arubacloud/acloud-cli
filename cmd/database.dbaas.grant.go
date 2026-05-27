@@ -6,9 +6,15 @@ import (
 	"strings"
 
 	aruba "github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
+
+// databaseRef returns a Ref for a specific database inside a DBaaS instance.
+func databaseRef(projectID, dbaasID, dbName string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID +
+		"/providers/Aruba.Database/dbaas/" + dbaasID +
+		"/databases/" + dbName)
+}
 
 func init() {
 	dbaasCmd.AddCommand(dbaasGrantCmd)
@@ -36,13 +42,6 @@ func init() {
 
 func grantRef(projectID, dbaasID, dbName, grantID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + dbName + "/grants/" + grantID)
-}
-
-func grantFromRaw(g *aruba.Grant) *types.GrantResponse {
-	if g == nil {
-		return nil
-	}
-	return g.Raw()
 }
 
 func completeGrantID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -106,9 +105,9 @@ Common roles: liteadmin, readonly, readwrite.`,
 		}
 
 		g := aruba.NewGrant().
-			IntoDatabase(databaseRef(projectID, dbaasID, dbName)).
-			WithUsername(username).
-			WithRoleName(role)
+			InDatabase(databaseRef(projectID, dbaasID, dbName)).
+			ForUser(username).
+			OfRole(role)
 
 		ctx, cancel := newCtx()
 		defer cancel()
@@ -117,12 +116,11 @@ Common roles: liteadmin, readonly, readwrite.`,
 			return fmt.Errorf("creating grant: %w", apiErrFromV2(err))
 		}
 
-		resource := grantFromRaw(created)
-		if resource != nil {
+		if created != nil {
 			fmt.Printf("\n%s\n", msgCreated("Grant", username))
-			fmt.Printf("Username:        %s\n", resource.User.Username)
-			fmt.Printf("Role:            %s\n", resource.Role.Name)
-			fmt.Printf("Database:        %s\n", resource.Database.Name)
+			fmt.Printf("Username:        %s\n", created.Username())
+			fmt.Printf("Role:            %s\n", created.RoleName())
+			fmt.Printf("Database:        %s\n", created.DatabaseName())
 		} else {
 			fmt.Printf("\n%s\n", msgCreatedAsync("Grant", username))
 		}
@@ -203,23 +201,22 @@ var dbaasGrantGetCmd = &cobra.Command{
 			return fmt.Errorf("getting grant: %w", apiErrFromV2(err))
 		}
 
-		resource := grantFromRaw(got)
-		if resource != nil {
+		if got != nil {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(resource, nil, nil)
+				PrintOutput(got, nil, nil)
 				return nil
 			}
 			fmt.Println("\nGrant Details:")
 			fmt.Println("==============")
-			fmt.Printf("Username:        %s\n", resource.User.Username)
-			fmt.Printf("Role:            %s\n", resource.Role.Name)
-			fmt.Printf("Database:        %s\n", resource.Database.Name)
-			if resource.CreationDate != nil && !resource.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", resource.CreationDate.Format(DateLayout))
+			fmt.Printf("Username:        %s\n", got.Username())
+			fmt.Printf("Role:            %s\n", got.RoleName())
+			fmt.Printf("Database:        %s\n", got.DatabaseName())
+			if t := got.CreatedAt(); !t.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", t.Format(DateLayout))
 			}
-			if resource.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *resource.CreatedBy)
+			if s := got.CreatedBy(); s != "" {
+				fmt.Printf("Created By:      %s\n", s)
 			}
 			fmt.Println()
 		} else {

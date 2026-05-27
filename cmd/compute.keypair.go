@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -25,9 +24,10 @@ func init() {
 	keypairCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	keypairCreateCmd.Flags().String("name", "", "Name for the keypair (required)")
 	keypairCreateCmd.Flags().String("public-key", "", "Public key value (required)")
-	keypairCreateCmd.Flags().String("region", "ITBG-Bergamo", "Region code (required)")
+	keypairCreateCmd.Flags().String("region", "", "Region code (required, e.g. IT-BG)")
 	keypairCreateCmd.MarkFlagRequired("name")
 	keypairCreateCmd.MarkFlagRequired("public-key")
+	keypairCreateCmd.MarkFlagRequired("region")
 
 	keypairGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -51,16 +51,7 @@ func init() {
 // keypairRef builds the combined project+keypair Ref that v0.2.0 Get/Delete need.
 func keypairRef(projectID, name string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
-		"/providers/Aruba.Compute/keypairs/" + name)
-}
-
-// keypairListPayload extracts the typed list for -o json/yaml; the List wrapper is not
-// JSON-marshalable.
-func keypairListPayload(l *aruba.List[*aruba.KeyPair]) any {
-	if r, ok := l.Raw().(*types.Response[types.KeyPairListResponse]); ok && r != nil {
-		return r.Data
-	}
-	return nil
+		"/providers/Aruba.Compute/keyPairs/" + name)
 }
 
 // completeKeyPairID provides shell completion for keypair names.
@@ -76,7 +67,7 @@ func completeKeyPairID(cmd *cobra.Command, args []string, toComplete string) ([]
 	}
 
 	ctx := context.Background()
-	list, err := client.FromCompute().KeyPairs().List(ctx, projectRef(projectID))
+	list, err := client.FromCompute().KeyPairs().List(ctx, aruba.URI("/projects/"+projectID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -85,9 +76,6 @@ func completeKeyPairID(cmd *cobra.Command, args []string, toComplete string) ([]
 	if list != nil {
 		for _, kp := range list.Items() {
 			name := kp.Name()
-			if name == "" {
-				continue
-			}
 			if toComplete == "" || strings.HasPrefix(name, toComplete) {
 				completions = append(completions, fmt.Sprintf("%s\tKeypair", name))
 			}
@@ -129,44 +117,43 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 		}
 
 		kp := aruba.NewKeyPair().
-			IntoProject(projectRef(projectID)).
+			InProject(aruba.URI("/projects/" + projectID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithPublicKey(publicKey)
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		created, err := client.FromCompute().KeyPairs().Create(ctx, kp)
+		resp, err := client.FromCompute().KeyPairs().Create(ctx, kp)
 		if err != nil {
 			return fmt.Errorf("creating keypair: %w", apiErrFromV2(err))
 		}
 
-		r := created.Raw()
-		if r != nil {
+		if resp != nil && resp.Raw() != nil {
+			raw := resp.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 40},
 				{Header: "ID", Width: 26},
 				{Header: "PUBLIC_KEY", Width: 60},
 				{Header: "STATUS", Width: 10},
 			}
-			publicKeyValue := r.Properties.Value
-			if len(publicKeyValue) > 50 {
-				publicKeyValue = publicKeyValue[:50] + "..."
+			publicKeyValue := ""
+			if raw.Properties.Value != "" {
+				publicKeyValue = raw.Properties.Value
+				if len(publicKeyValue) > 50 {
+					publicKeyValue = publicKeyValue[:50] + "..."
+				}
 			}
 			nameVal := ""
-			if r.Metadata.Name != nil {
-				nameVal = *r.Metadata.Name
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			idVal := ""
-			if r.Metadata.ID != nil {
-				idVal = *r.Metadata.ID
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			stateVal := ""
-			if r.Status.State != nil {
-				stateVal = *r.Status.State
-			}
-			row := []string{nameVal, idVal, publicKeyValue, stateVal}
-			PrintOutput(r, headers, [][]string{row})
+			row := []string{nameVal, id, publicKeyValue, "Active"}
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Keypair", name))
 		}
@@ -193,45 +180,46 @@ var keypairGetCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromCompute().KeyPairs().Get(ctx, keypairRef(projectID, keypairName))
+		kp, err := client.FromCompute().KeyPairs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/keyPairs/"+keypairName))
 		if err != nil {
 			return fmt.Errorf("getting keypair: %w", apiErrFromV2(err))
 		}
 
-		r := got.Raw()
-		if r != nil {
+		if kp != nil && kp.Raw() != nil {
+			raw := kp.Raw()
+
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(r, nil, nil)
+				PrintOutput(kp, nil, nil)
 				return nil
 			}
 
 			fmt.Println("\nKeypair Details:")
 			fmt.Println("===============")
 
-			if r.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *r.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if r.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *r.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if r.Properties.Value != "" {
-				fmt.Printf("Public Key:      %s\n", r.Properties.Value)
+			if raw.Properties.Value != "" {
+				fmt.Printf("Public Key:      %s\n", raw.Properties.Value)
 			}
 			// Show status as 'Active' for consistency
 			fmt.Printf("Status:          Active\n")
 
-			if r.Metadata.CreationDate != nil && !r.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", r.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if r.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *r.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
 
 			// Show JSON output if verbose
 			verbose, _ := cmd.Flags().GetBool("verbose")
 			if verbose {
-				jsonData, _ := json.MarshalIndent(r, "", "  ")
+				jsonData, _ := json.MarshalIndent(raw, "", "  ")
 				fmt.Println("\nFull JSON Response:")
 				fmt.Println("==================")
 				fmt.Println(string(jsonData))
@@ -290,9 +278,11 @@ var keypairDeleteCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
+		keypairRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Compute/keyPairs/" + keypairName)
+
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromCompute().KeyPairs().Get(ctx, keypairRef(projectID, keypairName))
+			_, err = client.FromCompute().KeyPairs().Get(ctx, keypairRef)
 			if err != nil {
 				return fmt.Errorf("dry-run: keypair not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -300,7 +290,8 @@ var keypairDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromCompute().KeyPairs().Delete(ctx, keypairRef(projectID, keypairName)); err != nil {
+		err = client.FromCompute().KeyPairs().Delete(ctx, keypairRef)
+		if err != nil {
 			return fmt.Errorf("deleting keypair: %w", apiErrFromV2(err))
 		}
 
@@ -326,7 +317,7 @@ var keypairListCmd = &cobra.Command{
 
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromCompute().KeyPairs().List(ctx, projectRef(projectID), listOpts(cmd)...)
+		list, err := client.FromCompute().KeyPairs().List(ctx, aruba.URI("/projects/"+projectID))
 		if err != nil {
 			return fmt.Errorf("listing keypairs: %w", apiErrFromV2(err))
 		}
@@ -341,23 +332,37 @@ var keypairListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, kp := range list.Items() {
-				id := kp.KeyPairID()
+				raw := kp.Raw()
+				if raw == nil {
+					continue
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
 				if id == "" {
 					continue
 				}
-				name := kp.Name()
-				publicKey := kp.PublicKey()
-				if len(publicKey) > 50 {
-					publicKey = publicKey[:50] + "..."
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
 				}
-				rows = append(rows, []string{name, id, publicKey, "Active"})
+				publicKey := ""
+				if raw.Properties.Value != "" {
+					publicKey = raw.Properties.Value
+					if len(publicKey) > 50 {
+						publicKey = publicKey[:50] + "..."
+					}
+				}
+				status := "Active"
+				rows = append(rows, []string{name, id, publicKey, status})
 			}
 
 			if len(rows) == 0 {
 				fmt.Println("No keypairs found")
 				return nil
 			}
-			PrintOutput(keypairListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No keypairs found")
 		}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -153,8 +154,8 @@ func TestKaaSCreateCmd(t *testing.T) {
 		"--project-id", "proj-123",
 		"--name", "my-cluster",
 		"--region", "IT-BG",
-		"--vpc-uri", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001",
-		"--subnet-uri", "/projects/proj-123/providers/Aruba.Network/subnets/sub-001",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
 		"--node-cidr-address", "10.0.0.0/16",
 		"--node-cidr-name", "node-cidr",
 		"--security-group-name", "my-sg",
@@ -418,5 +419,181 @@ func TestKaaSUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestKaaSListCmd_WithK8sVersionAndLocation(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	verStr := string(types.KubernetesVersion1323)
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+		Values: []types.KaaSResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.KaaSPropertiesResponse{
+					KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "kaas", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kaas-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestKaaSGetCmd_JSONOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON output, got: %s", out)
+	}
+}
+
+func TestKaaSGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	uri := "/projects/proj-123/providers/Aruba.Container/kaas/kaas-001"
+	verStr2 := string(types.KubernetesVersion1323)
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	createdBy := "test-user@example.com"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.KaaSPropertiesResponse{
+			KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr2},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kaas-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestKaaSCreateCmd_WithHAAndPodCIDR(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"container", "kaas", "create",
+		"--project-id", "proj-123",
+		"--name", "my-cluster",
+		"--region", "IT-BG",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--node-cidr-address", "10.0.0.0/24",
+		"--node-cidr-name", "my-cidr",
+		"--security-group-name", "my-sg",
+		"--kubernetes-version", "1.32.3",
+		"--node-pool-name", "workers",
+		"--node-pool-nodes", "3",
+		"--node-pool-instance", "K4A8",
+		"--node-pool-zone", "IT-BG-1",
+		"--ha",
+		"--pod-cidr", "192.168.0.0/16",
+		"--billing-period", "Month",
+		"--node-pool-autoscaling",
+		"--node-pool-min-count", "2",
+		"--node-pool-max-count", "5",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	verStr := string(types.KubernetesVersion1323)
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Properties: types.KaaSPropertiesResponse{
+			KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"container", "kaas", "create",
+		"--project-id", "proj-123",
+		"--name", "my-cluster",
+		"--region", "IT-BG",
+		"--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001",
+		"--node-cidr-address", "10.0.0.0/24",
+		"--node-cidr-name", "my-cidr",
+		"--security-group-name", "my-sg",
+		"--kubernetes-version", "1.32.3",
+		"--node-pool-name", "workers",
+		"--node-pool-nodes", "3",
+		"--node-pool-instance", "K4A8",
+		"--node-pool-zone", "IT-BG-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKaaSUpdateCmd_WithTagsOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	updID, updName := "kaas-001", "my-cluster"
+	srv.OnPut("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:   &updID,
+			Name: &updName,
+			Tags: []string{"env=prod"},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{
+		"container", "kaas", "update", "kaas-001",
+		"--project-id", "proj-123",
+		"--tags", "env=prod",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kaas-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

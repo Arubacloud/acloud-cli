@@ -131,6 +131,36 @@ func TestKMSGetCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "detail with all optional fields covers nil-guards",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				uri := "/projects/proj-123/providers/Aruba.Security/kms/kms-001"
+				createdBy := "user@example.com"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{
+						ID:               &id,
+						Name:             &name,
+						URI:              &uri,
+						CreatedBy:        &createdBy,
+						LocationResponse: &types.LocationResponse{Value: types.Region("IT-BG")},
+						Tags:             []string{"env=prod"},
+					},
+					Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kms-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+				if !strings.Contains(out, "IT-BG") {
+					t.Errorf("expected region in output, got: %s", out)
+				}
+				if !strings.Contains(out, "env=prod") {
+					t.Errorf("expected tag in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", errorResponse(500, "Internal Server Error", "boom"))
@@ -264,6 +294,24 @@ func TestKMSUpdateCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "success with tags covers RetaggedAs branch",
+			args: []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123", "--tags", "env=test"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Security/kms/kms-001", jsonResponse(200, types.KmsResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, Tags: []string{"env=test"}},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "kms-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name:        "missing flags",
 			args:        []string{"security", "kms", "update", "kms-001", "--project-id", "proj-123"},
 			wantErr:     true,
@@ -376,5 +424,55 @@ func TestKMSDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestKMSCreateCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kms-001", "my-kms"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"security", "kms", "create",
+		"--project-id", "proj-123",
+		"--name", "my-kms",
+		"--region", "IT-BG",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKMSListCmd_WithLocationAndStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kms-001", "my-kms"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+		Values: []types.KmsResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"security", "kms", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "kms-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

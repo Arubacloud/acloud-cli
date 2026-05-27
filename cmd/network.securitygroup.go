@@ -4,20 +4,12 @@ import (
 	"fmt"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 // securityGroupRef is shared with securityrule.go; uses hyphenated path segment (/security-groups/) to match SDK ID parser.
 func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/security-groups/" + sgID)
-}
-
-func securityGroupListPayload(l *aruba.List[*aruba.SecurityGroup]) any {
-	if r, ok := l.Raw().(*types.Response[types.SecurityGroupList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 func init() {
@@ -68,7 +60,6 @@ after the group is created.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vpcID := args[0]
 		name, _ := cmd.Flags().GetString("name")
-		_, _ = cmd.Flags().GetString("region") // required by Cobra, not used in SDK request
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 		projectID, err := GetProjectID(cmd)
 		if err != nil {
@@ -82,19 +73,16 @@ after the group is created.`,
 		defer cancel()
 
 		sg := aruba.NewSecurityGroup().
-			IntoVPC(aruba.VPCRef(projectID, vpcID)).
-			Named(name)
-		if len(tags) > 0 {
-			sg.ReplaceTags(tags...)
-		}
+			InVPC(aruba.VPCRef(projectID, vpcID)).
+			Named(name).
+			RetaggedAs(tags...)
 
-		created, err := client.FromNetwork().SecurityGroups().Create(ctx, sg)
+		resp, err := client.FromNetwork().SecurityGroups().Create(ctx, sg)
 		if err != nil {
 			return fmt.Errorf("creating security group: %w", apiErrFromV2(err))
 		}
-
-		r := created.Raw()
-		if r != nil && r.Metadata.ID != nil {
+		if resp != nil && resp.Raw() != nil {
+			raw := resp.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -102,14 +90,19 @@ after the group is created.`,
 				{Header: "STATUS", Width: 15},
 			}
 			region := ""
-			if r.Metadata.LocationResponse != nil {
-				region = string(r.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				region = string(raw.Metadata.LocationResponse.Value)
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
 			status := ""
-			if r.Status.State != nil {
-				status = *r.Status.State
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(r, headers, [][]string{{name, *r.Metadata.ID, region, status}})
+			row := []string{name, id, region, status}
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Security group", name))
 		}
@@ -134,40 +127,39 @@ var securitygroupGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
+		sg, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
 		if err != nil {
 			return fmt.Errorf("getting security group: %w", apiErrFromV2(err))
 		}
-
-		sg := got.Raw()
-		if sg != nil {
+		if sg != nil && sg.Raw() != nil {
+			raw := sg.Raw()
 			fmt.Println("\nSecurity Group Details:")
 			fmt.Println("======================")
-			if sg.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *sg.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if sg.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *sg.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if sg.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *sg.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if sg.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", sg.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			if sg.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", sg.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if sg.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *sg.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(sg.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", sg.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
-			if sg.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *sg.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		} else {
 			fmt.Println("Security group not found or no data returned.")
@@ -192,11 +184,10 @@ var securitygroupListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().SecurityGroups().List(ctx, aruba.VPCRef(projectID, vpcID), listOpts(cmd)...)
+		list, err := client.FromNetwork().SecurityGroups().List(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("listing security groups: %w", apiErrFromV2(err))
 		}
-
 		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
@@ -206,22 +197,29 @@ var securitygroupListCmd = &cobra.Command{
 			}
 			var rows [][]string
 			for _, sg := range list.Items() {
-				r := sg.Raw()
-				name := sg.Name()
-				id := sg.SecurityGroupID()
+				raw := sg.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
 				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
 				status := ""
-				if r != nil {
-					if r.Metadata.LocationResponse != nil {
-						region = string(r.Metadata.LocationResponse.Value)
-					}
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
 				}
 				rows = append(rows, []string{name, id, region, status})
 			}
-			PrintOutput(securityGroupListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No security groups found.")
 		}
@@ -252,55 +250,52 @@ var securitygroupUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
-		if err != nil {
+		sg, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
+		if err != nil || sg == nil || sg.Raw() == nil {
 			return fmt.Errorf("fetching current security group: %w", apiErrFromV2(err))
 		}
-		r := cur.Raw()
-		if r == nil {
-			return fmt.Errorf("security group not found")
-		}
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+
+		if sg.Raw().Status.State != nil && *sg.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update security group while it is in 'InCreation' state. Please wait until the security group is fully created")
 		}
 
 		if name != "" {
-			cur.Named(name)
+			sg.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+			sg.RetaggedAs(tags...)
 		}
 
-		updated, err := client.FromNetwork().SecurityGroups().Update(ctx, cur)
+		updated, err := client.FromNetwork().SecurityGroups().Update(ctx, sg)
 		if err != nil {
 			return fmt.Errorf("updating security group: %w", apiErrFromV2(err))
 		}
-
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
 				{Header: "REGION", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			updName := ""
-			if ur.Metadata.Name != nil {
-				updName = *ur.Metadata.Name
+			updateRegion := ""
+			if raw.Metadata.LocationResponse != nil {
+				updateRegion = string(raw.Metadata.LocationResponse.Value)
 			}
-			updID := ""
-			if ur.Metadata.ID != nil {
-				updID = *ur.Metadata.ID
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			updRegion := ""
-			if ur.Metadata.LocationResponse != nil {
-				updRegion = string(ur.Metadata.LocationResponse.Value)
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			updStatus := ""
-			if ur.Status.State != nil {
-				updStatus = *ur.Status.State
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(ur, headers, [][]string{{updName, updID, updRegion, updStatus}})
+			row := []string{nameVal, id, updateRegion, status}
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("Security group", sgID))
 		}
@@ -340,7 +335,7 @@ var securitygroupDeleteCmd = &cobra.Command{
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if dryRun {
-			_, err = client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(projectID, vpcID, sgID))
+			_, err = client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
 			if err != nil {
 				return fmt.Errorf("dry-run: security group not found or inaccessible: %w", apiErrFromV2(err))
 			}
@@ -348,10 +343,10 @@ var securitygroupDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().SecurityGroups().Delete(ctx, securityGroupRef(projectID, vpcID, sgID)); err != nil {
+		err = client.FromNetwork().SecurityGroups().Delete(ctx, aruba.SecurityGroupRef(projectID, vpcID, sgID))
+		if err != nil {
 			return fmt.Errorf("deleting security group: %w", apiErrFromV2(err))
 		}
-
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},
 			{Header: "STATUS", Width: 15},

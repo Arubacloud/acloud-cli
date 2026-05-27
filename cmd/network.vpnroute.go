@@ -1,20 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-func vpnRouteListPayload(l *aruba.List[*aruba.VPNRoute]) any {
-	if r, ok := l.Raw().(*types.Response[types.VPNRouteList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
-}
 
 func init() {
 	networkCmd.AddCommand(vpnrouteCmd)
@@ -72,21 +65,22 @@ func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	vpnTunnelID := args[0]
-	ctx, cancel := newCtx()
-	defer cancel()
+
+	ctx := context.Background()
 	list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	var completions []string
-	for _, route := range list.Items() {
-		id := route.VPNRouteID()
-		name := route.Name()
-		if id == "" {
-			continue
-		}
-		if toComplete == "" || strings.HasPrefix(id, toComplete) {
-			completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
+	if list != nil {
+		for _, route := range list.Items() {
+			raw := route.Raw()
+			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
+				id := *raw.Metadata.ID
+				if toComplete == "" || strings.HasPrefix(id, toComplete) {
+					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
+				}
+			}
 		}
 	}
 	return completions, cobra.ShellCompDirectiveNoFileComp
@@ -128,6 +122,7 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 			return fmt.Errorf("initializing client: %w", err)
 		}
 
+		// Debug output if verbose
 		if verbose {
 			fmt.Println("Creating VPN route with the following parameters:")
 			fmt.Printf("  Name:          %s\n", name)
@@ -140,26 +135,23 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 			fmt.Println()
 		}
 
-		ctx, cancel := newCtx()
-		defer cancel()
-
 		route := aruba.NewVPNRoute().
-			IntoVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
+			InVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
 			Named(name).
 			InRegion(aruba.Region(region)).
 			WithCloudSubnet(cloudSubnet).
-			WithOnPremSubnet(onPremSubnet)
-		if len(tags) > 0 {
-			route.ReplaceTags(tags...)
-		}
+			WithOnPremSubnet(onPremSubnet).
+			RetaggedAs(tags...)
 
-		created, err := client.FromNetwork().VPNRoutes().Create(ctx, route)
+		ctx, cancel := newCtx()
+		defer cancel()
+		resp, err := client.FromNetwork().VPNRoutes().Create(ctx, route)
 		if err != nil {
 			return fmt.Errorf("creating VPN route: %w", apiErrFromV2(err))
 		}
 
-		r := created.Raw()
-		if r != nil && r.Metadata.ID != nil {
+		if resp != nil && resp.Raw() != nil {
+			raw := resp.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -167,11 +159,18 @@ with --onprem-subnet. Both values should be valid CIDR blocks.`,
 				{Header: "ONPREM SUBNET", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			status := ""
-			if r.Status.State != nil {
-				status = *r.Status.State
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			PrintOutput(r, headers, [][]string{{name, *r.Metadata.ID, cloudSubnet, onPremSubnet, status}})
+			cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
+			onPremSubnetVal := raw.Properties.OnPremSubnet
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			row := []string{name, id, cloudSubnetVal, onPremSubnetVal, status}
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("VPN route", name))
 		}
@@ -196,42 +195,42 @@ var vpnrouteGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
+		route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
 		if err != nil {
 			return fmt.Errorf("getting VPN route: %w", apiErrFromV2(err))
 		}
 
-		route := got.Raw()
-		if route != nil {
+		if route != nil && route.Raw() != nil {
+			raw := route.Raw()
 			fmt.Println("\nVPN Route Details:")
 			fmt.Println("==================")
-			if route.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *route.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if route.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *route.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if route.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *route.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if route.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", route.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
 			}
-			fmt.Printf("Cloud Subnet:    %s\n", route.Properties.CloudSubnet.CIDR)
-			fmt.Printf("OnPrem Subnet:   %s\n", route.Properties.OnPremSubnet)
-			if route.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", route.Metadata.CreationDate.Format(DateLayout))
+			fmt.Printf("Cloud Subnet:    %s\n", raw.Properties.CloudSubnet.CIDR)
+			fmt.Printf("OnPrem Subnet:   %s\n", raw.Properties.OnPremSubnet)
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if route.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *route.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(route.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", route.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
-			if route.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *route.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		} else {
 			fmt.Println("VPN route not found or no data returned.")
@@ -256,7 +255,7 @@ var vpnrouteListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID), listOpts(cmd)...)
+		list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 		if err != nil {
 			return fmt.Errorf("listing VPN routes: %w", apiErrFromV2(err))
 		}
@@ -271,22 +270,27 @@ var vpnrouteListCmd = &cobra.Command{
 			}
 			var rows [][]string
 			for _, route := range list.Items() {
-				r := route.Raw()
-				name := route.Name()
-				id := route.VPNRouteID()
-				cloudSubnet := ""
-				onPremSubnet := ""
+				raw := route.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
+				cloudSubnet := raw.Properties.CloudSubnet.CIDR
+				onPremSubnet := raw.Properties.OnPremSubnet
 				status := ""
-				if r != nil {
-					cloudSubnet = r.Properties.CloudSubnet.CIDR
-					onPremSubnet = r.Properties.OnPremSubnet
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
 				}
 				rows = append(rows, []string{name, id, cloudSubnet, onPremSubnet, status})
 			}
-			PrintOutput(vpnRouteListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No VPN routes found.")
 		}
@@ -321,38 +325,37 @@ var vpnrouteUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
-		if err != nil {
+		// Fetch current VPN route details
+		route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
+		if err != nil || route == nil || route.Raw() == nil {
 			return fmt.Errorf("fetching current VPN route: %w", apiErrFromV2(err))
 		}
-		r := cur.Raw()
-		if r == nil {
-			return fmt.Errorf("VPN route not found")
-		}
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+
+		// Block update if VPN route is in 'InCreation' state
+		if route.Raw().Status.State != nil && *route.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update VPN route while it is in 'InCreation' state. Please wait until the VPN route is fully created")
 		}
 
 		if name != "" {
-			cur.Named(name)
+			route.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+			route.RetaggedAs(tags...)
 		}
 		if cloudSubnet != "" {
-			cur.WithCloudSubnet(cloudSubnet)
+			route.WithCloudSubnet(cloudSubnet)
 		}
 		if onPremSubnet != "" {
-			cur.WithOnPremSubnet(onPremSubnet)
+			route.WithOnPremSubnet(onPremSubnet)
 		}
 
-		updated, err := client.FromNetwork().VPNRoutes().Update(ctx, cur)
+		updated, err := client.FromNetwork().VPNRoutes().Update(ctx, route)
 		if err != nil {
 			return fmt.Errorf("updating VPN route: %w", apiErrFromV2(err))
 		}
 
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -360,19 +363,22 @@ var vpnrouteUpdateCmd = &cobra.Command{
 				{Header: "ONPREM SUBNET", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			updName := ""
-			if ur.Metadata.Name != nil {
-				updName = *ur.Metadata.Name
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			updID := ""
-			if ur.Metadata.ID != nil {
-				updID = *ur.Metadata.ID
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			updStatus := ""
-			if ur.Status.State != nil {
-				updStatus = *ur.Status.State
+			cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
+			onPremSubnetVal := raw.Properties.OnPremSubnet
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(ur, headers, [][]string{{updName, updID, ur.Properties.CloudSubnet.CIDR, ur.Properties.OnPremSubnet, updStatus}})
+			row := []string{nameVal, id, cloudSubnetVal, onPremSubnetVal, status}
+			PrintOutput(updated, headers, [][]string{row})
 		} else {
 			fmt.Println(msgUpdatedAsync("VPN route", routeID))
 		}
@@ -388,6 +394,11 @@ var vpnrouteDeleteCmd = &cobra.Command{
 		vpnTunnelID := args[0]
 		routeID := args[1]
 
+		projectID, err := GetProjectID(cmd)
+		if err != nil {
+			return err
+		}
+
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
 		if !skipConfirm {
 			ok, err := confirmDelete("VPN route", routeID)
@@ -399,10 +410,6 @@ var vpnrouteDeleteCmd = &cobra.Command{
 			}
 		}
 
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
 		client, err := GetArubaClient()
 		if err != nil {
 			return fmt.Errorf("initializing client: %w", err)
@@ -420,7 +427,8 @@ var vpnrouteDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID)); err != nil {
+		err = client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
+		if err != nil {
 			return fmt.Errorf("deleting VPN route: %w", apiErrFromV2(err))
 		}
 

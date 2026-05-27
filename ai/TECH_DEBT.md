@@ -29,7 +29,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-015 | Raw-JSON `response.RawBody` ID extraction removed from `cloudserver` and `keypair` list commands; typed `Metadata.ID` used directly; entries with nil/empty ID are discarded (SDK bumped to v0.1.26) |
 | TD-023 | Verbose error-body dump in `storage.backup` / `storage.restore` now uses `json.MarshalIndent(response.Error, …)`; generic `map[string]interface{}` unmarshal removed |
 | TD-024 | VPN crypto enums split per-direction in v0.2.0: the five unified slices (`vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups`) are replaced with seven per-direction slices (`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, `vpnIKEHashAlgorithms`, `vpnESPHashAlgorithms`, `vpnIKEDHGroups`, `vpnIKEDPDActions`, `vpnESPPFSGroups`) built from `aruba.IKE*`/`aruba.ESP*` constants; each `--ike-*`/`--esp-*` flag is keyed to its correct family in the validation table; accepted string values are unchanged (CLI behaviour byte-identical) |
-| TD-022 | SDK fully migrated from v0.1.x → v0.2.0 wrapper API across all families (#100–#110); bumped to v0.2.1 (#111) which resolved all four upstream papercuts (#282–#285: Job.WithEnabled omitempty, List pagination stubs, VPC.Get missing projectID backfill, projectsClientImpl.Delete missing error-body parse). v0.2.1 also added typed Ref builders (VPCRef, SubnetRef, etc.) and WithBillingPeriod/ReplaceNodePools setters — all adopted in #111. Note: `SecurityGroupRef` in v0.2.1 uses `/securitygroups/` path but `securityGroupIDsFromRef` still parses for `/security-groups/`; local `securityGroupRef` retained with hyphenated form until upstream fixes the mismatch. |
+| TD-022 | SDK fully migrated from v0.1.x → v0.2.0 wrapper API across all families (#100–#110); bumped to v0.2.1 (#111) which resolved all four upstream papercuts (#282–#285: Job.WithEnabled omitempty, List pagination stubs, VPC.Get missing projectID backfill, projectsClientImpl.Delete missing error-body parse). v0.2.1 also added typed Ref builders (VPCRef, SubnetRef, etc.) and WithBillingPeriod/ReplaceNodePools setters — all adopted in #111. Bumped to v0.3.0 on branch `upgrade-sdk`: natural-language setter vocabulary (InProject, InVPC, RetaggedAs, BilledBy, HighlyAvailable(), Enabled()/Disabled()), URI segment casing aligned (securityGroups, securityRules, blockStorages, loadBalancers, keyPairs), both local vendor patches removed (securityGroups casing fix and List[T].Raw() JSON marshalability — now upstream in v0.3.0), single-import achieved for all non-test cmd/ files (escape hatch: container.kaas.go uses types.APIServerAccessProfileProperties until SDK provides a setter), output handlers now delegate to SDK's RawJSON()/RawYAML() via rawMarshaler interface (all 20 cmd files pass the wrapper, not `.Raw()`, to PrintOutput), and cross-resource reference flags refactored from `--<res>-uri` to `--<res>-id` using SDK Ref helpers (VPCRef, SubnetRef, SecurityGroupRef, ElasticIPRef). |
 
 ---
 
@@ -69,6 +69,49 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 **Diagnosis:** Run `acloud --debug compute cloudserver update <id> --tags foo` and inspect `[DEBUG] response body:` to confirm which field(s) the API rejects.
 
 **Fix:** Map `networkInterfaces[].subnet` → `subnetRefs` and identify security-group URIs in `linkedResources[]` in the CLI update handler (or upstream in SDK `fromResponse`). Re-inject before calling `Update`. See #125.
+
+---
+
+### TD-030 · VPN route Cloud Subnet always blank on `get` / `list`
+
+`acloud network vpnroute get` prints an empty `Cloud Subnet:` row even when the route
+was created with `--cloud-subnet 10.0.0.0/24`. The CLI reads
+`raw.Properties.CloudSubnet.CIDR`, but the GET response places the value under a
+different field path (likely `raw.Properties.CloudSubnet.Value` or a flat string).
+The CLI has no way to validate the exact shape without access to a live API response.
+
+**Root cause:** Structural mismatch between `types.VPNRoutePropertiesResponse` and the
+actual API response body — an sdk-go issue.
+
+**Fix (blocked on sdk-go):** Once the SDK aligns the type definition with the API
+contract, update the field read in `cmd/network.vpnroute.go` (both `get` and `list`
+output blocks).
+
+---
+
+### TD-031 · Schedule job create does not send `steps[]` — API rejects with 400
+
+`acloud schedule job create` always returns HTTP 400 because the payload contains no
+`steps[]`. The `--step-resource-uri` / `--step-action-uri` / `--step-http-verb` /
+`--step-name` flags are declared in `init()` but the `RunE` never reads them and the
+SDK builder has no `AddStep` / `WithStep` method in v0.3.0.
+
+**Fix (blocked on sdk-go):** Once the SDK exposes a step builder API, read the four
+flags and append the step before calling `Create`. Until then, the command should return
+a clear "not yet implemented" error rather than silently emitting an invalid payload.
+
+---
+
+### TD-032 · Drop `rawHTTPer` branch from `printJSON` / `printYAML`
+
+`cmd/root.go` contains a `rawHTTPer` fallback branch that calls `RawHTTP()` and
+re-parses the response body for `*aruba.Project`. This is the only remaining caller.
+Once sdk-go adds `RawJSON()` / `RawYAML()` to `*aruba.Project`, the branch and the
+`rawHTTPer` interface can be deleted.
+
+**Fix (blocked on sdk-go):** After the SDK ships the interface, remove the `rawHTTPer`
+type, delete its check block in `printJSON`/`printYAML`, and update `management.project.go`
+to pass the wrapper directly (same pattern as all other 20 cmd files).
 
 ---
 

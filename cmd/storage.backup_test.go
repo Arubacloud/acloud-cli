@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
 func TestStorageBackupCreateCmd(t *testing.T) {
 	createArgs := []string{"storage", "backup", "vol-001", "--project-id", "proj-123", "--name", "my-backup"}
-	volURI := "/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001"
+	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
 
 	tests := []struct {
 		name        string
@@ -26,7 +27,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-new", "my-backup"
 				// Pre-validation: GET volume
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				// Create: POST backup
@@ -50,7 +51,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "volume pre-validation error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(404, "Not Found", "volume not found"))
 			},
 			wantErr: true, errContains: "getting volume",
 		},
@@ -58,7 +59,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "API error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", errorResponse(404, "Not Found", "resource not found"))
@@ -69,7 +70,7 @@ func TestStorageBackupCreateCmd(t *testing.T) {
 			name: "server error propagates",
 			args: createArgs,
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockstorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{URI: &volURI},
 				}))
 				srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", errorResponse(500, "Internal Server Error", "boom"))
@@ -363,5 +364,113 @@ func TestStorageBackupUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestStorageBackupCreateCmd_WithRetentionAndBilling(t *testing.T) {
+	srv := newArubaTestServer(t)
+	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
+	id, name := "bkp-001", "my-backup"
+	state := types.StateActive
+	period := types.BillingPeriodMonth
+	retDays := 30
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
+		Metadata: types.ResourceMetadataResponse{URI: &volURI},
+	}))
+	srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.StorageBackupPropertiesResult{
+			Type:          types.StorageBackupTypeFull,
+			RetentionDays: &retDays,
+			BillingPeriod: &period,
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	err := runCmd(srv.Client(), []string{
+		"storage", "backup", "vol-001",
+		"--project-id", "proj-123",
+		"--name", "my-backup",
+		"--region", "IT-BG",
+		"--type", "Full",
+		"--retention-days", "30",
+		"--billing-period", "Month",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStorageBackupListCmd_WithStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-001", "my-backup"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+		Values: []types.StorageBackupResponse{
+			{
+				Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
+				Properties: types.StorageBackupPropertiesResult{Type: types.StorageBackupTypeFull},
+				Status:     types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"storage", "backup", "list", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "bkp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestStorageBackupGetCmd_JSONOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-001", "my-backup"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"storage", "backup", "get", "bkp-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "{") {
+		t.Errorf("expected JSON output, got: %s", out)
+	}
+}
+
+func TestStorageBackupGetCmd_FullDetail(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-001", "my-backup"
+	uri := "/projects/proj-123/providers/Aruba.Storage/backups/bkp-001"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	createdBy := "test-user@example.com"
+	period := types.BillingPeriodMonth
+	retDays := 30
+	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
+	now := time.Now()
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001", jsonResponse(200, types.StorageBackupResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			URI:              &uri,
+			LocationResponse: &types.LocationResponse{Value: region},
+			CreationDate:     &now,
+			CreatedBy:        &createdBy,
+			Tags:             []string{"env=test"},
+		},
+		Properties: types.StorageBackupPropertiesResult{
+			Type:          types.StorageBackupTypeFull,
+			Origin:        types.ReferenceResource{URI: volURI},
+			RetentionDays: &retDays,
+			BillingPeriod: &period,
+		},
+		Status: types.ResourceStatus{State: &state},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"storage", "backup", "get", "bkp-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "bkp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

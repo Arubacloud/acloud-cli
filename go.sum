@@ -1,7 +1,5 @@
-github.com/Arubacloud/sdk-go v0.2.1 h1:J50kF+Za4o7IHdGzSpJuO/MOx9R4cKNp0hOmo9uAZAE=
-github.com/Arubacloud/sdk-go v0.2.1/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
-github.com/Arubacloud/sdk-go v0.2.2 h1:HNSF2pO3ndLMj4sD7d+ikwsY1lHZjjeBWlg8n+IedU0=
-github.com/Arubacloud/sdk-go v0.2.2/go.mod h1:4lXc0Dte8HqeKag8eMo0/TClwsgMqXW0KbKaQ2BYlXA=
+github.com/Arubacloud/sdk-go v0.3.0 h1:xZmAJuTiqeWU/oTJoThYnTmkwkjoUr7io/ImdIood5M=
+github.com/Arubacloud/sdk-go v0.3.0/go.mod h1:OD2PSOa9uAxrhFwDcYcw+LE7eyZ+OQVaTA2tlHxVE4U=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
@@ -87,3 +85,5 @@ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+k8s.io/utils v0.0.0-20260507154919-ff6756f316d2 h1:wU4tMEhLGgIbLvXQb1cfN+EcM0wf7zC6CPF+C79jroc=
+k8s.io/utils v0.0.0-20260507154919-ff6756f316d2/go.mod h1:xDxuJ0whA3d0I4mf/C4ppKHxXynQ+fxnkmQH0vTHnuk=

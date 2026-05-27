@@ -24,11 +24,11 @@ BOOTSTRAP_SUBNET_ID=""
 BOOTSTRAP_SG_ID=""
 BOOTSTRAP_BOOT_DISK_ID=""
 
-# Resolved dep URIs (populated by ensure_* functions)
-VPC_URI="${ACLOUD_VPC_URI:-}"
-SUBNET_URI="${ACLOUD_SUBNET_URI:-}"
-SG_URI="${ACLOUD_SECURITY_GROUP_URI:-}"
-BOOT_DISK_URI="${ACLOUD_BOOT_DISK_URI:-}"
+# Resolved dep IDs (populated by ensure_* functions)
+VPC_ID="${ACLOUD_VPC_ID:-}"
+SUBNET_ID="${ACLOUD_SUBNET_ID:-}"
+SG_ID="${ACLOUD_SECURITY_GROUP_ID:-}"
+BOOT_DISK_ID="${ACLOUD_BOOT_DISK_ID:-}"
 
 print_banner "Compute"
 
@@ -112,8 +112,8 @@ trap cleanup EXIT
 # --- Dep resolvers -------------------------------------------------------
 
 ensure_vpc() {
-    if [ -n "$VPC_URI" ]; then
-        echo "  → using pre-supplied VPC: $VPC_URI"
+    if [ -n "$VPC_ID" ]; then
+        echo "  → using pre-supplied VPC: $VPC_ID"
         return 0
     fi
     echo "Bootstrapping VPC for compute suite..."
@@ -131,44 +131,39 @@ ensure_vpc() {
     wait_for_status "$ACLOUD_CMD network vpc get $vpc_id" '^(Active|Ready)$' 300 || {
         echo -e "${RED}VPC did not become Active${NC}"; return 1
     }
-    local uri_line
-    uri_line=$($ACLOUD_CMD network vpc get "$vpc_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
-    VPC_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/vpcs/$vpc_id}"
+    VPC_ID="$vpc_id"
     echo "  → VPC $vpc_id ready"
 }
 
 ensure_subnet() {
-    if [ -n "$SUBNET_URI" ]; then
-        echo "  → using pre-supplied Subnet: $SUBNET_URI"
+    if [ -n "$SUBNET_ID" ]; then
+        echo "  → using pre-supplied Subnet: $SUBNET_ID"
         return 0
     fi
-    local vpc_id="${VPC_URI##*/}"
     echo "Bootstrapping Subnet for compute suite..."
     local _ts="${RESOURCE_PREFIX##*-}"
     local cidr="10.$(( (_ts % 200) + 10 )).0.0/24"
     local out
-    out=$($ACLOUD_CMD network subnet create "$vpc_id" \
+    out=$($ACLOUD_CMD network subnet create "$VPC_ID" \
         --name "${RESOURCE_PREFIX}-compute-subnet" \
         --cidr "$cidr" \
         --dhcp-enabled \
         --region "$REGION" 2>&1) || { echo -e "${RED}Subnet create failed: $out${NC}"; return 1; }
     local subnet_id
-    subnet_id=$(extract_id "$out" "$vpc_id")
+    subnet_id=$(extract_id "$out" "$VPC_ID")
     if [ -z "$subnet_id" ] || ! is_valid_id "$subnet_id"; then
         echo -e "${RED}Could not extract Subnet ID: $out${NC}"; return 1
     fi
     BOOTSTRAP_SUBNET_ID="$subnet_id"
     echo "  → waiting for Subnet $subnet_id to be Active..."
-    wait_for_status "$ACLOUD_CMD network subnet get $vpc_id $subnet_id" '^(Active|Ready)$' 180 || true
-    local uri_line
-    uri_line=$($ACLOUD_CMD network subnet get "$vpc_id" "$subnet_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
-    SUBNET_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/subnets/$subnet_id}"
+    wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $subnet_id" '^(Active|Ready)$' 180 || true
+    SUBNET_ID="$subnet_id"
     echo "  → Subnet $subnet_id ready"
 }
 
 ensure_boot_disk() {
-    if [ -n "$BOOT_DISK_URI" ]; then
-        echo "  → using pre-supplied boot disk: $BOOT_DISK_URI"
+    if [ -n "$BOOT_DISK_ID" ]; then
+        echo "  → using pre-supplied boot disk: $BOOT_DISK_ID"
         return 0
     fi
     echo "Bootstrapping boot disk for compute suite (image LU20-001)..."
@@ -192,35 +187,29 @@ ensure_boot_disk() {
     wait_for_status "$ACLOUD_CMD storage blockstorage get $disk_id" '^(Active|NotUsed)$' 300 || {
         echo -e "${RED}Boot disk did not become Active${NC}"; return 1
     }
-    local uri_line
-    uri_line=$($ACLOUD_CMD storage blockstorage get "$disk_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
-    # API returns camelCase blockStorages in the URI; fall back to that if grep found nothing
-    BOOT_DISK_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Storage/blockStorages/$disk_id}"
-    echo "  → boot disk $disk_id ready (URI: $BOOT_DISK_URI)"
+    BOOT_DISK_ID="$disk_id"
+    echo "  → boot disk $disk_id ready"
 }
 
 ensure_security_group() {
-    if [ -n "$SG_URI" ]; then
-        echo "  → using pre-supplied Security Group: $SG_URI"
+    if [ -n "$SG_ID" ]; then
+        echo "  → using pre-supplied Security Group: $SG_ID"
         return 0
     fi
-    local vpc_id="${VPC_URI##*/}"
     echo "Bootstrapping Security Group for compute suite..."
     local out
-    out=$($ACLOUD_CMD network securitygroup create "$vpc_id" \
+    out=$($ACLOUD_CMD network securitygroup create "$VPC_ID" \
         --name "${RESOURCE_PREFIX}-compute-sg" \
         --region "$REGION" 2>&1) || { echo -e "${RED}SG create failed: $out${NC}"; return 1; }
     local sg_id
-    sg_id=$(extract_id "$out" "$vpc_id")
+    sg_id=$(extract_id "$out" "$VPC_ID")
     if [ -z "$sg_id" ] || ! is_valid_id "$sg_id"; then
         echo -e "${RED}Could not extract SG ID: $out${NC}"; return 1
     fi
     BOOTSTRAP_SG_ID="$sg_id"
     echo "  → waiting for Security Group $sg_id to be Active..."
-    wait_for_status "$ACLOUD_CMD network securitygroup get $vpc_id $sg_id" '^(Active|Ready)$' 180 || true
-    local uri_line
-    uri_line=$($ACLOUD_CMD network securitygroup get "$vpc_id" "$sg_id" 2>/dev/null | grep -i "^URI:" | awk '{print $2}')
-    SG_URI="${uri_line:-/projects/$PROJECT_ID/providers/Aruba.Network/securityGroups/$sg_id}"
+    wait_for_status "$ACLOUD_CMD network securitygroup get $VPC_ID $sg_id" '^(Active|Ready)$' 180 || true
+    SG_ID="$sg_id"
     echo "  → Security Group $sg_id ready"
 }
 
@@ -236,16 +225,16 @@ test_cloudserver() {
     ensure_boot_disk      || return 1
 
     echo -e "${GREEN}[CREATE]${NC} Creating cloud server: $server_name"
-    echo "  (zone=${ACLOUD_ZONE:-ITBG-1}, flavor=${ACLOUD_FLAVOR:-CSO4A8}, boot-disk-uri=$BOOT_DISK_URI)"
+    echo "  (zone=${ACLOUD_ZONE:-ITBG-1}, flavor=${ACLOUD_FLAVOR:-CSO4A8}, boot-disk-id=$BOOT_DISK_ID)"
     CREATE_OUTPUT=$($ACLOUD_CMD --debug compute cloudserver create \
         --name "$server_name" \
         --region "$REGION" \
         --zone "${ACLOUD_ZONE:-ITBG-1}" \
         --flavor "${ACLOUD_FLAVOR:-CSO4A8}" \
-        --vpc-uri "$VPC_URI" \
-        --subnet-uri "$SUBNET_URI" \
-        --security-group-uri "$SG_URI" \
-        --boot-disk-uri "$BOOT_DISK_URI" \
+        --vpc-id "$VPC_ID" \
+        --subnet-id "$SUBNET_ID" \
+        --security-group-id "$SG_ID" \
+        --boot-disk-id "$BOOT_DISK_ID" \
         --billing-period Hour \
         --tags "e2e-test,compute" 2>&1)
     CREATE_EXIT=$?

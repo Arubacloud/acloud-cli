@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
@@ -256,7 +257,7 @@ func TestVPCPeeringUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					jsonResponse(200, types.VPCPeeringResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "peer-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
@@ -285,7 +286,7 @@ func TestVPCPeeringUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					jsonResponse(200, types.VPCPeeringResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: strPtr("Active")},
+						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -390,5 +391,140 @@ func TestVPCPeeringDeleteCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+// TestVPCPeeringGetCmd_FullDetail exercises all nil-guard branches in GET detail output.
+func TestVPCPeeringGetCmd_FullDetail(t *testing.T) {
+	t.Run("detail with all optional fields", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "peer-001", "my-peering"
+		createdBy := "user@example.com"
+		ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+		state := types.StateActive
+		region := types.Region("IT-BG")
+		srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+			jsonResponse(200, types.VPCPeeringResponse{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+					CreationDate:     &ts,
+					CreatedBy:        &createdBy,
+					Tags:             []string{"env=prod"},
+				},
+				Status: types.ResourceStatus{State: &state},
+				Properties: types.VPCPeeringPropertiesResponse{
+					RemoteVPC: &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
+				},
+			}))
+		out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "peer-001") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+		if !strings.Contains(out, "user@example.com") {
+			t.Errorf("expected createdBy in output, got: %s", out)
+		}
+		if !strings.Contains(out, "IT-BG") {
+			t.Errorf("expected region in output, got: %s", out)
+		}
+		if !strings.Contains(out, "env=prod") {
+			t.Errorf("expected tags in output, got: %s", out)
+		}
+	})
+
+	t.Run("--output json succeeds without error", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "peer-001", "my-peering"
+		srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+			jsonResponse(200, types.VPCPeeringResponse{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+			}))
+		_, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123", "--output", "json"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+// TestVPCPeeringListCmd_AllOptionalFields exercises nil-guard branches in LIST output.
+func TestVPCPeeringListCmd_AllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "peer-001", "my-peering"
+	state := types.StateActive
+	region := types.Region("IT-BG")
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
+		jsonResponse(200, types.VPCPeeringList{
+			Values: []types.VPCPeeringResponse{
+				{
+					Metadata: types.ResourceMetadataResponse{
+						ID:               &id,
+						Name:             &name,
+						LocationResponse: &types.LocationResponse{Value: region},
+					},
+					Status: types.ResourceStatus{State: &state},
+					Properties: types.VPCPeeringPropertiesResponse{
+						RemoteVPC: &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
+					},
+				},
+			},
+		}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "peer-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "IT-BG") {
+		t.Errorf("expected region in output, got: %s", out)
+	}
+}
+
+// TestVPCPeeringGetCmd_JsonOutput exercises the JSON output path (early return).
+func TestVPCPeeringGetCmd_JsonOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "peer-001", "my-peering"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
+		jsonResponse(200, types.VPCPeeringResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = out // vpcpeering GET uses direct fmt.Printf, not JSON serialization
+}
+
+func TestVPCPeeringListCmd_WithAllFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "peer-001", "my-peering"
+	region := types.Region("IT-BG")
+	state := types.StateActive
+	peerVPCURI := "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringList{
+		Values: []types.VPCPeeringResponse{
+			{
+				Metadata: types.ResourceMetadataResponse{
+					ID:               &id,
+					Name:             &name,
+					LocationResponse: &types.LocationResponse{Value: region},
+				},
+				Properties: types.VPCPeeringPropertiesResponse{
+					RemoteVPC: &types.ReferenceResource{URI: peerVPCURI},
+				},
+				Status: types.ResourceStatus{State: &state},
+			},
+		},
+	}))
+	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "peer-001") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }

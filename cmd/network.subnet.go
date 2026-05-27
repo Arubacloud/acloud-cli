@@ -5,20 +5,12 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 // splitRouteString splits a route string in format "destination:gateway"
 func splitRouteString(routeStr string) []string {
 	return strings.SplitN(routeStr, ":", 2)
-}
-
-func subnetListPayload(l *aruba.List[*aruba.Subnet]) any {
-	if r, ok := l.Raw().(*types.Response[types.SubnetList]); ok && r != nil {
-		return r.Data
-	}
-	return nil
 }
 
 // INIT
@@ -101,44 +93,48 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		s := aruba.NewSubnet().
-			IntoVPC(aruba.VPCRef(projectID, vpcID)).
-			Named(name).
-			InRegion(aruba.Region(region))
-		if len(tags) > 0 {
-			s.ReplaceTags(tags...)
-		}
-
+		// Determine SubnetType
+		subnetType := aruba.SubnetTypeBasic
 		if cidr != "" {
+			subnetType = aruba.SubnetTypeAdvanced
 			if !dhcpEnabled {
 				return fmt.Errorf("--dhcp-enabled is required when creating an Advanced subnet (CIDR provided)")
 			}
-			s.OfType(aruba.SubnetTypeAdvanced).WithCIDR(cidr)
+		}
 
-			d := aruba.NewSubnetDHCP().Enabled()
+		subnet := aruba.NewSubnet().
+			InVPC(aruba.VPCRef(projectID, vpcID)).
+			Named(name).
+			InRegion(aruba.Region(region)).
+			OfType(subnetType).
+			RetaggedAs(tags...)
+
+		if cidr != "" {
+			subnet = subnet.WithCIDR(cidr)
+		}
+
+		if dhcpEnabled {
+			dhcp := aruba.NewSubnetDHCP().Enabled()
 			for _, routeStr := range dhcpRoutes {
 				parts := splitRouteString(routeStr)
 				if len(parts) == 2 {
-					d.AddRoute(parts[0], parts[1])
+					dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
 				} else {
 					fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 				}
 			}
-			for _, ip := range dhcpDNS {
-				d.AddDNS(ip)
+			if len(dhcpDNS) > 0 {
+				dhcp = dhcp.WithDNSServers(dhcpDNS...)
 			}
-			s.WithDHCP(d)
-		} else {
-			s.OfType(aruba.SubnetTypeBasic)
+			subnet = subnet.WithDHCP(dhcp)
 		}
 
-		created, err := client.FromNetwork().Subnets().Create(ctx, s)
+		resp, err := client.FromNetwork().Subnets().Create(ctx, subnet)
 		if err != nil {
 			return fmt.Errorf("creating subnet: %w", apiErrFromV2(err))
 		}
-
-		r := created.Raw()
-		if r != nil && r.Metadata.ID != nil {
+		if resp != nil && resp.Raw() != nil {
+			raw := resp.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
@@ -147,21 +143,26 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 				{Header: "STATUS", Width: 15},
 			}
 			displayCIDR := cidr
-			if r.Properties.Network != nil && r.Properties.Network.Address != "" {
-				displayCIDR = r.Properties.Network.Address
+			if raw.Properties.Network != nil && raw.Properties.Network.Address != "" {
+				displayCIDR = raw.Properties.Network.Address
 			}
 			if displayCIDR == "" {
 				displayCIDR = "N/A (Basic)"
 			}
 			createRegion := ""
-			if r.Metadata.LocationResponse != nil {
-				createRegion = string(r.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil {
+				createRegion = string(raw.Metadata.LocationResponse.Value)
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
 			status := ""
-			if r.Status.State != nil {
-				status = *r.Status.State
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(r, headers, [][]string{{name, *r.Metadata.ID, createRegion, displayCIDR, status}})
+			row := []string{name, id, createRegion, displayCIDR, status}
+			PrintOutput(resp, headers, [][]string{row})
 		} else {
 			fmt.Println(msgCreatedAsync("Subnet", name))
 		}
@@ -186,58 +187,57 @@ var subnetGetCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		got, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+		subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
 		if err != nil {
 			return fmt.Errorf("getting subnet: %w", apiErrFromV2(err))
 		}
-
-		subnet := got.Raw()
-		if subnet != nil {
+		if subnet != nil && subnet.Raw() != nil {
+			raw := subnet.Raw()
 			fmt.Println("\nSubnet Details:")
 			fmt.Println("===============")
-			if subnet.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *subnet.Metadata.ID)
+			if raw.Metadata.ID != nil {
+				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 			}
-			if subnet.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *subnet.Metadata.URI)
+			if raw.Metadata.URI != nil {
+				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
 			}
-			if subnet.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *subnet.Metadata.Name)
+			if raw.Metadata.Name != nil {
+				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 			}
-			if subnet.Metadata.LocationResponse != nil && subnet.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", subnet.Metadata.LocationResponse.Value)
+			if raw.Metadata.LocationResponse != nil && string(raw.Metadata.LocationResponse.Value) != "" {
+				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
 			}
-			if subnet.Properties.Type != "" {
-				fmt.Printf("Type:            %s\n", subnet.Properties.Type)
+			if raw.Properties.Type != "" {
+				fmt.Printf("Type:            %s\n", raw.Properties.Type)
 			}
-			if subnet.Properties.Network != nil {
-				fmt.Printf("CIDR:            %s\n", subnet.Properties.Network.Address)
+			if raw.Properties.Network != nil {
+				fmt.Printf("CIDR:            %s\n", raw.Properties.Network.Address)
 			}
-			if subnet.Properties.DHCP != nil {
-				fmt.Printf("DHCP Enabled:    %v\n", subnet.Properties.DHCP.Enabled)
-				if len(subnet.Properties.DHCP.Routes) > 0 {
+			if raw.Properties.DHCP != nil {
+				fmt.Printf("DHCP Enabled:    %v\n", raw.Properties.DHCP.Enabled)
+				if len(raw.Properties.DHCP.Routes) > 0 {
 					fmt.Printf("DHCP Routes:\n")
-					for _, route := range subnet.Properties.DHCP.Routes {
+					for _, route := range raw.Properties.DHCP.Routes {
 						fmt.Printf("  - %s -> %s\n", route.Address, route.Gateway)
 					}
 				}
-				if len(subnet.Properties.DHCP.DNS) > 0 {
-					fmt.Printf("DHCP DNS:        %v\n", subnet.Properties.DHCP.DNS)
+				if len(raw.Properties.DHCP.DNS) > 0 {
+					fmt.Printf("DHCP DNS:        %v\n", raw.Properties.DHCP.DNS)
 				}
 			}
-			if subnet.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", subnet.Metadata.CreationDate.Format(DateLayout))
+			if raw.Metadata.CreationDate != nil {
+				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 			}
-			if subnet.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *subnet.Metadata.CreatedBy)
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(subnet.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", subnet.Metadata.Tags)
+			if len(raw.Metadata.Tags) > 0 {
+				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
-			if subnet.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *subnet.Status.State)
+			if raw.Status.State != nil {
+				fmt.Printf("Status:          %s\n", *raw.Status.State)
 			}
 		} else {
 			fmt.Println("Subnet not found or no data returned.")
@@ -262,11 +262,10 @@ var subnetListCmd = &cobra.Command{
 		}
 		ctx, cancel := newCtx()
 		defer cancel()
-		list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(projectID, vpcID), listOpts(cmd)...)
+		list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(projectID, vpcID))
 		if err != nil {
 			return fmt.Errorf("listing subnets: %w", apiErrFromV2(err))
 		}
-
 		if list != nil && len(list.Items()) > 0 {
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
@@ -277,26 +276,33 @@ var subnetListCmd = &cobra.Command{
 			}
 			var rows [][]string
 			for _, subnet := range list.Items() {
-				r := subnet.Raw()
-				name := subnet.Name()
-				id := subnet.SubnetID()
+				raw := subnet.Raw()
+				if raw == nil {
+					continue
+				}
+				name := ""
+				if raw.Metadata.Name != nil {
+					name = *raw.Metadata.Name
+				}
+				id := ""
+				if raw.Metadata.ID != nil {
+					id = *raw.Metadata.ID
+				}
 				region := ""
+				if raw.Metadata.LocationResponse != nil {
+					region = string(raw.Metadata.LocationResponse.Value)
+				}
 				cidr := ""
+				if raw.Properties.Network != nil {
+					cidr = raw.Properties.Network.Address
+				}
 				status := ""
-				if r != nil {
-					if r.Metadata.LocationResponse != nil {
-						region = string(r.Metadata.LocationResponse.Value)
-					}
-					if r.Properties.Network != nil {
-						cidr = r.Properties.Network.Address
-					}
-					if r.Status.State != nil {
-						status = *r.Status.State
-					}
+				if raw.Status.State != nil {
+					status = string(*raw.Status.State)
 				}
 				rows = append(rows, []string{name, id, region, cidr, status})
 			}
-			PrintOutput(subnetListPayload(list), headers, rows)
+			PrintOutput(list, headers, rows)
 		} else {
 			fmt.Println("No subnets found.")
 		}
@@ -331,108 +337,88 @@ var subnetUpdateCmd = &cobra.Command{
 		ctx, cancel := newCtx()
 		defer cancel()
 
-		cur, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
-		if err != nil {
+		subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+		if err != nil || subnet == nil || subnet.Raw() == nil {
 			return fmt.Errorf("fetching current subnet: %w", apiErrFromV2(err))
 		}
-		r := cur.Raw()
-		if r == nil {
-			return fmt.Errorf("subnet not found")
-		}
-		if r.Status.State != nil && *r.Status.State == StateInCreation {
+
+		if subnet.Raw().Status.State != nil && *subnet.Raw().Status.State == StateInCreation {
 			return fmt.Errorf("cannot update subnet while it is in 'InCreation' state. Please wait until the subnet is fully created")
-		}
-		if cur.Region() == "" {
-			return fmt.Errorf("unable to determine region value for subnet")
 		}
 
 		if name != "" {
-			cur.Named(name)
+			subnet.Named(name)
 		}
 		if cmd.Flags().Changed("tags") {
-			cur.ReplaceTags(tags...)
+			subnet.RetaggedAs(tags...)
 		}
 		if cidr != "" {
-			cur.WithCIDR(cidr)
+			subnet.WithCIDR(cidr)
 		}
 
-		// Rebuild DHCP for Advanced subnets when DHCP flags are touched
-		if r.Properties.Type == types.SubnetTypeAdvanced {
+		// Update DHCP config for Advanced subnets
+		if subnet.Raw().Properties.Type == aruba.SubnetTypeAdvanced {
+			currentDHCP := subnet.Raw().Properties.DHCP
 			if cmd.Flags().Changed("dhcp-enabled") || len(dhcpRoutes) > 0 || len(dhcpDNS) > 0 {
-				d := aruba.NewSubnetDHCP()
-				if r.Properties.DHCP != nil && r.Properties.DHCP.Enabled {
-					d.Enabled()
+				dhcp := aruba.NewSubnetDHCP()
+				// Preserve existing enabled state
+				if (currentDHCP != nil && currentDHCP.Enabled) || dhcpEnabled {
+					dhcp = dhcp.Enabled()
 				}
-				if cmd.Flags().Changed("dhcp-enabled") && dhcpEnabled {
-					d.Enabled()
-				}
-				existingRoutes := []aruba.SubnetDHCPRoute{}
-				if r.Properties.DHCP != nil {
-					for _, rt := range r.Properties.DHCP.Routes {
-						existingRoutes = append(existingRoutes, aruba.SubnetDHCPRoute{Address: rt.Address, Gateway: rt.Gateway})
-					}
-				}
+				// Preserve existing routes unless new ones provided
 				if len(dhcpRoutes) > 0 {
 					for _, routeStr := range dhcpRoutes {
 						parts := splitRouteString(routeStr)
 						if len(parts) == 2 {
-							d.AddRoute(parts[0], parts[1])
+							dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
 						} else {
 							fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 						}
 					}
-				} else {
-					for _, rt := range existingRoutes {
-						d.AddRoute(rt.Address, rt.Gateway)
+				} else if currentDHCP != nil {
+					for _, r := range currentDHCP.Routes {
+						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: r.Address, Gateway: r.Gateway})
 					}
 				}
-				existingDNS := []string{}
-				if r.Properties.DHCP != nil {
-					existingDNS = r.Properties.DHCP.DNS
-				}
+				// Preserve existing DNS unless new ones provided
 				if len(dhcpDNS) > 0 {
-					for _, ip := range dhcpDNS {
-						d.AddDNS(ip)
-					}
-				} else {
-					for _, ip := range existingDNS {
-						d.AddDNS(ip)
-					}
+					dhcp = dhcp.WithDNSServers(dhcpDNS...)
+				} else if currentDHCP != nil && len(currentDHCP.DNS) > 0 {
+					dhcp = dhcp.WithDNSServers(currentDHCP.DNS...)
 				}
-				cur.WithDHCP(d)
+				subnet.WithDHCP(dhcp)
 			}
 		}
 
-		updated, err := client.FromNetwork().Subnets().Update(ctx, cur)
+		updated, err := client.FromNetwork().Subnets().Update(ctx, subnet)
 		if err != nil {
 			return fmt.Errorf("updating subnet: %w", apiErrFromV2(err))
 		}
-
-		ur := updated.Raw()
-		if ur != nil {
+		if updated != nil && updated.Raw() != nil {
+			raw := updated.Raw()
 			headers := []TableColumn{
 				{Header: "NAME", Width: 30},
 				{Header: "ID", Width: 26},
 				{Header: "CIDR", Width: 18},
 				{Header: "STATUS", Width: 15},
 			}
-			updName := ""
-			if ur.Metadata.Name != nil {
-				updName = *ur.Metadata.Name
+			nameVal := ""
+			if raw.Metadata.Name != nil {
+				nameVal = *raw.Metadata.Name
 			}
-			updID := ""
-			if ur.Metadata.ID != nil {
-				updID = *ur.Metadata.ID
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
 			}
-			updCIDR := ""
-			if ur.Properties.Network != nil {
-				updCIDR = ur.Properties.Network.Address
+			cidrVal := ""
+			if raw.Properties.Network != nil {
+				cidrVal = raw.Properties.Network.Address
 			}
-			updStatus := ""
-			if ur.Status.State != nil {
-				updStatus = *ur.Status.State
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
 			}
-			PrintOutput(ur, headers, [][]string{{updName, updID, updCIDR, updStatus}})
+			PrintOutput(updated, headers, [][]string{{nameVal, id, cidrVal, status}})
 		} else {
 			fmt.Println(msgUpdatedAsync("Subnet", subnetID))
 		}
@@ -480,10 +466,10 @@ var subnetDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(projectID, vpcID, subnetID)); err != nil {
+		err = client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+		if err != nil {
 			return fmt.Errorf("deleting subnet: %w", apiErrFromV2(err))
 		}
-
 		headers := []TableColumn{
 			{Header: "ID", Width: 26},
 			{Header: "STATUS", Width: 15},
