@@ -480,13 +480,13 @@ func TestContainerRegistryGetCmd_WithAllOptionalProps(t *testing.T) {
 	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Properties: types.ContainerRegistryPropertiesResult{
-			PublicIp:      types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
-			VPC:           types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
-			Subnet:        types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
-			SecurityGroup: types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
-			BlockStorage:  types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
-			BillingPlan:   &types.BillingPlan{BillingPeriod: &period},
-			AdminUser:     &types.UserCredential{Username: "admin"},
+			PublicIp:        types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
+			VPC:             types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
+			Subnet:          types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
+			SecurityGroup:   types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
+			BlockStorage:    types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			BillingPlan:     &types.BillingPlan{BillingPeriod: &period},
+			AdminUser:       &types.UserCredential{Username: "admin"},
 			ConcurrentUsers: &concurrentUsers,
 		},
 	}))
