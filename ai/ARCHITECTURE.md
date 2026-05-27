@@ -194,21 +194,22 @@ if err != nil {
 directly JSON-marshalable via `encoding/json`. For table columns the wrapper exposes
 (`.ID()`, `.Name()`, `.State()`, `.CreatedAt()`, …) use the accessors directly.
 
-`PrintOutput` delegates full-payload rendering to the SDK's own marshalers via a
-local `rawMarshaler` interface (methods `RawJSON() ([]byte, error)` and
-`RawYAML() ([]byte, error)`). All wrapper types except `*aruba.Project` satisfy
-this interface in v0.3.0. For `*aruba.Project` (which lacks explicit `RawJSON`/
-`RawYAML` in v0.3.0), a `rawHTTPer` interface (method `RawHTTP() []byte`) is used
-instead to access the raw response body for re-parsing. This keeps the **single-import
-principle**: only `github.com/Arubacloud/sdk-go/pkg/aruba` is imported in non-test
-`cmd/` files.
+`PrintOutput` delegates full-payload rendering (`-o json` / `-o yaml`) through three
+dispatch branches in `printJSON` / `printYAML`:
 
-Two cases for full-payload rendering:
+1. **`rawMarshaler`** (preferred) — `RawJSON()` / `RawYAML()` called on the wrapper.
+   All wrapper types except `*aruba.Project` satisfy this interface in v0.3.0.
+   **Always pass the SDK wrapper (not `.Raw()`) as the first arg to `PrintOutput`.**
+2. **`rawHTTPer`** (legacy, `*aruba.Project` only) — falls back to `RawHTTP()` for
+   re-parsing the raw HTTP response body. Used only in `management.project.go` until
+   sdk-go ships `RawJSON()/RawYAML()` on `*aruba.Project`.
+3. **`json.MarshalIndent`** (anonymous structs) — delete-confirmation result rows use
+   small anonymous structs (`struct{ID, Status string}{...}`) that satisfy neither
+   interface. These fall through to `json.MarshalIndent`. Intentional — delete handlers
+   never need SDK-shaped full-payload output.
 
-- **`rawMarshaler`-satisfying wrappers** (e.g. `*aruba.CloudServer`, `*aruba.VPC`,
-  …) — `PrintOutput` calls `RawJSON()` / `RawYAML()` directly on the wrapper.
-- **`*aruba.Project`** (rawHTTPer fallback) — `PrintOutput` reads `RawHTTP()` and
-  re-parses the body via a file-local `<resource>FromRaw` helper.
+This keeps the **single-import principle**: only `github.com/Arubacloud/sdk-go/pkg/aruba`
+is imported in non-test `cmd/` files.
 
 For list `-o json`/`-o yaml`, `*aruba.List[T]` also satisfies `rawMarshaler`; no
 separate `<resource>ListPayload` helper is needed for the output call itself, though

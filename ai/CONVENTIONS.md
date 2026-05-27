@@ -31,6 +31,23 @@ Flag descriptions follow this style:
 - `"Name for the block storage (required)"`
 - `"Skip confirmation prompt"`
 
+**Cross-resource reference flags** — when a resource requires a reference to another
+resource, accept the **resource ID** (not a full URI) via a `--<resource>-id` flag,
+then build the Ref with the appropriate SDK helper:
+
+| Flag | SDK Ref helper |
+|------|---------------|
+| `--vpc-id` | `aruba.VPCRef(projectID, vpcID)` |
+| `--subnet-id` | `aruba.SubnetRef(projectID, vpcID, subnetID)` (requires `--vpc-id`) |
+| `--security-group-id` | `aruba.SecurityGroupRef(projectID, vpcID, sgID)` (requires `--vpc-id`) |
+| `--elastic-ip-id` / `--public-ip-id` | `aruba.ElasticIPRef(projectID, eipID)` |
+| `--volume-id` / `--boot-disk-id` | `volumeRef(projectID, volID)` (file-local helper) |
+| `--snapshot-id` | `snapshotRef(projectID, snapID)` (file-local helper) |
+| `--keypair-id` | `keypairRef(projectID, name)` (file-local helper) |
+
+Do not expose URI-shaped flags (`--vpc-uri`, `--subnet-uri`, etc.) — callers know
+resource IDs, not full URI paths.
+
 ---
 
 ## Cobra Command Struct Fields
@@ -336,6 +353,35 @@ PrintOutput(result, headers, [][]string{row})
 
 ---
 
+## Output Formatting
+
+Always pass the **SDK wrapper** (not `.Raw()`) as the first argument to `PrintOutput`:
+
+```go
+// Correct — wrapper satisfies rawMarshaler; -o json/yaml use SDK's RawJSON()/RawYAML()
+created, err := client.From<Svc>().<Resource>().Create(ctx, wrapper)
+PrintOutput(created, headers, [][]string{row})
+
+// Wrong — *types.XxxResponse does not implement rawMarshaler;
+// -o json falls back to json.MarshalIndent on a pointer-heavy struct
+raw := created.Raw()
+PrintOutput(raw, headers, [][]string{row})
+```
+
+Table rows are still built from `raw.*` fields (via `.Raw()`) for now — the SDK does
+not yet expose every field through wrapper accessors. Only the `PrintOutput` first arg
+changes.
+
+Two intentional exceptions:
+- **`*aruba.Project`** — lacks `RawJSON()/RawYAML()` in v0.3.0; `management.project.go`
+  uses `RawHTTP()` re-parse via `rawHTTPer`. Do not change this until the SDK ships the
+  interface.
+- **Anonymous struct delete results** — `PrintOutput(struct{ID, Status string}{...}, ...)`
+  is intentional; these small structs fall through to `json.MarshalIndent` which is fine
+  for the trimmed delete-confirmation shape.
+
+---
+
 ## Test Conventions
 
 - Tests live in `package cmd` (same package as the code).
@@ -509,8 +555,8 @@ k := aruba.NewKaaS().
     WithKubernetesVersion(aruba.KubernetesVersion(kubernetesVersion)).
     WithNodeCIDR(nodeCIDRAddress, nodeCIDRName).
     WithSecurityGroup(sg).
-    WithVPC(aruba.URI(vpcURI)).
-    WithSubnet(aruba.URI(subnetURI)).
+    WithVPC(aruba.VPCRef(projectID, vpcID)).
+    WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
     AddNodePool(nodePool)
 created, err := client.FromContainer().KaaS().Create(ctx, k)
 ```
@@ -529,20 +575,20 @@ decodedContent, err := base64.StdEncoding.DecodeString(string(kubeconfigBytes))
 if err != nil { decodedContent = kubeconfigBytes } // already raw if decode fails
 ```
 
-### ContainerRegistry Create — URI Refs for all network resources
+### ContainerRegistry Create — SDK Ref helpers for all network resources
 
-Unlike KaaS, `ContainerRegistry.WithSecurityGroup` accepts any `Ref` (no type assertion):
+Unlike KaaS, `ContainerRegistry.WithSecurityGroup` accepts any `Ref` (no type assertion). Use SDK Ref helpers rather than `aruba.URI(...)`:
 
 ```go
 r := aruba.NewContainerRegistry().
     InProject(projectRef(projectID)).
     Named(name).
     InRegion(aruba.Region(region)).
-    WithElasticIP(aruba.URI(publicIPURI)).
-    WithVPC(aruba.URI(vpcURI)).
-    WithSubnet(aruba.URI(subnetURI)).
-    WithSecurityGroup(aruba.URI(securityGroupURI)).
-    WithBlockStorage(aruba.URI(blockStorageURI))
+    WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
+    WithVPC(aruba.VPCRef(projectID, vpcID)).
+    WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
+    WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID)).
+    WithBlockStorage(volumeRef(projectID, blockStorageID))
 if concurrentUsers != "" { r.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers)) }
 created, err := client.FromContainer().ContainerRegistry().Create(ctx, r)
 ```
