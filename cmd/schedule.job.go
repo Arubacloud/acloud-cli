@@ -419,7 +419,7 @@ var jobUpdateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting job: %w", apiErrFromV2(err))
 		}
-		if job == nil || job.Raw() == nil {
+		if job == nil || job.ID() == "" {
 			return fmt.Errorf("job not found")
 		}
 
@@ -503,12 +503,7 @@ var jobDeleteCmd = &cobra.Command{
 			return nil
 		}
 
-		err = client.FromSchedule().Jobs().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Schedule/jobs/"+jobID))
-		if err != nil {
-			return fmt.Errorf("deleting job: %w", apiErrFromV2(err))
-		}
-
-		if err := client.FromSchedule().Jobs().Delete(ctx, jobRef(projectID, jobID)); err != nil {
+		if err = client.FromSchedule().Jobs().Delete(ctx, jobRef(projectID, jobID)); err != nil {
 			return fmt.Errorf("deleting job: %w", apiErrFromV2(err))
 		}
 		fmt.Println(msgDeleted("Job", jobID))

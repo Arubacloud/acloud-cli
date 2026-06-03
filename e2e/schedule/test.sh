@@ -25,7 +25,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
 # Cleanup tracking
 CREATED_JOBS=()
 BOOTSTRAP_PROJECT_ID=""
-BOOTSTRAP_EIP_ID=""
 
 # Step configuration — a valid resource URI is required by the schedule API
 STEP_RESOURCE_URI="${ACLOUD_STEP_RESOURCE_URI:-}"
@@ -34,37 +33,29 @@ STEP_HTTP_VERB="${ACLOUD_STEP_HTTP_VERB:-POST}"
 
 print_banner "Schedule"
 
-# Bootstrap an Elastic IP as the step resource when STEP_RESOURCE_URI is not set.
-# The schedule API requires a real resource URI; an EIP is the lightest option
-# with no network prerequisites.
+# Resolve the step resource URI when ACLOUD_STEP_RESOURCE_URI is not set.
+# The schedule API only supports resource types registered with the scheduler
+# (cloud servers, etc.). Elastic IPs are NOT supported — the API returns
+# "Not found configuration for typology" for Aruba.Network/elasticIps.
+# Fall back to finding an existing cloud server in the project.
 bootstrap_step_resource() {
     [ -n "$STEP_RESOURCE_URI" ] && return 0
     [ "$PROJECT_ID" = "your-project-id" ] && return 1
 
     echo "Bootstrapping step resource (ACLOUD_STEP_RESOURCE_URI not set)..."
-    local eip_out eip_id
-    eip_out=$($ACLOUD_CMD network elasticip create \
-        --name "${RESOURCE_PREFIX}-step-eip" \
-        --region "$REGION" \
-        --billing-period Hour 2>&1)
-    eip_id=$(extract_id "$eip_out")
-    if [ -z "$eip_id" ] || ! is_valid_id "$eip_id"; then
-        echo -e "${YELLOW}  ⚠ Could not bootstrap step EIP: $eip_out${NC}"
-        return 1
+    # Try to find an existing cloud server — the most common schedulable resource.
+    local cs_id
+    cs_id=$($ACLOUD_CMD compute cloudserver list --project-id "$PROJECT_ID" --output table-json 2>/dev/null \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
+    if [ -n "$cs_id" ] && is_valid_id "$cs_id"; then
+        STEP_RESOURCE_URI="/projects/$PROJECT_ID/providers/Aruba.Compute/cloudServers/$cs_id"
+        echo "  → Step resource (existing cloud server): $STEP_RESOURCE_URI"
+        return 0
     fi
-    BOOTSTRAP_EIP_ID="$eip_id"
-    # Wait briefly for EIP to appear in the list
-    local elapsed=0
-    while [ "$elapsed" -lt 60 ]; do
-        local status
-        status=$($ACLOUD_CMD network elasticip list 2>/dev/null | awk -v id="$eip_id" '$2 == id {print $NF}')
-        case "$status" in
-            Active|NotUsed|Ready) break;;
-        esac
-        sleep 5; elapsed=$((elapsed + 5))
-    done
-    STEP_RESOURCE_URI="/projects/$PROJECT_ID/providers/Aruba.Network/elasticIps/$eip_id"
-    echo "  → Step resource bootstrapped: $STEP_RESOURCE_URI"
+
+    echo -e "${YELLOW}  ⚠ No existing cloud server found in project $PROJECT_ID.${NC}"
+    echo -e "${YELLOW}    Set ACLOUD_STEP_RESOURCE_URI to a cloud server URI to run schedule tests.${NC}"
+    return 1
 }
 
 # Test --output flag for schedule list commands
@@ -93,12 +84,6 @@ cleanup() {
             $ACLOUD_CMD schedule job delete "$job_id" --yes 2>&1 || true
         fi
     done
-
-    # Delete bootstrapped step resource EIP
-    if [ -n "$BOOTSTRAP_EIP_ID" ]; then
-        echo "Deleting bootstrapped step EIP: $BOOTSTRAP_EIP_ID"
-        $ACLOUD_CMD network elasticip delete "$BOOTSTRAP_EIP_ID" --yes 2>&1 || true
-    fi
 
     # Delete bootstrapped project last (after all child resources)
     if [ -n "$BOOTSTRAP_PROJECT_ID" ]; then
