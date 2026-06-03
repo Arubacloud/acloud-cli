@@ -1,0 +1,14 @@
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%   # allow up to 1% drop before failing
+    patch:
+      default:
+        target: 75%     # realistic target for refactoring patches
+        threshold: 1%
