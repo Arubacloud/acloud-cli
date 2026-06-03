@@ -140,9 +140,8 @@ func init() {
 // via --output json|yaml. The API should not return the secret on read, but the
 // SDK schema declares the field (PSKSettingsCommon.Secret) — never trust a type that
 // can carry credentials.
-// TECH_DEBT: TD-034 (#132) — direct mutation of the raw struct via .Raw() is needed because
-// sdk-go v1.0.0 provides no wrapper-level mutator for PSK.Secret redaction.
-// Remove once sdk-go exposes a RedactPSK() or similar mutator on *aruba.VPNTunnel.
+// Note: RawJSON()/RawYAML() serialize t.response (the raw struct), so we must mutate
+// it directly. The TECH_DEBT (#132) for a wrapper-level RedactPSK() mutator remains.
 func redactVPNTunnelSecrets(tunnel *aruba.VPNTunnel) {
 	if tunnel == nil || tunnel.Raw() == nil {
 		return
@@ -561,12 +560,11 @@ var vpntunnelUpdateCmd = &cobra.Command{
 			return fmt.Errorf("getting VPN tunnel: %w", apiErrFromV2(err))
 		}
 
-		if vpn == nil || vpn.Raw() == nil {
+		if vpn == nil || vpn.ID() == "" {
 			return fmt.Errorf("VPN tunnel not found")
 		}
 
-		// Check if VPN tunnel is in "InCreation" state
-		if vpn.Raw().Status.State != nil && *vpn.Raw().Status.State == StateInCreation {
+		if vpn.State() == StateInCreation {
 			return fmt.Errorf("cannot update VPN tunnel while it is in 'InCreation' state. Please wait until the VPN tunnel is fully created")
 		}
 
@@ -576,61 +574,9 @@ var vpntunnelUpdateCmd = &cobra.Command{
 		if cmd.Flags().Changed("tags") {
 			vpn.RetaggedAs(tags...)
 		}
-
-		// Re-attach VPN client settings from the GET response so toRequest() includes
-		// them in the PUT body. The SDK's fromResponse does not restore IKE/ESP/PSK.
-		// TECH_DEBT: TD-034 (#132) — .Raw() is required here because sdk-go v1.0.0 does not
-		// rehydrate IKE/ESP/PSK sub-builders from the GET response. Remove once the SDK
-		// exposes these settings through wrapper accessors (e.g. IKE(), ESP(), PSK()).
-		if raw := vpn.Raw(); raw != nil && raw.Properties.VPNClientSettingsCommon != nil {
-			cs := raw.Properties.VPNClientSettingsCommon
-			if cs.IKE != nil {
-				ike := aruba.NewVPNIKE().
-					WithDPDIntervalSeconds(int(cs.IKE.DPDInterval)).
-					WithDPDTimeoutSeconds(int(cs.IKE.DPDTimeout)).
-					WithLifetimeSeconds(int(cs.IKE.Lifetime))
-				if cs.IKE.Encryption != nil {
-					ike.WithEncryption(*cs.IKE.Encryption)
-				}
-				if cs.IKE.Hash != nil {
-					ike.WithHash(*cs.IKE.Hash)
-				}
-				if cs.IKE.DHGroup != nil {
-					ike.WithDHGroup(*cs.IKE.DHGroup)
-				}
-				if cs.IKE.DPDAction != nil {
-					ike.WithDPDAction(*cs.IKE.DPDAction)
-				}
-				vpn.WithIKESettings(ike)
-			}
-			if cs.ESP != nil {
-				esp := aruba.NewVPNESP().
-					WithLifetimeSeconds(int(cs.ESP.Lifetime))
-				if cs.ESP.Encryption != nil {
-					esp.WithEncryption(*cs.ESP.Encryption)
-				}
-				if cs.ESP.Hash != nil {
-					esp.WithHash(*cs.ESP.Hash)
-				}
-				if cs.ESP.PFS != nil {
-					esp.WithPFS(*cs.ESP.PFS)
-				}
-				vpn.WithESPSettings(esp)
-			}
-			if cs.PSK != nil {
-				psk := aruba.NewVPNPSK()
-				if cs.PSK.CloudSite != nil {
-					psk.WithCloudSite(*cs.PSK.CloudSite)
-				}
-				if cs.PSK.OnPremSite != nil {
-					psk.WithOnPremSite(*cs.PSK.OnPremSite)
-				}
-				if cs.PSK.Secret != nil {
-					psk.WithKey(*cs.PSK.Secret)
-				}
-				vpn.WithPSKSettings(psk)
-			}
-		}
+		// sdk-go v1.0.0 fromResponse now rehydrates IKE/ESP/PSK into the wrapper
+		// via IKE()/ESP()/PSK() accessors, so Update carries them in the PUT body
+		// without manual re-attachment (closes #132 / TD-034).
 
 		updated, err := client.FromNetwork().VPNTunnels().Update(ctx, vpn)
 		if err != nil {

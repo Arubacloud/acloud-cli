@@ -414,7 +414,7 @@ func TestVPCPeeringRouteListCmd_WithProperties(t *testing.T) {
 				Properties: types.VPCPeeringRoutePropertiesResponse{
 					LocalNetworkAddress:  "10.0.0.0/24",
 					RemoteNetworkAddress: "10.1.0.0/24",
-					BillingPlanCommon:          &types.BillingPlanCommon{BillingPeriod: &period},
+					BillingPlanCommon:    &types.BillingPlanCommon{BillingPeriod: &period},
 				},
 				Status: types.ResourceStatusResponse{State: &state},
 			},
@@ -449,7 +449,7 @@ func TestVPCPeeringRouteGetCmd_FullDetail(t *testing.T) {
 		Properties: types.VPCPeeringRoutePropertiesResponse{
 			LocalNetworkAddress:  "10.0.0.0/24",
 			RemoteNetworkAddress: "10.1.0.0/24",
-			BillingPlanCommon:          &types.BillingPlanCommon{BillingPeriod: &period},
+			BillingPlanCommon:    &types.BillingPlanCommon{BillingPeriod: &period},
 		},
 		Status: types.ResourceStatusResponse{State: &state},
 	}))

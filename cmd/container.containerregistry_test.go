@@ -480,14 +480,14 @@ func TestContainerRegistryGetCmd_WithAllOptionalProps(t *testing.T) {
 	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Properties: types.ContainerRegistryPropertiesResponse{
-			PublicIp:        types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
-			VPC:             types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
-			Subnet:          types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
-			SecurityGroup:   types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
-			BlockStorage:    types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
-			BillingPlanCommon:     &types.BillingPlanCommon{BillingPeriod: &period},
-			AdminUser:       &types.UserCredentialCommon{Username: "admin"},
-			ConcurrentUsers: &concurrentUsers,
+			PublicIp:          types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
+			VPC:               types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
+			Subnet:            types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
+			SecurityGroup:     types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
+			BlockStorage:      types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			BillingPlanCommon: &types.BillingPlanCommon{BillingPeriod: &period},
+			AdminUser:         &types.UserCredentialCommon{Username: "admin"},
+			ConcurrentUsers:   &concurrentUsers,
 		},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "get", "cr-001", "--project-id", "proj-123"})

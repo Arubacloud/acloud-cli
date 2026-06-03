@@ -452,7 +452,7 @@ func TestElasticIPGetCmd_AllOptionalFields(t *testing.T) {
 				Tags:             []string{"env=test"},
 			},
 			Properties: types.ElasticIPPropertiesResponse{
-				Address:     &addr,
+				Address:           &addr,
 				BillingPlanCommon: &types.BillingPlanCommon{BillingPeriod: &billingPeriod},
 			},
 			Status: types.ResourceStatusResponse{State: &state},

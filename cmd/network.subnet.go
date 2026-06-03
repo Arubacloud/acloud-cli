@@ -357,15 +357,13 @@ var subnetUpdateCmd = &cobra.Command{
 		}
 
 		// Update DHCP config for Advanced subnets.
-		// TECH_DEBT: TD-035 (#133) — .Raw() is required here because sdk-go v1.0.0 does not
-		// expose subnet Type or DHCP configuration through wrapper accessors. Remove
-		// once sdk-go adds Type(), DHCP() or equivalent getters on *aruba.Subnet.
-		if subnet.Raw().Properties.Type == aruba.SubnetTypeAdvanced {
-			currentDHCP := subnet.Raw().Properties.DHCP
+		// sdk-go v1.0.0 exposes Type() and DHCP() accessors (closes #133 / TD-035).
+		if subnet.Type() == aruba.SubnetTypeAdvanced {
+			currentDHCP := subnet.DHCP()
 			if cmd.Flags().Changed("dhcp-enabled") || len(dhcpRoutes) > 0 || len(dhcpDNS) > 0 {
 				dhcp := aruba.NewSubnetDHCP()
 				// Preserve existing enabled state
-				if (currentDHCP != nil && currentDHCP.Enabled) || dhcpEnabled {
+				if (currentDHCP != nil && currentDHCP.IsEnabled()) || dhcpEnabled {
 					dhcp = dhcp.Enabled()
 				}
 				// Preserve existing routes unless new ones provided
@@ -379,15 +377,15 @@ var subnetUpdateCmd = &cobra.Command{
 						}
 					}
 				} else if currentDHCP != nil {
-					for _, r := range currentDHCP.Routes {
+					for _, r := range currentDHCP.Routes() {
 						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: r.Address, Gateway: r.Gateway})
 					}
 				}
 				// Preserve existing DNS unless new ones provided
 				if len(dhcpDNS) > 0 {
 					dhcp = dhcp.WithDNSServers(dhcpDNS...)
-				} else if currentDHCP != nil && len(currentDHCP.DNS) > 0 {
-					dhcp = dhcp.WithDNSServers(currentDHCP.DNS...)
+				} else if currentDHCP != nil && len(currentDHCP.DNS()) > 0 {
+					dhcp = dhcp.WithDNSServers(currentDHCP.DNS()...)
 				}
 				subnet.WithDHCP(dhcp)
 			}
