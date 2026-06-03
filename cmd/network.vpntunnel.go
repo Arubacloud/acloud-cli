@@ -138,13 +138,16 @@ func init() {
 
 // redactVPNTunnelSecrets strips PSK.Secret from each tunnel so it cannot leak
 // via --output json|yaml. The API should not return the secret on read, but the
-// SDK schema declares the field (PSKSettings.Secret) — never trust a type that
+// SDK schema declares the field (PSKSettingsCommon.Secret) — never trust a type that
 // can carry credentials.
+// TECH_DEBT: TD-034 — direct mutation of the raw struct via .Raw() is needed because
+// sdk-go v1.0.0 provides no wrapper-level mutator for PSK.Secret redaction.
+// Remove once sdk-go exposes a RedactPSK() or similar mutator on *aruba.VPNTunnel.
 func redactVPNTunnelSecrets(tunnel *aruba.VPNTunnel) {
 	if tunnel == nil || tunnel.Raw() == nil {
 		return
 	}
-	s := tunnel.Raw().Properties.VPNClientSettings
+	s := tunnel.Raw().Properties.VPNClientSettingsCommon
 	if s != nil && s.PSK != nil {
 		s.PSK.Secret = nil
 	}
@@ -171,12 +174,9 @@ func completeVPNTunnelID(cmd *cobra.Command, args []string, toComplete string) (
 	var completions []string
 	if list != nil {
 		for _, vpn := range list.Items() {
-			raw := vpn.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := vpn.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, vpn.Name()))
 			}
 		}
 	}
@@ -305,26 +305,26 @@ var vpntunnelGetCmd = &cobra.Command{
 			if raw.Properties.VPNClientProtocol != nil {
 				fmt.Printf("Protocol:        %s\n", *raw.Properties.VPNClientProtocol)
 			}
-			if raw.Properties.VPNClientSettings != nil && raw.Properties.VPNClientSettings.PeerClientPublicIP != nil {
-				fmt.Printf("Peer IP:         %s\n", *raw.Properties.VPNClientSettings.PeerClientPublicIP)
+			if raw.Properties.VPNClientSettingsCommon != nil && raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP != nil {
+				fmt.Printf("Peer IP:         %s\n", *raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP)
 			}
-			if raw.Properties.IPConfigurations != nil {
+			if raw.Properties.IPConfigurationsCommon != nil {
 				fmt.Println("\nIP Configuration:")
-				if raw.Properties.IPConfigurations.VPC != nil {
-					fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurations.VPC.URI)
+				if raw.Properties.IPConfigurationsCommon.VPC != nil {
+					fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurationsCommon.VPC.URI)
 				}
-				if raw.Properties.IPConfigurations.Subnet != nil {
-					fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurations.Subnet.CIDR)
-					if raw.Properties.IPConfigurations.Subnet.Name != "" {
-						fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurations.Subnet.Name)
+				if raw.Properties.IPConfigurationsCommon.Subnet != nil {
+					fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.CIDR)
+					if raw.Properties.IPConfigurationsCommon.Subnet.Name != "" {
+						fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.Name)
 					}
 				}
-				if raw.Properties.IPConfigurations.PublicIP != nil {
-					fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurations.PublicIP.URI)
+				if raw.Properties.IPConfigurationsCommon.PublicIP != nil {
+					fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurationsCommon.PublicIP.URI)
 				}
 			}
-			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
-				fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlan.BillingPeriod)
+			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+				fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
 			}
 			if raw.Metadata.CreationDate != nil {
 				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
@@ -579,8 +579,11 @@ var vpntunnelUpdateCmd = &cobra.Command{
 
 		// Re-attach VPN client settings from the GET response so toRequest() includes
 		// them in the PUT body. The SDK's fromResponse does not restore IKE/ESP/PSK.
-		if raw := vpn.Raw(); raw != nil && raw.Properties.VPNClientSettings != nil {
-			cs := raw.Properties.VPNClientSettings
+		// TECH_DEBT: TD-034 — .Raw() is required here because sdk-go v1.0.0 does not
+		// rehydrate IKE/ESP/PSK sub-builders from the GET response. Remove once the SDK
+		// exposes these settings through wrapper accessors (e.g. IKE(), ESP(), PSK()).
+		if raw := vpn.Raw(); raw != nil && raw.Properties.VPNClientSettingsCommon != nil {
+			cs := raw.Properties.VPNClientSettingsCommon
 			if cs.IKE != nil {
 				ike := aruba.NewVPNIKE().
 					WithDPDIntervalSeconds(int(cs.IKE.DPDInterval)).

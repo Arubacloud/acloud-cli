@@ -22,7 +22,7 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 			name: "success with results",
 			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{
 					Values: []types.DatabaseResponse{
 						{Name: "my-db"},
 					},
@@ -38,14 +38,14 @@ func TestDBaaSDatabaseListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{}))
 			},
 		},
 		{
 			name: "--output json emits valid JSON",
 			args: []string{"database", "dbaas", "database", "list", "dbaas-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{
 					Values: []types.DatabaseResponse{
 						{Name: "my-db"},
 					},
@@ -320,7 +320,7 @@ func TestDBaaSDatabaseListCmd_AllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	createdBy := "user@example.com"
 	ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{
 		Values: []types.DatabaseResponse{
 			{Name: "my-db", CreatedBy: &createdBy, CreationDate: &ts},
 		},

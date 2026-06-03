@@ -23,7 +23,7 @@ func TestVPCListCmd(t *testing.T) {
 			args: []string{"network", "vpc", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpc-001", "my-vpc"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
 					Values: []types.VPCResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestVPCListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "vpc", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestVPCListCmd(t *testing.T) {
 			args: []string{"network", "vpc", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpc-001", "my-vpc"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
 					Values: []types.VPCResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -236,7 +236,7 @@ func TestVPCUpdateCmd(t *testing.T) {
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
@@ -272,7 +272,7 @@ func TestVPCUpdateCmd(t *testing.T) {
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", jsonResponse(200, types.VPCResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -371,7 +371,7 @@ func TestVPCListCmd_AllOptionalFields(t *testing.T) {
 	id, name := "vpc-001", "my-vpc"
 	state := types.StateActive
 	region := types.Region("IT-BG")
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
 		Values: []types.VPCResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -379,7 +379,7 @@ func TestVPCListCmd_AllOptionalFields(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -417,7 +417,7 @@ func TestVPCGetCmd_AllOptionalFields(t *testing.T) {
 				CreatedBy:        &createdBy,
 				Tags:             []string{"env=test"},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}
 	}
 
@@ -465,7 +465,7 @@ func TestVPCListCmd_WithLocationAndStatus(t *testing.T) {
 	id, name := "vpc-001", "my-vpc"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
 		Values: []types.VPCResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -473,7 +473,7 @@ func TestVPCListCmd_WithLocationAndStatus(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -504,7 +504,7 @@ func TestVPCGetCmd_FullDetail(t *testing.T) {
 			CreatedBy:        &createdBy,
 			Tags:             []string{"env=test"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "vpc", "get", "vpc-001", "--project-id", "proj-123"})
 	if err != nil {

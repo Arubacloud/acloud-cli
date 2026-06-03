@@ -78,12 +78,9 @@ func completeContainerRegistryID(cmd *cobra.Command, args []string, toComplete s
 	var completions []string
 	if list != nil {
 		for _, cr := range list.Items() {
-			raw := cr.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := cr.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, cr.Name()))
 			}
 		}
 	}
@@ -260,8 +257,8 @@ var containerregistryGetCmd = &cobra.Command{
 			if raw.Properties.BlockStorage.URI != "" {
 				fmt.Printf("Block Storage:   %s\n", raw.Properties.BlockStorage.URI)
 			}
-			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPlan.BillingPeriod))
+			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+				fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPlanCommon.BillingPeriod))
 			}
 			if raw.Properties.AdminUser != nil {
 				fmt.Printf("Admin User:      %s\n", raw.Properties.AdminUser.Username)

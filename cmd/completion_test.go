@@ -61,7 +61,7 @@ func TestCompleteKeyPairID_NoProjectID(t *testing.T) {
 func TestCompleteContainerRegistryID(t *testing.T) {
 	id, name := "cr-001", "my-registry"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
 		Values: []types.ContainerRegistryResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -90,7 +90,7 @@ func TestCompleteContainerRegistryID_NoProjectID(t *testing.T) {
 func TestCompleteKaaSID(t *testing.T) {
 	id, name := "kaas-001", "my-cluster"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{
 		Values: []types.KaaSResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -119,7 +119,7 @@ func TestCompleteKaaSID_NoProjectID(t *testing.T) {
 func TestCompleteDatabaseBackupID(t *testing.T) {
 	id, name := "bkp-001", "my-backup"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
 		Values: []types.BackupResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -154,7 +154,7 @@ func TestCompleteDBaaSDatabaseID_NoArgs(t *testing.T) {
 
 func TestCompleteDBaaSDatabaseID(t *testing.T) {
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{
 		Values: []types.DatabaseResponse{
 			{Name: "my-db"},
 		},
@@ -173,7 +173,7 @@ func TestCompleteDBaaSDatabaseID(t *testing.T) {
 func TestCompleteDBaaSID(t *testing.T) {
 	id, name := "dbaas-001", "my-dbaas"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
 		Values: []types.DBaaSResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -208,9 +208,9 @@ func TestCompleteGrantID_NoArgs(t *testing.T) {
 
 func TestCompleteGrantID(t *testing.T) {
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb/grants", jsonResponse(200, types.GrantList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases/mydb/grants", jsonResponse(200, types.GrantListResponse{
 		Values: []types.GrantResponse{
-			{User: types.GrantUser{Username: "alice"}, Role: types.GrantRole{Name: "admin"}},
+			{User: types.GrantUserCommon{Username: "alice"}, Role: types.GrantRoleCommon{Name: "admin"}},
 		},
 	}))
 	setClientForTesting(srv.Client())
@@ -233,7 +233,7 @@ func TestCompleteDBaaSUserID_NoArgs(t *testing.T) {
 
 func TestCompleteDBaaSUserID(t *testing.T) {
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.DatabaseUserListResponse{
 		Values: []types.UserResponse{
 			{Username: "testuser"},
 		},
@@ -252,7 +252,7 @@ func TestCompleteDBaaSUserID(t *testing.T) {
 func TestCompleteProjectID(t *testing.T) {
 	id, name := "proj-001", "my-project"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
 		Values: []types.ProjectResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -282,7 +282,7 @@ func TestCompleteProjectID_NoClient(t *testing.T) {
 func TestCompleteElasticIPID(t *testing.T) {
 	id, name := "eip-001", "my-eip"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
 		Values: []types.ElasticIPResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -311,7 +311,7 @@ func TestCompleteElasticIPID_NoProjectID(t *testing.T) {
 func TestCompleteLoadBalancerID(t *testing.T) {
 	id, name := "lb-001", "my-lb"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{
 		Values: []types.LoadBalancerResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -347,7 +347,7 @@ func TestCompleteSecurityRuleID_InsufficientArgs(t *testing.T) {
 func TestCompleteSecurityRuleID(t *testing.T) {
 	id, name := "rule-001", "my-rule"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleListResponse{
 		Values: []types.SecurityRuleResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -366,7 +366,7 @@ func TestCompleteSecurityRuleID(t *testing.T) {
 func TestCompleteVPCID(t *testing.T) {
 	id, name := "vpc-001", "my-vpc"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
 		Values: []types.VPCResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -402,7 +402,7 @@ func TestCompleteVPCPeeringRouteID_InsufficientArgs(t *testing.T) {
 func TestCompleteVPCPeeringRouteID(t *testing.T) {
 	id, name := "route-001", "my-route"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteListResponse{
 		Values: []types.VPCPeeringRouteResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -428,7 +428,7 @@ func TestCompleteVPNRouteID_NoArgs(t *testing.T) {
 func TestCompleteVPNRouteID(t *testing.T) {
 	id, name := "vroute-001", "my-route"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteListResponse{
 		Values: []types.VPNRouteResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -447,7 +447,7 @@ func TestCompleteVPNRouteID(t *testing.T) {
 func TestCompleteVPNTunnelID(t *testing.T) {
 	id, name := "vpn-001", "my-tunnel"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelListResponse{
 		Values: []types.VPNTunnelResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -476,7 +476,7 @@ func TestCompleteVPNTunnelID_NoProjectID(t *testing.T) {
 func TestCompleteJobID(t *testing.T) {
 	id, name := "job-001", "my-job"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
 		Values: []types.JobResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -505,7 +505,7 @@ func TestCompleteJobID_NoProjectID(t *testing.T) {
 func TestCompleteKMSID(t *testing.T) {
 	id, name := "kms-001", "my-kms"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
 		Values: []types.KmsResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -534,7 +534,7 @@ func TestCompleteKMSID_NoProjectID(t *testing.T) {
 func TestCompleteBackupID(t *testing.T) {
 	id, name := "bkp-001", "my-backup"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
 		Values: []types.StorageBackupResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -563,7 +563,7 @@ func TestCompleteBackupID_NoProjectID(t *testing.T) {
 func TestCompleteBlockStorageID(t *testing.T) {
 	id, name := "vol-001", "my-volume"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
 		Values: []types.BlockStorageResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -592,7 +592,7 @@ func TestCompleteBlockStorageID_NoProjectID(t *testing.T) {
 func TestCompleteRestoreID_NoArgs_DelegatesToBackup(t *testing.T) {
 	id, name := "bkp-001", "my-backup"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
 		Values: []types.StorageBackupResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -617,7 +617,7 @@ func TestCompleteRestoreID_TooManyArgs(t *testing.T) {
 func TestCompleteRestoreID(t *testing.T) {
 	id, name := "rst-001", "my-restore"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreListResponse{
 		Values: []types.StorageRestoreResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -636,7 +636,7 @@ func TestCompleteRestoreID(t *testing.T) {
 func TestCompleteSnapshotID(t *testing.T) {
 	id, name := "snap-001", "my-snap"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotListResponse{
 		Values: []types.SnapshotResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},

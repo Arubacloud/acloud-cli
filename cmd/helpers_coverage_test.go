@@ -7,7 +7,6 @@ package cmd
 
 import (
 	"errors"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -28,8 +27,8 @@ func TestRedactVPNTunnelSecrets(t *testing.T) {
 	resp := types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id},
 		Properties: types.VPNTunnelPropertiesResponse{
-			VPNClientSettings: &types.VPNClientSettings{
-				PSK: &types.PSKSettings{
+			VPNClientSettingsCommon: &types.VPNClientSettingsCommon{
+				PSK: &types.PSKSettingsCommon{
 					CloudSite: &cloud,
 					Secret:    &secret,
 				},
@@ -48,10 +47,10 @@ func TestRedactVPNTunnelSecrets(t *testing.T) {
 
 	redactVPNTunnelSecrets(tunnel)
 
-	if tunnel.Raw().Properties.VPNClientSettings.PSK.Secret != nil {
+	if tunnel.Raw().Properties.VPNClientSettingsCommon.PSK.Secret != nil {
 		t.Error("expected PSK.Secret to be nil after redaction")
 	}
-	if tunnel.Raw().Properties.VPNClientSettings.PSK.CloudSite == nil {
+	if tunnel.Raw().Properties.VPNClientSettingsCommon.PSK.CloudSite == nil {
 		t.Error("expected non-secret PSK fields to be preserved")
 	}
 
@@ -78,15 +77,15 @@ func TestVPNTunnelUpdate_ReattachSettings(t *testing.T) {
 	active := types.StateActive
 	getResp := types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &active},
+		Status:   types.ResourceStatusResponse{State: &active},
 		Properties: types.VPNTunnelPropertiesResponse{
-			IPConfigurations: &types.IPConfigurations{
-				VPC:      &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
-				PublicIP: &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
-				Subnet:   &types.SubnetInfo{Name: "my-subnet", CIDR: "10.0.0.0/24"},
+			IPConfigurationsCommon: &types.IPConfigurationsCommon{
+				VPC:      &types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
+				PublicIP: &types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
+				Subnet:   &types.SubnetInfoCommon{Name: "my-subnet", CIDR: "10.0.0.0/24"},
 			},
-			VPNClientSettings: &types.VPNClientSettings{
-				IKE: &types.IKESettings{
+			VPNClientSettingsCommon: &types.VPNClientSettingsCommon{
+				IKE: &types.IKESettingsCommon{
 					Lifetime:    3600,
 					Encryption:  &enc,
 					Hash:        &hash,
@@ -95,13 +94,13 @@ func TestVPNTunnelUpdate_ReattachSettings(t *testing.T) {
 					DPDInterval: 10,
 					DPDTimeout:  30,
 				},
-				ESP: &types.ESPSettings{
+				ESP: &types.ESPSettingsCommon{
 					Lifetime:   1800,
 					Encryption: &espEnc,
 					Hash:       &espHash,
 					PFS:        &pfs,
 				},
-				PSK: &types.PSKSettings{
+				PSK: &types.PSKSettingsCommon{
 					CloudSite: &cloudSite,
 					Secret:    &secret,
 				},
@@ -137,7 +136,7 @@ func TestVPNTunnelUpdate_NilIPConfig(t *testing.T) {
 	active := types.StateActive
 	getResp := types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &active},
+		Status:   types.ResourceStatusResponse{State: &active},
 	}
 	updatedName := "tunnel-2-updated"
 	srv := newArubaTestServer(t)
@@ -361,10 +360,6 @@ type fakeRawMarshaler struct{ j, y []byte }
 func (f fakeRawMarshaler) RawJSON() []byte { return f.j }
 func (f fakeRawMarshaler) RawYAML() []byte { return f.y }
 
-type fakeRawHTTPer struct{ body []byte }
-
-func (f fakeRawHTTPer) RawHTTP() (*http.Response, []byte) { return nil, f.body }
-
 func TestPrintJSON(t *testing.T) {
 	t.Run("nil emits {}", func(t *testing.T) {
 		out := captureStdout(func() { printJSON(nil) })
@@ -383,20 +378,6 @@ func TestPrintJSON(t *testing.T) {
 
 	t.Run("rawMarshaler empty bytes emits {}", func(t *testing.T) {
 		out := captureStdout(func() { printJSON(fakeRawMarshaler{j: []byte{}}) })
-		if strings.TrimSpace(out) != "{}" {
-			t.Fatalf("got %q, want {}", out)
-		}
-	})
-
-	t.Run("rawHTTPer body used", func(t *testing.T) {
-		out := captureStdout(func() { printJSON(fakeRawHTTPer{body: []byte(`{"k":"v"}`)}) })
-		if !strings.Contains(out, `"k":"v"`) {
-			t.Fatalf("got %q", out)
-		}
-	})
-
-	t.Run("rawHTTPer empty body emits {}", func(t *testing.T) {
-		out := captureStdout(func() { printJSON(fakeRawHTTPer{body: []byte{}}) })
 		if strings.TrimSpace(out) != "{}" {
 			t.Fatalf("got %q, want {}", out)
 		}
@@ -428,20 +409,6 @@ func TestPrintYAML(t *testing.T) {
 
 	t.Run("rawMarshaler empty bytes emits {}", func(t *testing.T) {
 		out := captureStdout(func() { printYAML(fakeRawMarshaler{y: []byte{}}) })
-		if strings.TrimSpace(out) != "{}" {
-			t.Fatalf("got %q, want {}", out)
-		}
-	})
-
-	t.Run("rawHTTPer JSON body converted to YAML", func(t *testing.T) {
-		out := captureStdout(func() { printYAML(fakeRawHTTPer{body: []byte(`{"k":"v"}`)}) })
-		if !strings.Contains(out, "k: v") {
-			t.Fatalf("got %q", out)
-		}
-	})
-
-	t.Run("rawHTTPer empty body emits {}", func(t *testing.T) {
-		out := captureStdout(func() { printYAML(fakeRawHTTPer{body: []byte{}}) })
 		if strings.TrimSpace(out) != "{}" {
 			t.Fatalf("got %q, want {}", out)
 		}

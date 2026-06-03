@@ -107,7 +107,7 @@ func TestStorageBackupListCmd(t *testing.T) {
 			args: []string{"storage", "backup", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-001", "my-backup"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
 					Values: []types.StorageBackupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -123,7 +123,7 @@ func TestStorageBackupListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"storage", "backup", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{}))
 			},
 		},
 		{
@@ -131,7 +131,7 @@ func TestStorageBackupListCmd(t *testing.T) {
 			args: []string{"storage", "backup", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-001", "my-backup"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
 					Values: []types.StorageBackupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -379,12 +379,12 @@ func TestStorageBackupCreateCmd_WithRetentionAndBilling(t *testing.T) {
 	}))
 	srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Properties: types.StorageBackupPropertiesResult{
+		Properties: types.StorageBackupPropertiesResponse{
 			Type:          types.StorageBackupTypeFull,
 			RetentionDays: &retDays,
 			BillingPeriod: &period,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"storage", "backup", "vol-001",
@@ -404,12 +404,12 @@ func TestStorageBackupListCmd_WithStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "bkp-001", "my-backup"
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
 		Values: []types.StorageBackupResponse{
 			{
 				Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
-				Properties: types.StorageBackupPropertiesResult{Type: types.StorageBackupTypeFull},
-				Status:     types.ResourceStatus{State: &state},
+				Properties: types.StorageBackupPropertiesResponse{Type: types.StorageBackupTypeFull},
+				Status:     types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -458,13 +458,13 @@ func TestStorageBackupGetCmd_FullDetail(t *testing.T) {
 			CreatedBy:        &createdBy,
 			Tags:             []string{"env=test"},
 		},
-		Properties: types.StorageBackupPropertiesResult{
+		Properties: types.StorageBackupPropertiesResponse{
 			Type:          types.StorageBackupTypeFull,
-			Origin:        types.ReferenceResource{URI: volURI},
+			Origin:        types.ReferenceResourceCommon{URI: volURI},
 			RetentionDays: &retDays,
 			BillingPeriod: &period,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"storage", "backup", "get", "bkp-001", "--project-id", "proj-123"})
 	if err != nil {

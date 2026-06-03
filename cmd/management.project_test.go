@@ -22,7 +22,7 @@ func TestProjectListCmd(t *testing.T) {
 			name: "success with results",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
 					Values: []types.ProjectResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -38,7 +38,7 @@ func TestProjectListCmd(t *testing.T) {
 		{
 			name: "success empty",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{}))
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{}))
 			},
 			args: []string{"management", "project", "list"},
 		},
@@ -46,7 +46,7 @@ func TestProjectListCmd(t *testing.T) {
 			name: "--output=json emits valid JSON",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "proj-001", "my-project"
-				srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
 					Values: []types.ProjectResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -423,7 +423,7 @@ func TestProjectListCmd_AllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "proj-001", "my-project"
 	desc := "My test project"
-	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
 		Values: []types.ProjectResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -450,7 +450,7 @@ func TestProjectListCmd_AllOptionalFields(t *testing.T) {
 func TestProjectListCmd_WithProjectData(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "proj-001", "my-project"
-	srv.OnGet("/projects", jsonResponse(200, types.ProjectList{
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
 		Values: []types.ProjectResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},

@@ -329,8 +329,8 @@ func TestKeypairCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Properties: types.KeyPairPropertiesResult{Value: pubKey},
-		Status:     types.ResourceStatus{State: &state},
+		Properties: types.KeyPairPropertiesResponse{Value: pubKey},
+		Status:     types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"compute", "keypair", "create",
@@ -358,8 +358,8 @@ func TestKeypairListCmd_WithLocationAndStatus(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Properties: types.KeyPairPropertiesResult{Value: pubKey},
-				Status:     types.ResourceStatus{State: &state},
+				Properties: types.KeyPairPropertiesResponse{Value: pubKey},
+				Status:     types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))

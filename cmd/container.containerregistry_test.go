@@ -23,7 +23,7 @@ func TestContainerRegistryListCmd(t *testing.T) {
 			args: []string{"container", "containerregistry", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cr-001", "my-registry"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
 					Values: []types.ContainerRegistryResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestContainerRegistryListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"container", "containerregistry", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestContainerRegistryListCmd(t *testing.T) {
 			args: []string{"container", "containerregistry", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cr-001", "my-registry"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
 					Values: []types.ContainerRegistryResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -381,7 +381,7 @@ func TestContainerRegistryCreateCmd_OptionalFlags(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"container", "containerregistry", "create",
@@ -407,7 +407,7 @@ func TestContainerRegistryListCmd_WithLocation(t *testing.T) {
 	id, name := "cr-001", "my-registry"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
 		Values: []types.ContainerRegistryResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -415,7 +415,7 @@ func TestContainerRegistryListCmd_WithLocation(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -446,7 +446,7 @@ func TestContainerRegistryGetCmd_FullDetail(t *testing.T) {
 			CreatedBy:        &createdBy,
 			Tags:             []string{"env=test"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"container", "containerregistry", "get", "cr-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -479,14 +479,14 @@ func TestContainerRegistryGetCmd_WithAllOptionalProps(t *testing.T) {
 	concurrentUsers := "Small"
 	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-001", jsonResponse(200, types.ContainerRegistryResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Properties: types.ContainerRegistryPropertiesResult{
-			PublicIp:        types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
-			VPC:             types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
-			Subnet:          types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
-			SecurityGroup:   types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
-			BlockStorage:    types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
-			BillingPlan:     &types.BillingPlan{BillingPeriod: &period},
-			AdminUser:       &types.UserCredential{Username: "admin"},
+		Properties: types.ContainerRegistryPropertiesResponse{
+			PublicIp:        types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001"},
+			VPC:             types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001"},
+			Subnet:          types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001"},
+			SecurityGroup:   types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"},
+			BlockStorage:    types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			BillingPlanCommon:     &types.BillingPlanCommon{BillingPeriod: &period},
+			AdminUser:       &types.UserCredentialCommon{Username: "admin"},
 			ConcurrentUsers: &concurrentUsers,
 		},
 	}))

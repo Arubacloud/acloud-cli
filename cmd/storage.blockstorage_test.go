@@ -23,7 +23,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
 					Values: []types.BlockStorageResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestBlockStorageListCmd(t *testing.T) {
 			args: []string{"storage", "blockstorage", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vol-001", "my-volume"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
 					Values: []types.BlockStorageResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -297,7 +297,7 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 				state := types.StateNotUsed
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
@@ -326,7 +326,7 @@ func TestBlockStorageUpdateCmd(t *testing.T) {
 				state := types.StateNotUsed
 				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", jsonResponse(200, types.BlockStorageResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -356,7 +356,7 @@ func TestBlockStorageListCmd_AllOptionalFields(t *testing.T) {
 	state := types.StateActive
 	region := types.Region("IT-BG")
 	bootable := true
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
 		Values: []types.BlockStorageResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -368,7 +368,7 @@ func TestBlockStorageListCmd_AllOptionalFields(t *testing.T) {
 					SizeGB:   50,
 					Bootable: &bootable,
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -412,7 +412,7 @@ func TestBlockStorageGetCmd_AllOptionalFields(t *testing.T) {
 				SizeGB:   50,
 				Bootable: &bootable,
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}
 	}
 

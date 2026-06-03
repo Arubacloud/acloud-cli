@@ -16,8 +16,8 @@ const (
 
 func makeGrantResp() types.GrantResponse {
 	return types.GrantResponse{
-		User:     types.GrantUser{Username: "myuser"},
-		Role:     types.GrantRole{Name: "liteadmin"},
+		User:     types.GrantUserCommon{Username: "myuser"},
+		Role:     types.GrantRoleCommon{Name: "liteadmin"},
 		Database: types.GrantDatabaseResponse{Name: "mydb"},
 	}
 }
@@ -35,7 +35,7 @@ func TestDBaaSGrantListCmd(t *testing.T) {
 			name: "success with results",
 			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet(grantListPath, jsonResponse(200, types.GrantList{
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{
 					Values: []types.GrantResponse{makeGrantResp()},
 				}))
 			},
@@ -49,7 +49,7 @@ func TestDBaaSGrantListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet(grantListPath, jsonResponse(200, types.GrantList{}))
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{}))
 			},
 			assertOut: func(t *testing.T, out string) {
 				if !strings.Contains(out, "No grants found") {

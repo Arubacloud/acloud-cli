@@ -24,7 +24,7 @@ func TestVPNTunnelListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpn-001", "my-tunnel"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
-					jsonResponse(200, types.VPNTunnelList{
+					jsonResponse(200, types.VPNTunnelListResponse{
 						Values: []types.VPNTunnelResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -41,7 +41,7 @@ func TestVPNTunnelListCmd(t *testing.T) {
 			args: []string{"network", "vpntunnel", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
-					jsonResponse(200, types.VPNTunnelList{}))
+					jsonResponse(200, types.VPNTunnelListResponse{}))
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestVPNTunnelListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpn-001", "my-tunnel"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
-					jsonResponse(200, types.VPNTunnelList{
+					jsonResponse(200, types.VPNTunnelListResponse{
 						Values: []types.VPNTunnelResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -108,12 +108,12 @@ func TestVPNTunnelListCmd_RedactsPSKSecret(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			srv := newArubaTestServer(t)
 			srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
-				jsonResponse(200, types.VPNTunnelList{
+				jsonResponse(200, types.VPNTunnelListResponse{
 					Values: []types.VPNTunnelResponse{{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 						Properties: types.VPNTunnelPropertiesResponse{
-							VPNClientSettings: &types.VPNClientSettings{
-								PSK: &types.PSKSettings{Secret: &s},
+							VPNClientSettingsCommon: &types.VPNClientSettingsCommon{
+								PSK: &types.PSKSettingsCommon{Secret: &s},
 							},
 						},
 					}},
@@ -326,7 +326,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "vpn-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
@@ -355,7 +355,7 @@ func TestVPNTunnelUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					jsonResponse(200, types.VPNTunnelResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -522,7 +522,7 @@ func TestVPNTunnelListCmd_WithAllOptionalFields(t *testing.T) {
 	region := types.Region("IT-BG")
 	vpnType := types.VPNTypeSiteToSite
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelListResponse{
 		Values: []types.VPNTunnelResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -533,7 +533,7 @@ func TestVPNTunnelListCmd_WithAllOptionalFields(t *testing.T) {
 				Properties: types.VPNTunnelPropertiesResponse{
 					VPNType: &vpnType,
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -571,12 +571,12 @@ func TestVPNTunnelGetCmd_FullDetail(t *testing.T) {
 		Properties: types.VPNTunnelPropertiesResponse{
 			VPNType:           &vpnType,
 			VPNClientProtocol: &protocol,
-			VPNClientSettings: &types.VPNClientSettings{
+			VPNClientSettingsCommon: &types.VPNClientSettingsCommon{
 				PeerClientPublicIP: &peerIP,
 			},
-			BillingPlan: &types.BillingPlan{BillingPeriod: &period},
+			BillingPlanCommon: &types.BillingPlanCommon{BillingPeriod: &period},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "vpntunnel", "get", "vpn-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -597,10 +597,10 @@ func TestVPNTunnelGetCmd_WithIPConfig(t *testing.T) {
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Properties: types.VPNTunnelPropertiesResponse{
 			VPNType: &vpnType,
-			IPConfigurations: &types.IPConfigurations{
-				VPC:      &types.ReferenceResource{URI: vpcURI},
-				Subnet:   &types.SubnetInfo{CIDR: "10.0.0.0/24", Name: "my-subnet"},
-				PublicIP: &types.ReferenceResource{URI: pubIPURI},
+			IPConfigurationsCommon: &types.IPConfigurationsCommon{
+				VPC:      &types.ReferenceResourceCommon{URI: vpcURI},
+				Subnet:   &types.SubnetInfoCommon{CIDR: "10.0.0.0/24", Name: "my-subnet"},
+				PublicIP: &types.ReferenceResourceCommon{URI: pubIPURI},
 			},
 		},
 	}))
@@ -662,7 +662,7 @@ func TestVPNTunnelUpdateCmd_WithTagsOutput(t *testing.T) {
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	updID, updName := "vpn-001", "my-tunnel"
 	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001", jsonResponse(200, types.VPNTunnelResponse{

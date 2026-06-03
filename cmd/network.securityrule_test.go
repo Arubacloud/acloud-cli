@@ -24,7 +24,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
-					jsonResponse(200, types.SecurityRuleList{
+					jsonResponse(200, types.SecurityRuleListResponse{
 						Values: []types.SecurityRuleResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -41,7 +41,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			args: []string{"network", "securityrule", "list", "vpc-001", "sg-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
-					jsonResponse(200, types.SecurityRuleList{}))
+					jsonResponse(200, types.SecurityRuleListResponse{}))
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestSecurityRuleListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rule-001", "my-rule"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
-					jsonResponse(200, types.SecurityRuleList{
+					jsonResponse(200, types.SecurityRuleListResponse{
 						Values: []types.SecurityRuleResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -271,7 +271,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 							Name:             &name,
 							LocationResponse: &types.LocationResponse{Value: region},
 						},
-						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status: types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "rule-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
@@ -305,7 +305,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 							Name:             &name,
 							LocationResponse: &types.LocationResponse{Value: region},
 						},
-						Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status: types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -331,7 +331,7 @@ func TestSecurityRuleUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules/rule-001",
 					jsonResponse(200, types.SecurityRuleResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				vpcID, vpcName := "vpc-001", "my-vpc"
 				region := types.Region("IT-BG")
@@ -461,12 +461,12 @@ func TestSecurityRuleGetCmd_FullDetail(t *testing.T) {
 					CreatedBy:        &createdBy,
 					Tags:             []string{"env=prod"},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 				Properties: types.SecurityRulePropertiesResponse{
 					Direction: types.RuleDirectionIngress,
 					Protocol:  types.RuleProtocolTCP,
 					Port:      "80",
-					Target:    &types.RuleTarget{Kind: types.EndpointTypeIP, Value: "0.0.0.0/0"},
+					Target:    &types.RuleTargetCommon{Kind: types.EndpointTypeIP, Value: "0.0.0.0/0"},
 				},
 			}))
 		out, err := runCmdCapture(srv.Client(), []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"})
@@ -505,7 +505,7 @@ func TestSecurityRuleListCmd_AllOptionalFields(t *testing.T) {
 	state := types.StateActive
 	region := types.Region("IT-BG")
 	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
-		jsonResponse(200, types.SecurityRuleList{
+		jsonResponse(200, types.SecurityRuleListResponse{
 			Values: []types.SecurityRuleResponse{
 				{
 					Metadata: types.ResourceMetadataResponse{
@@ -513,7 +513,7 @@ func TestSecurityRuleListCmd_AllOptionalFields(t *testing.T) {
 						Name:             &name,
 						LocationResponse: &types.LocationResponse{Value: region},
 					},
-					Status: types.ResourceStatus{State: &state},
+					Status: types.ResourceStatusResponse{State: &state},
 					Properties: types.SecurityRulePropertiesResponse{
 						Direction: types.RuleDirectionIngress,
 						Protocol:  types.RuleProtocolTCP,
@@ -552,7 +552,7 @@ func TestSecurityRuleCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Protocol:  proto,
 			Port:      port,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"network", "securityrule", "create", "vpc-001", "sg-001",
@@ -578,7 +578,7 @@ func TestSecurityRuleListCmd_WithAllFields(t *testing.T) {
 	dir := types.RuleDirectionIngress
 	proto := types.RuleProtocolTCP
 	port := "80"
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleListResponse{
 		Values: []types.SecurityRuleResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -591,7 +591,7 @@ func TestSecurityRuleListCmd_WithAllFields(t *testing.T) {
 					Protocol:  proto,
 					Port:      port,
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -630,7 +630,7 @@ func TestSecurityRuleGetCmd_WithAllOptionals(t *testing.T) {
 			Protocol:  proto,
 			Port:      port,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "securityrule", "get", "vpc-001", "sg-001", "rule-001", "--project-id", "proj-123"})
 	if err != nil {

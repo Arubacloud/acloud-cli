@@ -23,7 +23,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "lb-001", "my-lb"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{
 					Values: []types.LoadBalancerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestLoadBalancerListCmd(t *testing.T) {
 			args: []string{"network", "loadbalancer", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "lb-001", "my-lb"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{
 					Values: []types.LoadBalancerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -154,7 +154,7 @@ func TestLoadBalancerListCmd_WithAllFields(t *testing.T) {
 	region := types.Region("IT-BG")
 	state := types.StateActive
 	addr := "192.0.2.1"
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{
 		Values: []types.LoadBalancerResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -163,7 +163,7 @@ func TestLoadBalancerListCmd_WithAllFields(t *testing.T) {
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
 				Properties: types.LoadBalancerPropertiesResponse{Address: &addr},
-				Status:     types.ResourceStatus{State: &state},
+				Status:     types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -196,7 +196,7 @@ func TestLoadBalancerGetCmd_FullDetail(t *testing.T) {
 			Tags:             []string{"env=test"},
 		},
 		Properties: types.LoadBalancerPropertiesResponse{Address: &addr},
-		Status:     types.ResourceStatus{State: &state},
+		Status:     types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "loadbalancer", "get", "lb-001", "--project-id", "proj-123"})
 	if err != nil {

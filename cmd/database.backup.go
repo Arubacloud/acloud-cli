@@ -63,12 +63,9 @@ func completeDatabaseBackupID(cmd *cobra.Command, args []string, toComplete stri
 	var completions []string
 	if list != nil {
 		for _, backup := range list.Items() {
-			raw := backup.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := backup.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, backup.Name()))
 			}
 		}
 	}
