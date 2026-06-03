@@ -111,367 +111,377 @@ Billing period: Hour (default), Month, or Year.`,
     --public-ip-id <eip-id> \
     --block-storage-id <vol-id>`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		name, _ := cmd.Flags().GetString("name")
-		region, _ := cmd.Flags().GetString("region")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		publicIPID, _ := cmd.Flags().GetString("public-ip-id")
-		vpcID, _ := cmd.Flags().GetString("vpc-id")
-		subnetID, _ := cmd.Flags().GetString("subnet-id")
-		sgID, _ := cmd.Flags().GetString("security-group-id")
-		blockStorageID, _ := cmd.Flags().GetString("block-storage-id")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		adminUsername, _ := cmd.Flags().GetString("admin-username")
-		concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		registry := aruba.NewContainerRegistry().
-			InProject(aruba.URI("/projects/" + projectID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
-			WithVPC(aruba.VPCRef(projectID, vpcID)).
-			WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
-			WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID)).
-			WithBlockStorage(volumeRef(projectID, blockStorageID)).
-			RetaggedAs(tags...)
-
-		if adminUsername != "" {
-			registry.WithAdminUsername(adminUsername)
-		}
-		if billingPeriod != "" {
-			registry.BilledBy(aruba.BillingPeriod(billingPeriod))
-		}
-		if concurrentUsers != "" {
-			registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		created, err := client.FromContainer().ContainerRegistry().Create(ctx, registry)
-		if err != nil {
-			return fmt.Errorf("creating container registry: %w", apiErrFromV2(err))
-		}
-
-		if created != nil && created.Raw() != nil {
-			raw := created.Raw()
-			headers := []TableColumn{
-				{Header: "ID", Width: 30},
-				{Header: "NAME", Width: 40},
-				{Header: "REGION", Width: 20},
-				{Header: "STATUS", Width: 15},
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			nameVal := ""
-			if raw.Metadata.Name != nil {
-				nameVal = *raw.Metadata.Name
-			}
-			regionVal := ""
-			if raw.Metadata.LocationResponse != nil {
-				regionVal = string(raw.Metadata.LocationResponse.Value)
-			}
-			statusVal := ""
-			if raw.Status.State != nil {
-				statusVal = string(*raw.Status.State)
-			}
-			PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
-		} else {
-			fmt.Println(msgCreatedAsync("Container registry", name))
-		}
-		return nil
-	},
+	RunE: runContainerRegistryCreate,
 }
 
 var containerregistryGetCmd = &cobra.Command{
 	Use:   "get [containerregistry-id]",
 	Short: "Get container registry details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		registryID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
-		registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
-		if err != nil {
-			return fmt.Errorf("getting container registry: %w", apiErrFromV2(err))
-		}
-
-		if registry != nil && registry.Raw() != nil {
-			raw := registry.Raw()
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(registry, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nContainer Registry Details:")
-			fmt.Println("==========================")
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if raw.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-			}
-			if raw.Properties.PublicIp.URI != "" {
-				fmt.Printf("Public IP:       %s\n", raw.Properties.PublicIp.URI)
-			}
-			if raw.Properties.VPC.URI != "" {
-				fmt.Printf("VPC:             %s\n", raw.Properties.VPC.URI)
-			}
-			if raw.Properties.Subnet.URI != "" {
-				fmt.Printf("Subnet:          %s\n", raw.Properties.Subnet.URI)
-			}
-			if raw.Properties.SecurityGroup.URI != "" {
-				fmt.Printf("Security Group:  %s\n", raw.Properties.SecurityGroup.URI)
-			}
-			if raw.Properties.BlockStorage.URI != "" {
-				fmt.Printf("Block Storage:   %s\n", raw.Properties.BlockStorage.URI)
-			}
-			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPlanCommon.BillingPeriod))
-			}
-			if raw.Properties.AdminUser != nil {
-				fmt.Printf("Admin User:      %s\n", raw.Properties.AdminUser.Username)
-			}
-			if raw.Properties.ConcurrentUsers != nil {
-				fmt.Printf("Concurrent Users: %s\n", *raw.Properties.ConcurrentUsers)
-			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-			}
-			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-			}
-			if raw.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			fmt.Println()
-		} else {
-			fmt.Println("Container registry not found")
-		}
-		return nil
-	},
+	RunE:  runContainerRegistryGet,
 }
 
 var containerregistryListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all container registries",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromContainer().ContainerRegistry().List(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("listing container registries: %w", apiErrFromV2(err))
-		}
-
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "NAME", Width: 40},
-				{Header: "ID", Width: 30},
-				{Header: "REGION", Width: 20},
-				{Header: "STATUS", Width: 15},
-			}
-
-			var rows [][]string
-			for _, cr := range list.Items() {
-				raw := cr.Raw()
-				if raw == nil {
-					continue
-				}
-				name := ""
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				id := ""
-				if raw.Metadata.ID != nil {
-					id = *raw.Metadata.ID
-				}
-				region := ""
-				if raw.Metadata.LocationResponse != nil {
-					region = string(raw.Metadata.LocationResponse.Value)
-				}
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{name, id, region, status})
-			}
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No container registries found")
-		}
-		return nil
-	},
+	RunE:  runContainerRegistryList,
 }
 
 var containerregistryUpdateCmd = &cobra.Command{
 	Use:   "update [containerregistry-id]",
 	Short: "Update a container registry",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		registryID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		name, _ := cmd.Flags().GetString("name")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
-
-		if name == "" && !cmd.Flags().Changed("tags") && billingPeriod == "" && concurrentUsers == "" {
-			return fmt.Errorf("at least one of --name, --tags, --billing-period, or --concurrent-users must be provided")
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
-		registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
-		if err != nil {
-			return fmt.Errorf("fetching current container registry: %w", apiErrFromV2(err))
-		}
-		if registry == nil || registry.Raw() == nil {
-			return fmt.Errorf("container registry not found")
-		}
-
-		if name != "" {
-			registry.Named(name)
-		}
-		if cmd.Flags().Changed("tags") {
-			registry.RetaggedAs(tags...)
-		}
-		if billingPeriod != "" {
-			registry.BilledBy(aruba.BillingPeriod(billingPeriod))
-		}
-		if concurrentUsers != "" {
-			registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
-		}
-
-		updated, err := client.FromContainer().ContainerRegistry().Update(ctx, registry)
-		if err != nil {
-			return fmt.Errorf("updating container registry: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
-			fmt.Printf("\n%s\n", msgUpdated("Container registry", registryID))
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-			}
-		} else {
-			fmt.Println(msgUpdatedAsync("Container registry", registryID))
-		}
-		return nil
-	},
+	RunE:  runContainerRegistryUpdate,
 }
 
 var containerregistryDeleteCmd = &cobra.Command{
 	Use:   "delete [containerregistry-id]",
 	Short: "Delete a container registry",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		registryID := args[0]
+	RunE:  runContainerRegistryDelete,
+}
 
-		confirm, _ := cmd.Flags().GetBool("yes")
-		if !confirm {
-			ok, err := confirmDelete("container registry", registryID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
+func runContainerRegistryCreate(cmd *cobra.Command, args []string) error {
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	region, _ := cmd.Flags().GetString("region")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	publicIPID, _ := cmd.Flags().GetString("public-ip-id")
+	vpcID, _ := cmd.Flags().GetString("vpc-id")
+	subnetID, _ := cmd.Flags().GetString("subnet-id")
+	sgID, _ := cmd.Flags().GetString("security-group-id")
+	blockStorageID, _ := cmd.Flags().GetString("block-storage-id")
+	billingPeriod, _ := cmd.Flags().GetString("billing-period")
+	adminUsername, _ := cmd.Flags().GetString("admin-username")
+	concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	registry := aruba.NewContainerRegistry().
+		InProject(aruba.URI("/projects/" + projectID)).
+		Named(name).
+		InRegion(aruba.Region(region)).
+		WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
+		WithVPC(aruba.VPCRef(projectID, vpcID)).
+		WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
+		WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID)).
+		WithBlockStorage(volumeRef(projectID, blockStorageID)).
+		RetaggedAs(tags...)
+
+	if adminUsername != "" {
+		registry.WithAdminUsername(adminUsername)
+	}
+	if billingPeriod != "" {
+		registry.BilledBy(aruba.BillingPeriod(billingPeriod))
+	}
+	if concurrentUsers != "" {
+		registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	created, err := client.FromContainer().ContainerRegistry().Create(ctx, registry)
+	if err != nil {
+		return fmt.Errorf("creating container registry: %w", apiErrFromV2(err))
+	}
+
+	if created != nil && created.Raw() != nil {
+		raw := created.Raw()
+		headers := []TableColumn{
+			{Header: "ID", Width: 30},
+			{Header: "NAME", Width: 40},
+			{Header: "REGION", Width: 20},
+			{Header: "STATUS", Width: 15},
 		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
 		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
 		}
+		regionVal := ""
+		if raw.Metadata.LocationResponse != nil {
+			regionVal = string(raw.Metadata.LocationResponse.Value)
+		}
+		statusVal := ""
+		if raw.Status.State != nil {
+			statusVal = string(*raw.Status.State)
+		}
+		PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
+	} else {
+		fmt.Println(msgCreatedAsync("Container registry", name))
+	}
+	return nil
+}
 
-		ctx, cancel := newCtx()
-		defer cancel()
-		registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
+func runContainerRegistryGet(cmd *cobra.Command, args []string) error {
+	registryID := args[0]
 
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
-			if err != nil {
-				return fmt.Errorf("dry-run: container registry not found or inaccessible: %w", err)
-			}
-			fmt.Println(msgDryRun("container registry", registryID))
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
+	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+	if err != nil {
+		return fmt.Errorf("getting container registry: %w", apiErrFromV2(err))
+	}
+
+	if registry != nil && registry.Raw() != nil {
+		raw := registry.Raw()
+
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(registry, nil, nil)
 			return nil
 		}
 
-		err = client.FromContainer().ContainerRegistry().Delete(ctx, aruba.URI(registryURI))
-		if err != nil {
-			return fmt.Errorf("deleting container registry: %w", apiErrFromV2(err))
+		fmt.Println("\nContainer Registry Details:")
+		fmt.Println("==========================")
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if raw.Metadata.LocationResponse != nil {
+			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+		}
+		if raw.Properties.PublicIp.URI != "" {
+			fmt.Printf("Public IP:       %s\n", raw.Properties.PublicIp.URI)
+		}
+		if raw.Properties.VPC.URI != "" {
+			fmt.Printf("VPC:             %s\n", raw.Properties.VPC.URI)
+		}
+		if raw.Properties.Subnet.URI != "" {
+			fmt.Printf("Subnet:          %s\n", raw.Properties.Subnet.URI)
+		}
+		if raw.Properties.SecurityGroup.URI != "" {
+			fmt.Printf("Security Group:  %s\n", raw.Properties.SecurityGroup.URI)
+		}
+		if raw.Properties.BlockStorage.URI != "" {
+			fmt.Printf("Block Storage:   %s\n", raw.Properties.BlockStorage.URI)
+		}
+		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+			fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPlanCommon.BillingPeriod))
+		}
+		if raw.Properties.AdminUser != nil {
+			fmt.Printf("Admin User:      %s\n", raw.Properties.AdminUser.Username)
+		}
+		if raw.Properties.ConcurrentUsers != nil {
+			fmt.Printf("Concurrent Users: %s\n", *raw.Properties.ConcurrentUsers)
+		}
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
+		}
+		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("Container registry not found")
+	}
+	return nil
+}
+
+func runContainerRegistryList(cmd *cobra.Command, args []string) error {
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromContainer().ContainerRegistry().List(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("listing container registries: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 40},
+			{Header: "ID", Width: 30},
+			{Header: "REGION", Width: 20},
+			{Header: "STATUS", Width: 15},
 		}
 
-		fmt.Println(msgDeleted("Container registry", registryID))
+		var rows [][]string
+		for _, cr := range list.Items() {
+			raw := cr.Raw()
+			if raw == nil {
+				continue
+			}
+			name := ""
+			if raw.Metadata.Name != nil {
+				name = *raw.Metadata.Name
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			region := ""
+			if raw.Metadata.LocationResponse != nil {
+				region = string(raw.Metadata.LocationResponse.Value)
+			}
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			rows = append(rows, []string{name, id, region, status})
+		}
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No container registries found")
+	}
+	return nil
+}
+
+func runContainerRegistryUpdate(cmd *cobra.Command, args []string) error {
+	registryID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	billingPeriod, _ := cmd.Flags().GetString("billing-period")
+	concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
+
+	if name == "" && !cmd.Flags().Changed("tags") && billingPeriod == "" && concurrentUsers == "" {
+		return fmt.Errorf("at least one of --name, --tags, --billing-period, or --concurrent-users must be provided")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
+	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+	if err != nil {
+		return fmt.Errorf("fetching current container registry: %w", apiErrFromV2(err))
+	}
+	if registry == nil || registry.Raw() == nil {
+		return fmt.Errorf("container registry not found")
+	}
+
+	if name != "" {
+		registry.Named(name)
+	}
+	if cmd.Flags().Changed("tags") {
+		registry.RetaggedAs(tags...)
+	}
+	if billingPeriod != "" {
+		registry.BilledBy(aruba.BillingPeriod(billingPeriod))
+	}
+	if concurrentUsers != "" {
+		registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
+	}
+
+	updated, err := client.FromContainer().ContainerRegistry().Update(ctx, registry)
+	if err != nil {
+		return fmt.Errorf("updating container registry: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("Container registry", registryID))
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
+		}
+	} else {
+		fmt.Println(msgUpdatedAsync("Container registry", registryID))
+	}
+	return nil
+}
+
+func runContainerRegistryDelete(cmd *cobra.Command, args []string) error {
+	registryID := args[0]
+
+	confirm, _ := cmd.Flags().GetBool("yes")
+	if !confirm {
+		ok, err := confirmDelete("container registry", registryID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+		if err != nil {
+			return fmt.Errorf("dry-run: container registry not found or inaccessible: %w", err)
+		}
+		fmt.Println(msgDryRun("container registry", registryID))
 		return nil
-	},
+	}
+
+	err = client.FromContainer().ContainerRegistry().Delete(ctx, aruba.URI(registryURI))
+	if err != nil {
+		return fmt.Errorf("deleting container registry: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("Container registry", registryID))
+	return nil
 }

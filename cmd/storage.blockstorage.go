@@ -113,350 +113,360 @@ Billing period: Hour (default), Month, or Year.`,
     --type Performance \
     --snapshot-id <snap-id>`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		name, _ := cmd.Flags().GetString("name")
-		region, _ := cmd.Flags().GetString("region")
-		zone, _ := cmd.Flags().GetString("zone")
-		size, _ := cmd.Flags().GetInt("size")
-		volumeType, _ := cmd.Flags().GetString("type")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		snapshotID, _ := cmd.Flags().GetString("snapshot-id")
-		setBootable, _ := cmd.Flags().GetBool("set-bootable")
-		image, _ := cmd.Flags().GetString("image")
-
-		if size <= 0 {
-			return fmt.Errorf("--size must be greater than 0")
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		vol := aruba.NewBlockStorage().
-			InProject(aruba.URI("/projects/" + projectID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			SizedGB(size).
-			OfType(aruba.BlockStorageType(volumeType)).
-			BilledBy(aruba.BillingPeriod(billingPeriod)).
-			RetaggedAs(tags...)
-
-		if zone != "" {
-			vol.InZone(aruba.Zone(zone))
-		}
-		if snapshotID != "" {
-			vol.FromSnapshot(snapshotRef(projectID, snapshotID))
-		}
-		if setBootable {
-			vol.AsBootable()
-		}
-		if image != "" {
-			vol.FromImage(image)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		created, err := client.FromStorage().Volumes().Create(ctx, vol)
-		if err != nil {
-			return fmt.Errorf("creating block storage: %w", apiErrFromV2(err))
-		}
-
-		if created != nil && created.Raw() != nil {
-			raw := created.Raw()
-			headers := []TableColumn{
-				{Header: "ID", Width: 30},
-				{Header: "NAME", Width: 40},
-				{Header: "SIZE(GB)", Width: 12},
-				{Header: "TYPE", Width: 15},
-				{Header: "STATUS", Width: 15},
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			nameVal := ""
-			if raw.Metadata.Name != nil {
-				nameVal = *raw.Metadata.Name
-			}
-			sizeVal := fmt.Sprintf("%d", raw.Properties.SizeGB)
-			typeVal := string(raw.Properties.Type)
-			statusVal := ""
-			if raw.Status.State != nil {
-				statusVal = string(*raw.Status.State)
-			}
-			PrintOutput(created, headers, [][]string{{id, nameVal, sizeVal, typeVal, statusVal}})
-		} else {
-			fmt.Println(msgCreatedAsync("Block storage", name))
-		}
-		return nil
-	},
+	RunE: runBlockStorageCreate,
 }
 
 var blockstorageGetCmd = &cobra.Command{
 	Use:   "get [volume-id]",
 	Short: "Get block storage details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		volumeID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
-		if err != nil {
-			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
-		}
-
-		if vol != nil && vol.Raw() != nil {
-			raw := vol.Raw()
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(vol, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nBlock Storage Details:")
-			fmt.Println("======================")
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
-			fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
-			fmt.Printf("Zone:            %s\n", string(raw.Properties.Zone))
-			if raw.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-			}
-			if raw.Properties.Bootable != nil {
-				fmt.Printf("Bootable:        %t\n", *raw.Properties.Bootable)
-			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-			}
-			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-			}
-			if raw.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			fmt.Println()
-		} else {
-			fmt.Println("Block storage not found")
-		}
-		return nil
-	},
+	RunE:  runBlockStorageGet,
 }
 
 var blockstorageUpdateCmd = &cobra.Command{
 	Use:   "update [volume-id]",
 	Short: "Update block storage (name and/or tags)",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		volumeID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		name, _ := cmd.Flags().GetString("name")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-
-		if name == "" && !cmd.Flags().Changed("tags") {
-			return fmt.Errorf("at least one of --name or --tags must be provided")
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
-		if err != nil {
-			return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
-		}
-		if vol == nil || vol.Raw() == nil {
-			return fmt.Errorf("block storage not found")
-		}
-
-		if name != "" {
-			vol.Named(name)
-		}
-		if cmd.Flags().Changed("tags") {
-			vol.RetaggedAs(tags...)
-		}
-
-		updated, err := client.FromStorage().Volumes().Update(ctx, vol)
-		if err != nil {
-			return fmt.Errorf("updating block storage: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
-			fmt.Printf("\n%s\n", msgUpdated("Block storage", volumeID))
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			}
-			fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
-			fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
-		} else {
-			fmt.Println(msgUpdatedAsync("Block storage", volumeID))
-		}
-		return nil
-	},
+	RunE:  runBlockStorageUpdate,
 }
 
 var blockstorageDeleteCmd = &cobra.Command{
 	Use:   "delete [volume-id]",
 	Short: "Delete block storage",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		volumeID := args[0]
-
-		confirm, _ := cmd.Flags().GetBool("yes")
-		if !confirm {
-			ok, err := confirmDelete("block storage", volumeID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
-			if err != nil {
-				return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", apiErrFromV2(err))
-			}
-			fmt.Println(msgDryRun("block storage", volumeID))
-			return nil
-		}
-
-		err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
-		if err != nil {
-			return fmt.Errorf("deleting block storage: %w", apiErrFromV2(err))
-		}
-
-		fmt.Println(msgDeleted("Block storage", volumeID))
-		return nil
-	},
+	RunE:  runBlockStorageDelete,
 }
 
 var blockstorageListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all block storage",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, err := GetProjectID(cmd)
+	RunE:  runBlockStorageList,
+}
+
+func runBlockStorageCreate(cmd *cobra.Command, args []string) error {
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	region, _ := cmd.Flags().GetString("region")
+	zone, _ := cmd.Flags().GetString("zone")
+	size, _ := cmd.Flags().GetInt("size")
+	volumeType, _ := cmd.Flags().GetString("type")
+	billingPeriod, _ := cmd.Flags().GetString("billing-period")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	snapshotID, _ := cmd.Flags().GetString("snapshot-id")
+	setBootable, _ := cmd.Flags().GetBool("set-bootable")
+	image, _ := cmd.Flags().GetString("image")
+
+	if size <= 0 {
+		return fmt.Errorf("--size must be greater than 0")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	vol := aruba.NewBlockStorage().
+		InProject(aruba.URI("/projects/" + projectID)).
+		Named(name).
+		InRegion(aruba.Region(region)).
+		SizedGB(size).
+		OfType(aruba.BlockStorageType(volumeType)).
+		BilledBy(aruba.BillingPeriod(billingPeriod)).
+		RetaggedAs(tags...)
+
+	if zone != "" {
+		vol.InZone(aruba.Zone(zone))
+	}
+	if snapshotID != "" {
+		vol.FromSnapshot(snapshotRef(projectID, snapshotID))
+	}
+	if setBootable {
+		vol.AsBootable()
+	}
+	if image != "" {
+		vol.FromImage(image)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	created, err := client.FromStorage().Volumes().Create(ctx, vol)
+	if err != nil {
+		return fmt.Errorf("creating block storage: %w", apiErrFromV2(err))
+	}
+
+	if created != nil && created.Raw() != nil {
+		raw := created.Raw()
+		headers := []TableColumn{
+			{Header: "ID", Width: 30},
+			{Header: "NAME", Width: 40},
+			{Header: "SIZE(GB)", Width: 12},
+			{Header: "TYPE", Width: 15},
+			{Header: "STATUS", Width: 15},
+		}
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
+		}
+		sizeVal := fmt.Sprintf("%d", raw.Properties.SizeGB)
+		typeVal := string(raw.Properties.Type)
+		statusVal := ""
+		if raw.Status.State != nil {
+			statusVal = string(*raw.Status.State)
+		}
+		PrintOutput(created, headers, [][]string{{id, nameVal, sizeVal, typeVal, statusVal}})
+	} else {
+		fmt.Println(msgCreatedAsync("Block storage", name))
+	}
+	return nil
+}
+
+func runBlockStorageGet(cmd *cobra.Command, args []string) error {
+	volumeID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+	if err != nil {
+		return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
+	}
+
+	if vol != nil && vol.Raw() != nil {
+		raw := vol.Raw()
+
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(vol, nil, nil)
+			return nil
+		}
+
+		fmt.Println("\nBlock Storage Details:")
+		fmt.Println("======================")
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
+		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
+		fmt.Printf("Zone:            %s\n", string(raw.Properties.Zone))
+		if raw.Metadata.LocationResponse != nil {
+			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+		}
+		if raw.Properties.Bootable != nil {
+			fmt.Printf("Bootable:        %t\n", *raw.Properties.Bootable)
+		}
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
+		}
+		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("Block storage not found")
+	}
+	return nil
+}
+
+func runBlockStorageUpdate(cmd *cobra.Command, args []string) error {
+	volumeID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+
+	if name == "" && !cmd.Flags().Changed("tags") {
+		return fmt.Errorf("at least one of --name or --tags must be provided")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+	if err != nil {
+		return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
+	}
+	if vol == nil || vol.Raw() == nil {
+		return fmt.Errorf("block storage not found")
+	}
+
+	if name != "" {
+		vol.Named(name)
+	}
+	if cmd.Flags().Changed("tags") {
+		vol.RetaggedAs(tags...)
+	}
+
+	updated, err := client.FromStorage().Volumes().Update(ctx, vol)
+	if err != nil {
+		return fmt.Errorf("updating block storage: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("Block storage", volumeID))
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+		fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
+		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
+	} else {
+		fmt.Println(msgUpdatedAsync("Block storage", volumeID))
+	}
+	return nil
+}
+
+func runBlockStorageDelete(cmd *cobra.Command, args []string) error {
+	volumeID := args[0]
+
+	confirm, _ := cmd.Flags().GetBool("yes")
+	if !confirm {
+		ok, err := confirmDelete("block storage", volumeID)
 		if err != nil {
 			return err
 		}
+		if !ok {
+			return nil
+		}
+	}
 
-		client, err := GetArubaClient()
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
 		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
+			return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", apiErrFromV2(err))
 		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromStorage().Volumes().List(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("listing block storage: %w", apiErrFromV2(err))
-		}
-
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "NAME", Width: 30},
-				{Header: "ID", Width: 26},
-				{Header: "SIZE(GB)", Width: 12},
-				{Header: "REGION", Width: 15},
-				{Header: "ZONE", Width: 15},
-				{Header: "TYPE", Width: 15},
-				{Header: "STATUS", Width: 15},
-			}
-
-			var rows [][]string
-			for _, vol := range list.Items() {
-				raw := vol.Raw()
-				if raw == nil {
-					continue
-				}
-				name := ""
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				id := ""
-				if raw.Metadata.ID != nil {
-					id = *raw.Metadata.ID
-				}
-				size := fmt.Sprintf("%d", raw.Properties.SizeGB)
-				region := ""
-				if raw.Metadata.LocationResponse != nil {
-					region = string(raw.Metadata.LocationResponse.Value)
-				}
-				zone := string(raw.Properties.Zone)
-				volumeType := string(raw.Properties.Type)
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{name, id, size, region, zone, volumeType, status})
-			}
-
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No block storage found")
-		}
+		fmt.Println(msgDryRun("block storage", volumeID))
 		return nil
-	},
+	}
+
+	err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+	if err != nil {
+		return fmt.Errorf("deleting block storage: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("Block storage", volumeID))
+	return nil
+}
+
+func runBlockStorageList(cmd *cobra.Command, args []string) error {
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromStorage().Volumes().List(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("listing block storage: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "SIZE(GB)", Width: 12},
+			{Header: "REGION", Width: 15},
+			{Header: "ZONE", Width: 15},
+			{Header: "TYPE", Width: 15},
+			{Header: "STATUS", Width: 15},
+		}
+
+		var rows [][]string
+		for _, vol := range list.Items() {
+			raw := vol.Raw()
+			if raw == nil {
+				continue
+			}
+			name := ""
+			if raw.Metadata.Name != nil {
+				name = *raw.Metadata.Name
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			size := fmt.Sprintf("%d", raw.Properties.SizeGB)
+			region := ""
+			if raw.Metadata.LocationResponse != nil {
+				region = string(raw.Metadata.LocationResponse.Value)
+			}
+			zone := string(raw.Properties.Zone)
+			volumeType := string(raw.Properties.Type)
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			rows = append(rows, []string{name, id, size, region, zone, volumeType, status})
+		}
+
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No block storage found")
+	}
+	return nil
 }
