@@ -82,7 +82,7 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 was created with `--cloud-subnet 10.0.0.0/24`. The CLI reads
 `raw.Properties.CloudSubnet.CIDR`, but the GET response places the value under a
 different field path (likely `raw.Properties.CloudSubnet.Value` or a flat string).
-The CLI has no way to validate the exact shape without access to a live API response.
+Confirmed blank in the network e2e run on 2026-06-03.
 
 **Root cause:** Structural mismatch between `types.VPNRoutePropertiesResponse` and the
 actual API response body — an sdk-go issue.
@@ -90,6 +90,8 @@ actual API response body — an sdk-go issue.
 **Fix (blocked on sdk-go):** Once the SDK aligns the type definition with the API
 contract, update the field read in `cmd/network.vpnroute.go` (both `get` and `list`
 output blocks).
+
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/135
 
 ---
 
@@ -138,6 +140,23 @@ mutator) on `*aruba.VPNTunnel` that zeros both the wrapper's PSK secret AND the
 corresponding field in the cached raw struct, remove the `.Raw()` call here.
 
 **Tracked in:** https://github.com/Arubacloud/acloud-cli/issues/132 (comment)
+
+---
+
+### TD-037 · e2e/network: VPN route cloud-subnet deletion race
+
+After the VPN route delete CRUD step, `e2e/network/test.sh` immediately attempts to
+delete the route's dedicated cloud subnet. The API still considers the subnet in-use by
+the (already-deleted) route for a short window, returning HTTP 400
+`"The subnet can't be deleted because it's user by a vpnRoute"`. This leaves the
+subnet orphaned and causes the VPC cleanup to fail (`"Vpc can't be deleted because
+there are several subnets"`).
+
+**Fix:** After the VPN route delete and before deleting its cloud subnet, add a wait
+loop polling until the subnet state allows deletion. Also extend the VPC cleanup retry
+window to outlast the subnet release time.
+
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/136
 
 ---
 
