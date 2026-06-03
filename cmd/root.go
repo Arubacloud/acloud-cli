@@ -251,20 +251,41 @@ func apiErrFromV2(err error) error {
 	base := fmtAPIError(httpErr.StatusCode, title, detail)
 
 	// Append per-field validation errors so callers see exactly what is wrong.
-	if httpErr.ErrResp != nil && len(httpErr.ErrResp.Errors) > 0 {
-		parts := make([]string, 0, len(httpErr.ErrResp.Errors))
+	// The SDK's ValidationError uses "field"/"message" JSON tags; some API endpoints
+	// return "fieldName"/"errorMessage" instead (different casing). Parse the raw body
+	// for the alternate shape when the SDK-parsed entries are all empty strings.
+	var validationParts []string
+	if httpErr.ErrResp != nil {
 		for _, ve := range httpErr.ErrResp.Errors {
 			if ve.Field != "" && ve.Message != "" {
-				parts = append(parts, ve.Field+": "+ve.Message)
+				validationParts = append(validationParts, ve.Field+": "+ve.Message)
 			} else if ve.Message != "" {
-				parts = append(parts, ve.Message)
+				validationParts = append(validationParts, ve.Message)
 			} else if ve.Field != "" {
-				parts = append(parts, ve.Field)
+				validationParts = append(validationParts, ve.Field)
 			}
 		}
-		if len(parts) > 0 {
-			base = fmt.Errorf("%w — validation: %s", base, strings.Join(parts, "; "))
+	}
+	// Fallback: parse raw body for "fieldName"/"errorMessage" (alternate API shape).
+	if len(validationParts) == 0 && len(httpErr.Body) > 0 {
+		var rawBody struct {
+			Errors []struct {
+				FieldName    string `json:"fieldName"`
+				ErrorMessage string `json:"errorMessage"`
+			} `json:"errors"`
 		}
+		if json.Unmarshal(httpErr.Body, &rawBody) == nil {
+			for _, ve := range rawBody.Errors {
+				if ve.FieldName != "" && ve.ErrorMessage != "" {
+					validationParts = append(validationParts, ve.FieldName+": "+ve.ErrorMessage)
+				} else if ve.ErrorMessage != "" {
+					validationParts = append(validationParts, ve.ErrorMessage)
+				}
+			}
+		}
+	}
+	if len(validationParts) > 0 {
+		base = fmt.Errorf("%w — validation: %s", base, strings.Join(validationParts, "; "))
 	}
 
 	// In debug mode, dump the raw response body to stderr for full context.
