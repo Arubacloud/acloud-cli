@@ -43,7 +43,7 @@ If `LoadConfig()` fails (missing `~/.acloud.yaml`), the error is wrapped:
 
 ## SDK Call Pattern
 
-SDK v0.3.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
+SDK v1.0.0 uses a fluent **wrapper layer**. `client.From<Svc>()` returns a typed
 sub-client; each CRUD method returns a hydrated wrapper type or `*aruba.List[T]`
 rather than raw `types.*Response` structs.
 
@@ -119,7 +119,7 @@ rs := aruba.NewStorageRestore().IntoBackup(bk).Named(name).InRegion(aruba.Region
 list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID), listOpts(cmd)...)
 ```
 
-All four storage wrappers' `Raw()` returns the **full** typed response (e.g. `*types.StorageBackupResponse`). No `RawHTTP()` re-parse is needed, unlike `*aruba.Project`.
+All four storage wrappers' `Raw()` returns the **full** typed response (e.g. `*types.StorageBackupResponse`). `*aruba.Project` also has `RawJSON()/RawYAML()` since v1.0.0, so `RawHTTP()` re-parse is no longer needed anywhere.
 
 **Multi-level nested Refs (network family)** — VPC-scoped resources (Subnet,
 SecurityGroup, VPCPeering) require 3-segment Refs; deeper resources (SecurityRule,
@@ -151,10 +151,11 @@ independent sub-builders: `NewVPNIPConfig()`, `NewVPNIKE()`, `NewVPNESP()`,
 **VPN `fromResponse` does not rehydrate sub-builders** — `VPNTunnel.fromResponse()`
 only populates top-level fields (`vpnType`, `vpnClientProtocol`, `billingPeriod`,
 `peerClientPublicIP`). A naïve wrapper `Update` would drop the IKE/ESP/PSK/IPConfig
-sub-builders from the PUT body. `network.vpntunnel.go` works around this with a
-file-local `vpnTunnelReattachSettings(cur *aruba.VPNTunnel)` helper that
-reconstructs the sub-builders from `cur.Raw().Properties.*` and re-attaches them
-before calling `Update`.
+sub-builders from the PUT body. `network.vpntunnel.go` works around this by reading
+the sub-builders from `vpn.Raw().Properties.VPNClientSettingsCommon.*` (field renamed
+in v1.0.0 from `VPNClientSettings` → `VPNClientSettingsCommon`) and re-attaching
+them before calling `Update`. This is a documented TECH_DEBT (TD-034) pending
+sdk-go exposing typed `IKE()`, `ESP()`, `PSK()` read accessors on `*aruba.VPNTunnel`.
 
 **VPN crypto enums split per direction** — v0.3.0 provides per-direction types
 (introduced in v0.2.0, carried forward): `aruba.IKEEncryption` / `aruba.ESPEncryption`,
@@ -192,24 +193,29 @@ if err != nil {
 
 **Rendering** — wrapper types (`*aruba.<T>`) carry only unexported fields and are not
 directly JSON-marshalable via `encoding/json`. For table columns the wrapper exposes
-(`.ID()`, `.Name()`, `.State()`, `.CreatedAt()`, …) use the accessors directly.
+(`.ID()`, `.Name()`, `.State()`, `.CreatedAt()`, `.Region()`, …) use the accessors directly.
+sdk-go v1.0.0 added additional flattened accessors: `CloudServer.ElasticIP()`,
+`CloudServer.Subnets()`, `CloudServer.SecurityGroups()`, `KaaS.KubernetesVersion()`,
+`KaaS.PodCIDR()`, `DBaaS.EngineVersion()`, `Job.ScheduleAt()`, etc.
 
-`PrintOutput` delegates full-payload rendering (`-o json` / `-o yaml`) through three
+`PrintOutput` delegates full-payload rendering (`-o json` / `-o yaml`) through two
 dispatch branches in `printJSON` / `printYAML`:
 
-1. **`rawMarshaler`** (preferred) — `RawJSON()` / `RawYAML()` called on the wrapper.
-   All wrapper types except `*aruba.Project` satisfy this interface in v0.3.0.
+1. **`rawMarshaler`** (all wrappers) — `RawJSON()` / `RawYAML()` called on the wrapper.
+   All wrapper types including `*aruba.Project` satisfy this interface in sdk-go v1.0.0.
    **Always pass the SDK wrapper (not `.Raw()`) as the first arg to `PrintOutput`.**
-2. **`rawHTTPer`** (legacy, `*aruba.Project` only) — falls back to `RawHTTP()` for
-   re-parsing the raw HTTP response body. Used only in `management.project.go` until
-   sdk-go ships `RawJSON()/RawYAML()` on `*aruba.Project`.
-3. **`json.MarshalIndent`** (anonymous structs) — delete-confirmation result rows use
+2. **`json.MarshalIndent`** (anonymous structs) — delete-confirmation result rows use
    small anonymous structs (`struct{ID, Status string}{...}`) that satisfy neither
    interface. These fall through to `json.MarshalIndent`. Intentional — delete handlers
    never need SDK-shaped full-payload output.
 
+The `rawHTTPer` fallback branch (v0.3.0) was deleted in the sdk-go v1.0.0 migration
+(TD-032 / TD-036). `*aruba.Project` now satisfies `rawMarshaler` directly.
+
 This keeps the **single-import principle**: only `github.com/Arubacloud/sdk-go/pkg/aruba`
-is imported in non-test `cmd/` files.
+is imported in non-test `cmd/` files. The one documented exception is `container.kaas.go`
+which still imports `pkg/types` for `types.KaaSAPIServerAccessProfilePropertiesRequest`
+until sdk-go provides a fluent aruba-level builder (TD-033).
 
 For list `-o json`/`-o yaml`, `*aruba.List[T]` also satisfies `rawMarshaler`; no
 separate `<resource>ListPayload` helper is needed for the output call itself, though
@@ -435,32 +441,19 @@ Always returns `cobra.ShellCompDirectiveNoFileComp`. On any error, returns `nil,
 
 ## Request Building
 
-SDK requests use nested struct composition with pointer-valued optional fields:
+SDK requests are built using the fluent wrapper builders — do **not** reference
+`pkg/types` structs directly in `cmd/` production files. The `pkg/types` package is
+only used in `_test.go` files (to build mock HTTP fixtures) and in one annotated
+production exception (`container.kaas.go`, TD-033).
 
+**Update pattern** — fetch the current resource first, mutate the hydrated wrapper,
+then call `Update`:
 ```go
-types.BlockStorageRequest{
-    Metadata: types.RegionalResourceMetadataRequest{
-        ResourceMetadataRequest: types.ResourceMetadataRequest{
-            Name: name,
-            Tags: tags,
-        },
-        Location: types.LocationRequest{Value: region},
-    },
-    Properties: types.BlockStoragePropertiesRequest{
-        SizeGB:        size,
-        BillingPeriod: billingPeriod,
-        Type:          types.BlockStorageType(volumeType),
-    },
-}
-```
-
-**Update pattern** — fetch the current resource first to preserve values not being updated, then overwrite changed fields:
-```go
-getResp, _ := client.From...().Resource().Get(ctx, projectID, id, nil)
-current := getResp.Data
-updateReq := buildRequestFrom(current)    // preserve current values
-if name != "" { updateReq.Metadata.Name = name }
-if cmd.Flags().Changed("tags") { updateReq.Metadata.Tags = tags }
+current, err := client.From<Svc>().<Resource>().Get(ctx, ref)
+if err != nil { ... }
+if name != "" { current.Named(name) }
+if cmd.Flags().Changed("tags") { current.RetaggedAs(tags...) }
+updated, err := client.From<Svc>().<Resource>().Update(ctx, current)
 ```
 
 ---
@@ -645,18 +638,13 @@ The response field is still `resource.Properties.PublicIp.URI` (unchanged wire f
 func jobRef(projectID, jobID string) aruba.Ref {
     return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
 }
-func jobFromRaw(j *aruba.Job) *types.JobResponse { return j.Raw() }
-func jobListPayload(l *aruba.List[*aruba.Job]) any {
-    if r, ok := l.Raw().(*types.Response[types.JobList]); ok && r != nil {
-        return r.Data
-    }
-    return nil
-}
 ```
+
+Pass `job` (the wrapper) directly to `PrintOutput` — it satisfies `rawMarshaler` via `RawJSON()/RawYAML()`.
 
 ### Identity accessors
 
-`j.JobID()` (not `j.ID()`), `j.Name()`, `j.Region()` (→ `aruba.Region`, cast with `string()`), `j.JobType()` (→ `types.JobType`), `j.Enabled()` bool, `j.State()` string.
+`j.JobID()` (not `j.ID()`), `j.Name()`, `j.Region()` (→ `aruba.Region`, cast with `string()`). sdk-go v1.0.0 added `j.ScheduleAt()`, `j.ExecuteUntil()`, `j.NextExecutionAt()`, `j.Steps()`.
 
 ### Schedule modes — mutually exclusive
 
@@ -670,12 +658,10 @@ j.WithCron(cronExpr).RecurringUntil(endTime)
 
 Call `j.Err()` after builder setup to surface any validation errors before the Create call.
 
-### `Enabled()`/`Disabled()` setters (v0.3.0)
+### `Enabled()`/`Disabled()` setters
 
-In v0.3.0 the boolean `WithEnabled(bool)` setter is replaced by two explicit methods:
-`Enabled()` and `Disabled()`. Use `j.Enabled()` or `j.Disabled()` to set the job
-state — the `omitempty` wire issue that affected the old `WithEnabled(false)` call
-is resolved upstream in v0.3.0.
+Use `j.Enabled()` or `j.Disabled()` to set the job state. These replaced `WithEnabled(bool)`
+in v0.3.0; the `omitempty` wire issue with `WithEnabled(false)` is resolved.
 
 ## Security (KMS) Family
 
@@ -691,4 +677,4 @@ func kmsRef(projectID, kmsID string) aruba.Ref {
 
 ### Identity accessor
 
-`k.KMSID()` (not `k.ID()`). Other accessors: `k.Name()`, `k.Region()`, `k.State()`, `k.Raw()` → `*types.KMSResponse`.
+`k.KMSID()` (not `k.ID()`). Other accessors: `k.Name()`, `k.Region()`, `k.State()`.
