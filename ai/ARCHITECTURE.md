@@ -148,14 +148,12 @@ independent sub-builders: `NewVPNIPConfig()`, `NewVPNIKE()`, `NewVPNESP()`,
 `NewVPNPSK()`. Each is constructed separately and attached via
 `WithIPConfig`/`WithIKESettings`/`WithESPSettings`/`WithPSKSettings`.
 
-**VPN `fromResponse` does not rehydrate sub-builders** — `VPNTunnel.fromResponse()`
-only populates top-level fields (`vpnType`, `vpnClientProtocol`, `billingPeriod`,
-`peerClientPublicIP`). A naïve wrapper `Update` would drop the IKE/ESP/PSK/IPConfig
-sub-builders from the PUT body. `network.vpntunnel.go` works around this by reading
-the sub-builders from `vpn.Raw().Properties.VPNClientSettingsCommon.*` (field renamed
-in v1.0.0 from `VPNClientSettings` → `VPNClientSettingsCommon`) and re-attaching
-them before calling `Update`. This is a documented TECH_DEBT (TD-034) pending
-sdk-go exposing typed `IKE()`, `ESP()`, `PSK()` read accessors on `*aruba.VPNTunnel`.
+**VPN `fromResponse` rehydrates sub-builders in v1.0.0** — `VPNTunnel.fromResponse()`
+fully populates the `ike`, `esp`, `psk` wrapper fields from the response. After a
+`Get`, `vpn.IKE()`, `vpn.ESP()`, `vpn.PSK()` all return hydrated sub-builders, and
+`Update` includes them in the PUT body via `toRequest()`. No manual re-attachment is
+needed. The old reattach block in `network.vpntunnel.go` was deleted in the v1.0.0
+migration (TD-034).
 
 **VPN crypto enums split per direction** — v0.3.0 provides per-direction types
 (introduced in v0.2.0, carried forward): `aruba.IKEEncryption` / `aruba.ESPEncryption`,

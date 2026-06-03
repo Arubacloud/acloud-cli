@@ -32,6 +32,8 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-022 | SDK fully migrated from v0.1.x → v0.2.0 wrapper API across all families (#100–#110); bumped to v0.2.1 (#111) which resolved all four upstream papercuts (#282–#285: Job.WithEnabled omitempty, List pagination stubs, VPC.Get missing projectID backfill, projectsClientImpl.Delete missing error-body parse). v0.2.1 also added typed Ref builders (VPCRef, SubnetRef, etc.) and WithBillingPeriod/ReplaceNodePools setters — all adopted in #111. Bumped to v0.3.0 on branch `upgrade-sdk`: natural-language setter vocabulary (InProject, InVPC, RetaggedAs, BilledBy, HighlyAvailable(), Enabled()/Disabled()), URI segment casing aligned (securityGroups, securityRules, blockStorages, loadBalancers, keyPairs), both local vendor patches removed (securityGroups casing fix and List[T].Raw() JSON marshalability — now upstream in v0.3.0), single-import achieved for all non-test cmd/ files (escape hatch: container.kaas.go uses types.APIServerAccessProfileProperties until SDK provides a setter), output handlers now delegate to SDK's RawJSON()/RawYAML() via rawMarshaler interface (all 20 cmd files pass the wrapper, not `.Raw()`, to PrintOutput), and cross-resource reference flags refactored from `--<res>-uri` to `--<res>-id` using SDK Ref helpers (VPCRef, SubnetRef, SecurityGroupRef, ElasticIPRef). |
 | TD-032 | `rawHTTPer` interface and both fallback branches in `printJSON`/`printYAML` deleted from `cmd/root.go`. sdk-go v1.0.0 (released 2026-05-29) added `RawJSON()/RawYAML()` to `*aruba.Project`, so it now satisfies `rawMarshaler` directly. The `"net/http"` import and the `fakeRawHTTPer` test type also removed. `management.project.go` was already passing the wrapper directly to `PrintOutput` — no change there. Tests `TestPrintJSON/rawHTTPer_*` and `TestPrintYAML/rawHTTPer_*` deleted. |
 | TD-036 | sdk-go bumped from v0.3.0 → v1.0.0 (GA, released 2026-05-29) on branch `upgrade-sdk-v1`. Breaking changes in `pkg/types`: strict role-suffix naming (`*PropertiesResult`→`*PropertiesResponse`, bare `*List`→`*ListResponse`, `*Common`-suffixed nested types). Production code impact: 7 compile-error fixes in `container.containerregistry.go`, `container.kaas.go`, `management.project.go`, `network.elasticip.go`, `network.subnet.go`, `network.vpcpeeringroute.go`, `network.vpntunnel.go`. Test files: ~46 type-rename substitutions across 28 `_test.go` files. Completion functions migrated to wrapper accessors (`.ID()`, `.Name()`) in 14 cmd files, eliminating ~50 `.Raw().Metadata.ID/Name` reads. |
+| TD-034 | VPN tunnel update handler manual IKE/ESP/PSK reattach block removed from `cmd/network.vpntunnel.go`. sdk-go v1.0.0 `fromResponse` now fully rehydrates IKE/ESP/PSK into the `*VPNIKE`/`*VPNESP`/`*VPNPSK` wrapper fields exposed via `IKE()`/`ESP()`/`PSK()` accessors; `toRequest()` builds the PUT body from those fields. Closed #132. Residual: `redactVPNTunnelSecrets` still mutates `t.response.Properties.VPNClientSettingsCommon.PSK.Secret` directly because `RawJSON()` serializes `t.response`; upstream `RedactPSK()` mutator still needed (tracked in #132 comment). |
+| TD-035 | Subnet update DHCP preservation block migrated to wrapper accessors in `cmd/network.subnet.go`. `subnet.Type()` replaces `subnet.Raw().Properties.Type`; `subnet.DHCP()` replaces `.Raw().Properties.DHCP` with full `IsEnabled()`/`Routes()`/`DNS()` read access on `*SubnetDHCPCommon`. Zero `.Raw()` calls remain for this code path. Closed #133. |
 
 ---
 
@@ -122,36 +124,20 @@ Two residual `.Raw()` / `types.*` usages remain in production code after the v1.
 
 ---
 
-### TD-034 · VPN tunnel uses `.Raw()` for PSK redaction and IKE/ESP/PSK reattach on update
+### TD-034 · `redactVPNTunnelSecrets` still uses `.Raw()` for PSK.Secret mutation
 
-Two blocks in `cmd/network.vpntunnel.go` require direct raw-struct access:
+The `redactVPNTunnelSecrets` function in `cmd/network.vpntunnel.go` mutates
+`tunnel.Raw().Properties.VPNClientSettingsCommon.PSK.Secret = nil` to strip the secret
+before `-o json`/`-o yaml` output. This is necessary because `RawJSON()`/`RawYAML()`
+serialize `t.response` (the raw struct), not the wrapper state. The IKE/ESP/PSK
+reattach block was eliminated in the v1.0.0 migration (TD-034 resolved), but this
+single mutation site remains.
 
-1. **`redactVPNTunnelSecrets` (line ~145)** — mutates `tunnel.Raw().Properties.VPNClientSettingsCommon.PSK.Secret`
-   in place to strip the PSK secret before `-o json`/`-o yaml` output. sdk-go v1.0.0 provides
-   no wrapper-level mutator for secret redaction.
-2. **Update `RunE` (line ~582)** — reads `vpn.Raw().Properties.VPNClientSettingsCommon.*` to
-   reconstruct IKE/ESP/PSK sub-builders before calling `Update`, because `fromResponse` does
-   not rehydrate them. sdk-go v1.0.0 does not expose `IKE()` / `ESP()` / `PSK()` read accessors.
+**Fix (blocked on sdk-go):** Once sdk-go adds a `RedactPSK()` method (or a write-through
+mutator) on `*aruba.VPNTunnel` that zeros both the wrapper's PSK secret AND the
+corresponding field in the cached raw struct, remove the `.Raw()` call here.
 
-**Fix (blocked on sdk-go):** Once sdk-go exposes (a) a `RedactPSK()` or write-through mutator
-and (b) typed `IKE()`, `ESP()`, `PSK()` read accessors on `*aruba.VPNTunnel`, remove both
-blocks and replace with accessor calls.
-
-**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/132
-
----
-
-### TD-035 · Subnet update uses `.Raw()` for DHCP type and config preservation
-
-`cmd/network.subnet.go` (update `RunE`, line ~360) reads `subnet.Raw().Properties.Type`
-and `subnet.Raw().Properties.DHCP` to preserve existing DHCP routes/DNS when rebuilding
-the update payload. sdk-go v1.0.0 does not expose `Type()` or `DHCP()` wrapper accessors
-on `*aruba.Subnet`.
-
-**Fix (blocked on sdk-go):** Once sdk-go adds `Type()` and `DHCP()` (or equivalent) getters
-to `*aruba.Subnet`, remove the `.Raw()` reads and use the accessors.
-
-**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/133
+**Tracked in:** https://github.com/Arubacloud/acloud-cli/issues/132 (comment)
 
 ---
 
