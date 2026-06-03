@@ -214,7 +214,7 @@ Billing period: Hour (default), Month, or Year.`,
 			kaas.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if len(apiServerAuthorizedIPRanges) > 0 || apiServerEnablePrivateCluster {
-			// TECH_DEBT: TD-033 — types.KaaSAPIServerAccessProfilePropertiesRequest must be
+			// TECH_DEBT: TD-033 (#131) — types.KaaSAPIServerAccessProfilePropertiesRequest must be
 			// referenced directly because the SDK provides no aruba-level constructor for
 			// this type yet. Remove the types import from this file once sdk-go exposes
 			// aruba.NewAPIServerAccessProfile() or an equivalent fluent setter.

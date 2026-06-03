@@ -140,7 +140,7 @@ func init() {
 // via --output json|yaml. The API should not return the secret on read, but the
 // SDK schema declares the field (PSKSettingsCommon.Secret) — never trust a type that
 // can carry credentials.
-// TECH_DEBT: TD-034 — direct mutation of the raw struct via .Raw() is needed because
+// TECH_DEBT: TD-034 (#132) — direct mutation of the raw struct via .Raw() is needed because
 // sdk-go v1.0.0 provides no wrapper-level mutator for PSK.Secret redaction.
 // Remove once sdk-go exposes a RedactPSK() or similar mutator on *aruba.VPNTunnel.
 func redactVPNTunnelSecrets(tunnel *aruba.VPNTunnel) {
@@ -579,7 +579,7 @@ var vpntunnelUpdateCmd = &cobra.Command{
 
 		// Re-attach VPN client settings from the GET response so toRequest() includes
 		// them in the PUT body. The SDK's fromResponse does not restore IKE/ESP/PSK.
-		// TECH_DEBT: TD-034 — .Raw() is required here because sdk-go v1.0.0 does not
+		// TECH_DEBT: TD-034 (#132) — .Raw() is required here because sdk-go v1.0.0 does not
 		// rehydrate IKE/ESP/PSK sub-builders from the GET response. Remove once the SDK
 		// exposes these settings through wrapper accessors (e.g. IKE(), ESP(), PSK()).
 		if raw := vpn.Raw(); raw != nil && raw.Properties.VPNClientSettingsCommon != nil {

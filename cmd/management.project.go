@@ -203,8 +203,8 @@ var projectGetCmd = &cobra.Command{
 			if !p.UpdatedAt().IsZero() {
 				fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
 			}
-			// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0.
-			// TECH_DEBT: TD-033 — remove once sdk-go exposes CreatedBy()/UpdatedBy() on *aruba.Project.
+			// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0. TECH_DEBT: TD-033 (#131)
+			// See https://github.com/Arubacloud/acloud-cli/issues/131
 			if raw := p.Raw(); raw != nil {
 				if raw.Metadata.CreatedBy != nil {
 					fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)

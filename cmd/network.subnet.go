@@ -357,7 +357,7 @@ var subnetUpdateCmd = &cobra.Command{
 		}
 
 		// Update DHCP config for Advanced subnets.
-		// TECH_DEBT: TD-035 — .Raw() is required here because sdk-go v1.0.0 does not
+		// TECH_DEBT: TD-035 (#133) — .Raw() is required here because sdk-go v1.0.0 does not
 		// expose subnet Type or DHCP configuration through wrapper accessors. Remove
 		// once sdk-go adds Type(), DHCP() or equivalent getters on *aruba.Subnet.
 		if subnet.Raw().Properties.Type == aruba.SubnetTypeAdvanced {
