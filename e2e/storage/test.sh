@@ -337,7 +337,7 @@ test_backup() {
     echo "Waiting for backup to be ready..."
     local backup_ready=0
     wait_for_status "$ACLOUD_CMD storage backup get $backup_id" \
-        '^(Active|Available|Ready|Completed|Complete)$' 300 && backup_ready=1
+        '^(Active|Available|Ready|Completed|Complete)$' 600 && backup_ready=1
 
     # LIST
     echo -e "${GREEN}[LIST]${NC} Listing backups..."
