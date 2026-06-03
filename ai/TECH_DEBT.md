@@ -118,7 +118,7 @@ Two residual `.Raw()` / `types.*` usages remain in production code after the v1.
    because `*aruba.Project` in v1.0.0 does not expose `CreatedBy()` / `UpdatedBy()` wrapper
    accessors. Remove once sdk-go adds these accessors to the `Project` wrapper.
 
-**Filed as:** GitHub issue (see issue URL in code comment `// TECH_DEBT: TD-033`).
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/131
 
 ---
 
@@ -137,7 +137,7 @@ Two blocks in `cmd/network.vpntunnel.go` require direct raw-struct access:
 and (b) typed `IKE()`, `ESP()`, `PSK()` read accessors on `*aruba.VPNTunnel`, remove both
 blocks and replace with accessor calls.
 
-**Filed as:** GitHub issue (see issue URL in code comment `// TECH_DEBT: TD-034`).
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/132
 
 ---
 
@@ -151,7 +151,7 @@ on `*aruba.Subnet`.
 **Fix (blocked on sdk-go):** Once sdk-go adds `Type()` and `DHCP()` (or equivalent) getters
 to `*aruba.Subnet`, remove the `.Raw()` reads and use the accessors.
 
-**Filed as:** GitHub issue (see issue URL in code comment `// TECH_DEBT: TD-035`).
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/133
 
 ---
 
