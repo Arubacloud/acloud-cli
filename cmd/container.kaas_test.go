@@ -23,7 +23,7 @@ func TestKaaSListCmd(t *testing.T) {
 			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{
 					Values: []types.KaaSResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestKaaSListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"container", "kaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestKaaSListCmd(t *testing.T) {
 			args: []string{"container", "kaas", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kaas-001", "my-cluster"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{
 					Values: []types.KaaSResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -428,7 +428,7 @@ func TestKaaSListCmd_WithK8sVersionAndLocation(t *testing.T) {
 	verStr := string(types.KubernetesVersion1323)
 	state := types.StateActive
 	region := types.Region("IT-BG")
-	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{
 		Values: []types.KaaSResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -439,7 +439,7 @@ func TestKaaSListCmd_WithK8sVersionAndLocation(t *testing.T) {
 				Properties: types.KaaSPropertiesResponse{
 					KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -489,7 +489,7 @@ func TestKaaSGetCmd_FullDetail(t *testing.T) {
 		Properties: types.KaaSPropertiesResponse{
 			KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr2},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"container", "kaas", "get", "kaas-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -548,7 +548,7 @@ func TestKaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 		Properties: types.KaaSPropertiesResponse{
 			KubernetesVersion: types.KubernetesVersionInfoResponse{Value: &verStr},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"container", "kaas", "create",

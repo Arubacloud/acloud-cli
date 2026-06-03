@@ -30,6 +30,10 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-023 | Verbose error-body dump in `storage.backup` / `storage.restore` now uses `json.MarshalIndent(response.Error, …)`; generic `map[string]interface{}` unmarshal removed |
 | TD-024 | VPN crypto enums split per-direction in v0.2.0: the five unified slices (`vpnEncryptionAlgorithms`, `vpnHashAlgorithms`, `vpnDHGroups`, `vpnDPDActions`, `vpnPFSGroups`) are replaced with seven per-direction slices (`vpnIKEEncryptionAlgorithms`, `vpnESPEncryptionAlgorithms`, `vpnIKEHashAlgorithms`, `vpnESPHashAlgorithms`, `vpnIKEDHGroups`, `vpnIKEDPDActions`, `vpnESPPFSGroups`) built from `aruba.IKE*`/`aruba.ESP*` constants; each `--ike-*`/`--esp-*` flag is keyed to its correct family in the validation table; accepted string values are unchanged (CLI behaviour byte-identical) |
 | TD-022 | SDK fully migrated from v0.1.x → v0.2.0 wrapper API across all families (#100–#110); bumped to v0.2.1 (#111) which resolved all four upstream papercuts (#282–#285: Job.WithEnabled omitempty, List pagination stubs, VPC.Get missing projectID backfill, projectsClientImpl.Delete missing error-body parse). v0.2.1 also added typed Ref builders (VPCRef, SubnetRef, etc.) and WithBillingPeriod/ReplaceNodePools setters — all adopted in #111. Bumped to v0.3.0 on branch `upgrade-sdk`: natural-language setter vocabulary (InProject, InVPC, RetaggedAs, BilledBy, HighlyAvailable(), Enabled()/Disabled()), URI segment casing aligned (securityGroups, securityRules, blockStorages, loadBalancers, keyPairs), both local vendor patches removed (securityGroups casing fix and List[T].Raw() JSON marshalability — now upstream in v0.3.0), single-import achieved for all non-test cmd/ files (escape hatch: container.kaas.go uses types.APIServerAccessProfileProperties until SDK provides a setter), output handlers now delegate to SDK's RawJSON()/RawYAML() via rawMarshaler interface (all 20 cmd files pass the wrapper, not `.Raw()`, to PrintOutput), and cross-resource reference flags refactored from `--<res>-uri` to `--<res>-id` using SDK Ref helpers (VPCRef, SubnetRef, SecurityGroupRef, ElasticIPRef). |
+| TD-032 | `rawHTTPer` interface and both fallback branches in `printJSON`/`printYAML` deleted from `cmd/root.go`. sdk-go v1.0.0 (released 2026-05-29) added `RawJSON()/RawYAML()` to `*aruba.Project`, so it now satisfies `rawMarshaler` directly. The `"net/http"` import and the `fakeRawHTTPer` test type also removed. `management.project.go` was already passing the wrapper directly to `PrintOutput` — no change there. Tests `TestPrintJSON/rawHTTPer_*` and `TestPrintYAML/rawHTTPer_*` deleted. |
+| TD-036 | sdk-go bumped from v0.3.0 → v1.0.0 (GA, released 2026-05-29) on branch `upgrade-sdk-v1`. Breaking changes in `pkg/types`: strict role-suffix naming (`*PropertiesResult`→`*PropertiesResponse`, bare `*List`→`*ListResponse`, `*Common`-suffixed nested types). Production code impact: 7 compile-error fixes in `container.containerregistry.go`, `container.kaas.go`, `management.project.go`, `network.elasticip.go`, `network.subnet.go`, `network.vpcpeeringroute.go`, `network.vpntunnel.go`. Test files: ~46 type-rename substitutions across 28 `_test.go` files. Completion functions migrated to wrapper accessors (`.ID()`, `.Name()`) in 14 cmd files, eliminating ~50 `.Raw().Metadata.ID/Name` reads. |
+| TD-034 | VPN tunnel update handler manual IKE/ESP/PSK reattach block removed from `cmd/network.vpntunnel.go`. sdk-go v1.0.0 `fromResponse` now fully rehydrates IKE/ESP/PSK into the `*VPNIKE`/`*VPNESP`/`*VPNPSK` wrapper fields exposed via `IKE()`/`ESP()`/`PSK()` accessors; `toRequest()` builds the PUT body from those fields. Closed #132. Residual: `redactVPNTunnelSecrets` still mutates `t.response.Properties.VPNClientSettingsCommon.PSK.Secret` directly because `RawJSON()` serializes `t.response`; upstream `RedactPSK()` mutator still needed (tracked in #132 comment). |
+| TD-035 | Subnet update DHCP preservation block migrated to wrapper accessors in `cmd/network.subnet.go`. `subnet.Type()` replaces `subnet.Raw().Properties.Type`; `subnet.DHCP()` replaces `.Raw().Properties.DHCP` with full `IsEnabled()`/`Routes()`/`DNS()` read access on `*SubnetDHCPCommon`. Zero `.Raw()` calls remain for this code path. Closed #133. |
 
 ---
 
@@ -94,24 +98,46 @@ output blocks).
 `acloud schedule job create` always returns HTTP 400 because the payload contains no
 `steps[]`. The `--step-resource-uri` / `--step-action-uri` / `--step-http-verb` /
 `--step-name` flags are declared in `init()` but the `RunE` never reads them and the
-SDK builder has no `AddStep` / `WithStep` method in v0.3.0.
+SDK builder had no `AddStep` / `WithStep` method in v0.3.0. sdk-go v1.0.0 added
+`Job.Steps()` (a read accessor) but it is unclear whether a write/builder API was
+added. Check `aruba.Job` in v1.0.0 for `AddStep`/`WithStep` before implementing.
 
-**Fix (blocked on sdk-go):** Once the SDK exposes a step builder API, read the four
-flags and append the step before calling `Create`. Until then, the command should return
-a clear "not yet implemented" error rather than silently emitting an invalid payload.
+**Fix:** If v1.0.0 added a step builder, read the four flags and append the step before
+calling `Create`. Otherwise, the command should return a clear "not yet implemented"
+error rather than silently emitting an invalid payload.
 
 ---
 
-### TD-032 · Drop `rawHTTPer` branch from `printJSON` / `printYAML`
+### TD-033 · `container.kaas.go` and `management.project.go` residual `pkg/types` and `.Raw()`
 
-`cmd/root.go` contains a `rawHTTPer` fallback branch that calls `RawHTTP()` and
-re-parses the response body for `*aruba.Project`. This is the only remaining caller.
-Once sdk-go adds `RawJSON()` / `RawYAML()` to `*aruba.Project`, the branch and the
-`rawHTTPer` interface can be deleted.
+Two residual `.Raw()` / `types.*` usages remain in production code after the v1.0.0 migration:
 
-**Fix (blocked on sdk-go):** After the SDK ships the interface, remove the `rawHTTPer`
-type, delete its check block in `printJSON`/`printYAML`, and update `management.project.go`
-to pass the wrapper directly (same pattern as all other 20 cmd files).
+1. **`cmd/container.kaas.go:221`** — `types.KaaSAPIServerAccessProfilePropertiesRequest` must be
+   referenced directly because sdk-go v1.0.0 provides no `aruba`-level constructor for
+   API server access profile settings. Remove the `pkg/types` import once sdk-go exposes
+   `aruba.NewAPIServerAccessProfile()` or an equivalent fluent setter.
+2. **`cmd/management.project.go`** — `p.Raw().Metadata.CreatedBy` / `.UpdatedBy` are read
+   because `*aruba.Project` in v1.0.0 does not expose `CreatedBy()` / `UpdatedBy()` wrapper
+   accessors. Remove once sdk-go adds these accessors to the `Project` wrapper.
+
+**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/131
+
+---
+
+### TD-034 · `redactVPNTunnelSecrets` still uses `.Raw()` for PSK.Secret mutation
+
+The `redactVPNTunnelSecrets` function in `cmd/network.vpntunnel.go` mutates
+`tunnel.Raw().Properties.VPNClientSettingsCommon.PSK.Secret = nil` to strip the secret
+before `-o json`/`-o yaml` output. This is necessary because `RawJSON()`/`RawYAML()`
+serialize `t.response` (the raw struct), not the wrapper state. The IKE/ESP/PSK
+reattach block was eliminated in the v1.0.0 migration (TD-034 resolved), but this
+single mutation site remains.
+
+**Fix (blocked on sdk-go):** Once sdk-go adds a `RedactPSK()` method (or a write-through
+mutator) on `*aruba.VPNTunnel` that zeros both the wrapper's PSK secret AND the
+corresponding field in the cached raw struct, remove the `.Raw()` call here.
+
+**Tracked in:** https://github.com/Arubacloud/acloud-cli/issues/132 (comment)
 
 ---
 

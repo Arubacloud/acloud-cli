@@ -197,19 +197,20 @@ var projectGetCmd = &cobra.Command{
 
 			fmt.Printf("Default:         %t\n", p.IsDefault())
 
-			raw := p.Raw()
-			if raw != nil {
-				if raw.CreationDate != nil && !raw.CreationDate.IsZero() {
-					fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
+			if !p.CreatedAt().IsZero() {
+				fmt.Printf("Creation Date:   %s\n", p.CreatedAt().Format(DateLayout))
+			}
+			if !p.UpdatedAt().IsZero() {
+				fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
+			}
+			// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0. TECH_DEBT: TD-033 (#131)
+			// See https://github.com/Arubacloud/acloud-cli/issues/131
+			if raw := p.Raw(); raw != nil {
+				if raw.Metadata.CreatedBy != nil {
+					fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 				}
-				if raw.CreatedBy != nil {
-					fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
-				}
-				if raw.UpdateDate != nil && !raw.UpdateDate.IsZero() {
-					fmt.Printf("Update Date:     %s\n", raw.UpdateDate.Format(DateLayout))
-				}
-				if raw.UpdatedBy != nil {
-					fmt.Printf("Updated By:      %s\n", *raw.UpdatedBy)
+				if raw.Metadata.UpdatedBy != nil {
+					fmt.Printf("Updated By:      %s\n", *raw.Metadata.UpdatedBy)
 				}
 			}
 

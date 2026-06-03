@@ -79,12 +79,9 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	var completions []string
 	if list != nil {
 		for _, job := range list.Items() {
-			raw := job.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := job.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, job.Name()))
 			}
 		}
 	}

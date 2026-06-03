@@ -74,12 +74,9 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 	var completions []string
 	if list != nil {
 		for _, r := range list.Items() {
-			raw := r.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := r.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, r.Name()))
 			}
 		}
 	}

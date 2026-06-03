@@ -111,12 +111,9 @@ func completeKaaSID(cmd *cobra.Command, args []string, toComplete string) ([]str
 	var completions []string
 	if list != nil {
 		for _, k := range list.Items() {
-			raw := k.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := k.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, k.Name()))
 			}
 		}
 	}
@@ -217,7 +214,11 @@ Billing period: Hour (default), Month, or Year.`,
 			kaas.BilledBy(aruba.BillingPeriod(billingPeriod))
 		}
 		if len(apiServerAuthorizedIPRanges) > 0 || apiServerEnablePrivateCluster {
-			profile := &types.APIServerAccessProfileProperties{
+			// TECH_DEBT: TD-033 (#131) — types.KaaSAPIServerAccessProfilePropertiesRequest must be
+			// referenced directly because the SDK provides no aruba-level constructor for
+			// this type yet. Remove the types import from this file once sdk-go exposes
+			// aruba.NewAPIServerAccessProfile() or an equivalent fluent setter.
+			profile := &types.KaaSAPIServerAccessProfilePropertiesRequest{
 				EnablePrivateCluster: apiServerEnablePrivateCluster,
 			}
 			if len(apiServerAuthorizedIPRanges) > 0 {
@@ -233,31 +234,19 @@ Billing period: Hour (default), Month, or Year.`,
 			return fmt.Errorf("creating KaaS cluster: %w", apiErrFromV2(err))
 		}
 
-		if created != nil && created.Raw() != nil {
-			raw := created.Raw()
+		if created != nil && created.ID() != "" {
 			headers := []TableColumn{
 				{Header: "ID", Width: 30},
 				{Header: "NAME", Width: 40},
 				{Header: "VERSION", Width: 20},
 				{Header: "REGION", Width: 20},
 			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			nameVal := ""
-			if raw.Metadata.Name != nil {
-				nameVal = *raw.Metadata.Name
-			}
-			version := ""
-			if raw.Properties.KubernetesVersion.Value != nil {
-				version = string(*raw.Properties.KubernetesVersion.Value)
-			}
-			regionVal := ""
-			if raw.Metadata.LocationResponse != nil {
-				regionVal = string(raw.Metadata.LocationResponse.Value)
-			}
-			PrintOutput(created, headers, [][]string{{id, nameVal, version, regionVal}})
+			PrintOutput(created, headers, [][]string{{
+				created.ID(),
+				created.Name(),
+				string(created.KubernetesVersion()),
+				string(created.Region()),
+			}})
 		} else {
 			fmt.Println(msgCreatedAsync("KaaS cluster", name))
 		}
@@ -290,9 +279,7 @@ var kaasGetCmd = &cobra.Command{
 			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 		}
 
-		if kaas != nil && kaas.Raw() != nil {
-			raw := kaas.Raw()
-
+		if kaas != nil && kaas.ID() != "" {
 			format := resolveOutputFormat()
 			if format == OutputFormatJSON || format == OutputFormatYAML {
 				PrintOutput(kaas, nil, nil)
@@ -301,32 +288,29 @@ var kaasGetCmd = &cobra.Command{
 
 			fmt.Println("\nKaaS Cluster Details:")
 			fmt.Println("====================")
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+			fmt.Printf("ID:              %s\n", kaas.ID())
+			if kaas.URI() != "" {
+				fmt.Printf("URI:             %s\n", kaas.URI())
 			}
-			if raw.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+			fmt.Printf("Name:            %s\n", kaas.Name())
+			if r := kaas.Region(); r != "" {
+				fmt.Printf("Region:          %s\n", string(r))
 			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+			if v := kaas.KubernetesVersion(); v != "" {
+				fmt.Printf("Kubernetes Version: %s\n", string(v))
 			}
-			if raw.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+			if s := kaas.State(); s != "" {
+				fmt.Printf("Status:          %s\n", string(s))
 			}
-			if raw.Properties.KubernetesVersion.Value != nil {
-				fmt.Printf("Kubernetes Version: %s\n", string(*raw.Properties.KubernetesVersion.Value))
+			if !kaas.CreatedAt().IsZero() {
+				fmt.Printf("Creation Date:   %s\n", kaas.CreatedAt().Format(DateLayout))
 			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-			}
-			if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-			}
-			if raw.Metadata.CreatedBy != nil {
+			// CreatedBy has no wrapper accessor in sdk-go v1.0.0 — TECH_DEBT: TD-033
+			if raw := kaas.Raw(); raw != nil && raw.Metadata.CreatedBy != nil {
 				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+			if tags := kaas.Tags(); len(tags) > 0 {
+				fmt.Printf("Tags:            %v\n", tags)
 			} else {
 				fmt.Printf("Tags:            []\n")
 			}
@@ -371,31 +355,16 @@ var kaasListCmd = &cobra.Command{
 
 			var rows [][]string
 			for _, k := range list.Items() {
-				raw := k.Raw()
-				if raw == nil {
+				if k.ID() == "" {
 					continue
 				}
-				id := ""
-				if raw.Metadata.ID != nil {
-					id = *raw.Metadata.ID
-				}
-				name := ""
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				version := ""
-				if raw.Properties.KubernetesVersion.Value != nil {
-					version = string(*raw.Properties.KubernetesVersion.Value)
-				}
-				region := ""
-				if raw.Metadata.LocationResponse != nil {
-					region = string(raw.Metadata.LocationResponse.Value)
-				}
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{id, name, version, region, status})
+				rows = append(rows, []string{
+					k.ID(),
+					k.Name(),
+					string(k.KubernetesVersion()),
+					string(k.Region()),
+					string(k.State()),
+				})
 			}
 			PrintOutput(list, headers, rows)
 		} else {
@@ -429,7 +398,7 @@ var kaasUpdateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 		}
-		if kaas == nil || kaas.Raw() == nil {
+		if kaas == nil || kaas.ID() == "" {
 			return fmt.Errorf("KaaS cluster not found")
 		}
 
@@ -482,17 +451,12 @@ var kaasUpdateCmd = &cobra.Command{
 			return fmt.Errorf("updating KaaS cluster: %w", apiErrFromV2(err))
 		}
 
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
+		if updated != nil && updated.ID() != "" {
 			fmt.Printf("\n%s\n", msgUpdated("KaaS cluster", kaasID))
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+			fmt.Printf("ID:      %s\n", updated.ID())
+			fmt.Printf("Name:    %s\n", updated.Name())
+			if tags := updated.Tags(); len(tags) > 0 {
+				fmt.Printf("Tags:    %v\n", tags)
 			}
 		} else {
 			fmt.Println(msgUpdatedAsync("KaaS cluster", kaasID))
@@ -577,7 +541,7 @@ var kaasConnectCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 		}
-		if kaas == nil || kaas.Raw() == nil {
+		if kaas == nil || kaas.ID() == "" {
 			return fmt.Errorf("KaaS cluster not found")
 		}
 
@@ -600,8 +564,8 @@ var kaasConnectCmd = &cobra.Command{
 		}
 
 		clusterName := kaasID
-		if kaas.Raw().Metadata.Name != nil {
-			clusterName = *kaas.Raw().Metadata.Name
+		if n := kaas.Name(); n != "" {
+			clusterName = n
 		}
 
 		kubeconfigFile := filepath.Join(kubeDir, clusterName)

@@ -22,7 +22,7 @@ func TestDBaaSUserListCmd(t *testing.T) {
 			name: "success with results",
 			args: []string{"database", "dbaas", "user", "list", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.DatabaseUserListResponse{
 					Values: []types.UserResponse{
 						{Username: "admin"},
 					},
@@ -38,14 +38,14 @@ func TestDBaaSUserListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"database", "dbaas", "user", "list", "dbaas-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.DatabaseUserListResponse{}))
 			},
 		},
 		{
 			name: "--output json emits valid JSON",
 			args: []string{"database", "dbaas", "user", "list", "dbaas-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.DatabaseUserListResponse{
 					Values: []types.UserResponse{
 						{Username: "admin"},
 					},
@@ -394,7 +394,7 @@ func TestDBaaSUserListCmd_AllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	createdBy := "user@example.com"
 	ts := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.UserList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/users", jsonResponse(200, types.DatabaseUserListResponse{
 		Values: []types.UserResponse{
 			{Username: "admin", CreatedBy: &createdBy, CreationDate: &ts},
 		},

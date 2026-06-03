@@ -27,11 +27,11 @@ func TestSnapshotListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "snap-001", "my-snapshot"
 				volURI := snapshotVolURI
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotListResponse{
 					Values: []types.SnapshotResponse{
 						{
 							Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
-							Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfo{URI: &volURI}},
+							Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfoResponse{URI: &volURI}},
 						},
 					},
 				}))
@@ -46,7 +46,7 @@ func TestSnapshotListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"storage", "snapshot", "list", "--project-id", "proj-123", "--volume-id", snapshotVolID},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotListResponse{}))
 			},
 		},
 		{
@@ -55,11 +55,11 @@ func TestSnapshotListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "snap-001", "my-snapshot"
 				volURI := snapshotVolURI
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotListResponse{
 					Values: []types.SnapshotResponse{
 						{
 							Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
-							Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfo{URI: &volURI}},
+							Properties: types.SnapshotPropertiesResponse{Volume: &types.VolumeInfoResponse{URI: &volURI}},
 						},
 					},
 				}))
@@ -420,7 +420,7 @@ func TestSnapshotCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"storage", "snapshot", "create",
@@ -440,7 +440,7 @@ func TestSnapshotListCmd_WithLocationAndStatus(t *testing.T) {
 	region := types.Region("IT-BG")
 	state := types.StateActive
 	volURI := "/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-001"
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/snapshots", jsonResponse(200, types.SnapshotListResponse{
 		Values: []types.SnapshotResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -449,9 +449,9 @@ func TestSnapshotListCmd_WithLocationAndStatus(t *testing.T) {
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
 				Properties: types.SnapshotPropertiesResponse{
-					Volume: &types.VolumeInfo{URI: &volURI},
+					Volume: &types.VolumeInfoResponse{URI: &volURI},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -498,9 +498,9 @@ func TestSnapshotGetCmd_FullDetail(t *testing.T) {
 		},
 		Properties: types.SnapshotPropertiesResponse{
 			SizeGB: &sizeGB,
-			Volume: &types.VolumeInfo{URI: &volURI},
+			Volume: &types.VolumeInfoResponse{URI: &volURI},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"storage", "snapshot", "get", "snap-001", "--project-id", "proj-123"})
 	if err != nil {

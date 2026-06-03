@@ -101,9 +101,10 @@ Two groups: stdlib, then external. Each group is alphabetically ordered.
 
 **Single-import policy** — non-test `cmd/` files must only import
 `github.com/Arubacloud/sdk-go/pkg/aruba`. Importing `pkg/types` directly from
-non-test cmd files is not permitted. The only documented escape hatch in v0.3.0 is
-`container.kaas.go`, which must reference `types.APIServerAccessProfileProperties`
-until the SDK provides a convenience setter for that field.
+non-test cmd files is not permitted. The one documented exception (TD-033) is
+`container.kaas.go`, which references `types.KaaSAPIServerAccessProfilePropertiesRequest`
+until sdk-go provides an `aruba`-level constructor for that type. All `pkg/types`
+references in non-test cmd files must be annotated with `// TECH_DEBT: TD-033`.
 
 ---
 
@@ -199,7 +200,7 @@ Never dereference a response pointer without a nil guard.
 
 ## Standard Command Bodies
 
-SDK v0.3.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
+SDK v1.0.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
 typed client whose CRUD methods take/return hydrated wrapper types (`*aruba.<T>`,
 `*aruba.List[*aruba.<T>]`) rather than raw request/response structs. Non-2xx
 responses surface as `*aruba.HTTPError` in the error return — there is no separate
@@ -209,8 +210,9 @@ a verb prefix for all error sites.
 **Wrapper note:** `*aruba.<T>` wrapper types carry only unexported fields and are not
 directly JSON-marshalable via `encoding/json`. For single-resource rendering and
 `-o json`/`-o yaml` payloads, `PrintOutput` delegates to the SDK's `RawJSON()`/
-`RawYAML()` methods (via the local `rawMarshaler` interface). Only `*aruba.Project`
-falls back to `RawHTTP()` re-parsing (via `rawHTTPer`) — see `management.project.go`.
+`RawYAML()` methods (via the local `rawMarshaler` interface). All wrapper types
+including `*aruba.Project` satisfy `rawMarshaler` in sdk-go v1.0.0. The old
+`rawHTTPer` fallback was deleted (TD-032 / TD-036).
 For project-scoped resources, build the create wrapper with `.InProject(projectRef(projectID))`
 and use a file-local `<resource>Ref(projectID, id)` helper (encoding both project +
 resource IDs in the URI) for `Get` and `Delete`.
@@ -372,13 +374,13 @@ Table rows are still built from `raw.*` fields (via `.Raw()`) for now — the SD
 not yet expose every field through wrapper accessors. Only the `PrintOutput` first arg
 changes.
 
-Two intentional exceptions:
-- **`*aruba.Project`** — lacks `RawJSON()/RawYAML()` in v0.3.0; `management.project.go`
-  uses `RawHTTP()` re-parse via `rawHTTPer`. Do not change this until the SDK ships the
-  interface.
+One intentional exception:
 - **Anonymous struct delete results** — `PrintOutput(struct{ID, Status string}{...}, ...)`
   is intentional; these small structs fall through to `json.MarshalIndent` which is fine
   for the trimmed delete-confirmation shape.
+
+Note: the `*aruba.Project` / `rawHTTPer` exception existed in v0.3.0 and was removed
+in the sdk-go v1.0.0 migration (TD-032). `*aruba.Project` now satisfies `rawMarshaler`.
 
 ---
 
@@ -390,7 +392,7 @@ Two intentional exceptions:
 - Skip live-API tests with `ACLOUD_TEST_SKIP_CLIENT=true`.
 - Table-driven tests are preferred for multiple input/output cases.
 
-### Test client — httptest harness (v0.2.0+, current v0.3.0)
+### Test client — httptest harness (v0.2.0+, current v1.0.0)
 
 Since SDK v0.2.0, wrapper types (`aruba.CloudServer`, `aruba.VPC`, …) carry unexported internal state that can only be populated by the SDK's own adapters. Hand-built fake structs cannot produce a hydrated wrapper with real `.ID()`/`.State()`/`List[T]` values.
 
@@ -603,7 +605,7 @@ j := aruba.NewJob().
     Named(name).
     InRegion(aruba.Region(region)).
     OfType(aruba.JobType(jobType)).
-    Enabled()  // or .Disabled() — replaces WithEnabled(bool) in v0.3.0
+    Enabled()  // or .Disabled() — explicit state setters (since v0.3.0)
 
 if cronExpr != "" {
     endTime, _ := time.Parse(time.RFC3339, endTimeStr)
@@ -632,11 +634,11 @@ if err != nil { return fmt.Errorf("getting schedule job: %w", apiErrFromV2(err))
 
 if name != "" { cur.Named(name) }
 if enabledSet {
-    if enabled { cur.Enabled() } else { cur.Disabled() }  // v0.3.0: replaces WithEnabled(bool)
+    if enabled { cur.Enabled() } else { cur.Disabled() }  // explicit state setters (since v0.3.0)
 }
 if cmd.Flags().Changed("tags") { cur.RetaggedAs(tags...) }
 
 updated, err := client.FromSchedule().Jobs().Update(ctx, cur)
 ```
 
-The `omitempty` issue that affected `WithEnabled(false)` in earlier SDK versions is resolved in v0.3.0 via the explicit `Enabled()`/`Disabled()` setters.
+The `omitempty` issue that affected `WithEnabled(false)` in earlier SDK versions was resolved in v0.3.0 via the explicit `Enabled()`/`Disabled()` setters.

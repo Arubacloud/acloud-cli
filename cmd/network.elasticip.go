@@ -64,12 +64,9 @@ func completeElasticIPID(cmd *cobra.Command, args []string, toComplete string) (
 	var completions []string
 	if list != nil {
 		for _, eip := range list.Items() {
-			raw := eip.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := eip.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, eip.Name()))
 			}
 		}
 	}
@@ -260,8 +257,8 @@ var elasticipGetCmd = &cobra.Command{
 			if raw.Properties.Address != nil {
 				fmt.Printf("Address:         %s\n", *raw.Properties.Address)
 			}
-			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlan.BillingPeriod)
+			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
 			}
 			fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
 			if raw.Metadata.CreationDate != nil {

@@ -24,7 +24,7 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "route-001", "my-route"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
-					jsonResponse(200, types.VPCPeeringRouteList{
+					jsonResponse(200, types.VPCPeeringRouteListResponse{
 						Values: []types.VPCPeeringRouteResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -41,7 +41,7 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			args: []string{"network", "vpcpeeringroute", "list", "vpc-001", "peer-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
-					jsonResponse(200, types.VPCPeeringRouteList{}))
+					jsonResponse(200, types.VPCPeeringRouteListResponse{}))
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestVPCPeeringRouteListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "route-001", "my-route"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes",
-					jsonResponse(200, types.VPCPeeringRouteList{
+					jsonResponse(200, types.VPCPeeringRouteListResponse{
 						Values: []types.VPCPeeringRouteResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -265,7 +265,7 @@ func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					jsonResponse(200, types.VPCPeeringRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "route-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
@@ -294,7 +294,7 @@ func TestVPCPeeringRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					jsonResponse(200, types.VPCPeeringRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes/route-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -407,16 +407,16 @@ func TestVPCPeeringRouteListCmd_WithProperties(t *testing.T) {
 	id, name := "route-001", "my-route"
 	state := types.StateActive
 	period := types.BillingPeriodHour
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001/vpcPeeringRoutes", jsonResponse(200, types.VPCPeeringRouteListResponse{
 		Values: []types.VPCPeeringRouteResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 				Properties: types.VPCPeeringRoutePropertiesResponse{
 					LocalNetworkAddress:  "10.0.0.0/24",
 					RemoteNetworkAddress: "10.1.0.0/24",
-					BillingPlan:          &types.BillingPlan{BillingPeriod: &period},
+					BillingPlanCommon:    &types.BillingPlanCommon{BillingPeriod: &period},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -449,9 +449,9 @@ func TestVPCPeeringRouteGetCmd_FullDetail(t *testing.T) {
 		Properties: types.VPCPeeringRoutePropertiesResponse{
 			LocalNetworkAddress:  "10.0.0.0/24",
 			RemoteNetworkAddress: "10.1.0.0/24",
-			BillingPlan:          &types.BillingPlan{BillingPeriod: &period},
+			BillingPlanCommon:    &types.BillingPlanCommon{BillingPeriod: &period},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeeringroute", "get", "vpc-001", "peer-001", "route-001", "--project-id", "proj-123"})
 	if err != nil {

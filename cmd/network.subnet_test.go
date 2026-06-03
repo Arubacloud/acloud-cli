@@ -23,7 +23,7 @@ func TestSubnetListCmd(t *testing.T) {
 			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetListResponse{
 					Values: []types.SubnetResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestSubnetListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestSubnetListCmd(t *testing.T) {
 			args: []string{"network", "subnet", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetListResponse{
 					Values: []types.SubnetResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -236,7 +236,7 @@ func TestSubnetUpdateCmd(t *testing.T) {
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
@@ -272,7 +272,7 @@ func TestSubnetUpdateCmd(t *testing.T) {
 				region := types.Region("IT-BG")
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, LocationResponse: &types.LocationResponse{Value: region}},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -410,9 +410,9 @@ func TestSubnetGetCmd_WithCreationDateAndTags(t *testing.T) {
 		},
 		Properties: types.SubnetPropertiesResponse{
 			Type:    types.SubnetTypeAdvanced,
-			Network: &types.SubnetNetwork{Address: "10.1.0.0/24"},
+			Network: &types.SubnetNetworkCommon{Address: "10.1.0.0/24"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "subnet", "get", "vpc-001", "sub-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -440,7 +440,7 @@ func TestSubnetUpdateCmd_WithTagsAndCIDR(t *testing.T) {
 				Name:             &name,
 				LocationResponse: &types.LocationResponse{Value: region},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}))
 		updName := "sub-001"
 		srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
@@ -467,12 +467,12 @@ func TestSubnetUpdateCmd_WithTagsAndCIDR(t *testing.T) {
 				Name:             &name,
 				LocationResponse: &types.LocationResponse{Value: region},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}))
 		updName := "sub-001"
 		srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 			Metadata:   types.ResourceMetadataResponse{ID: &updName, Name: &name},
-			Properties: types.SubnetPropertiesResponse{Network: &types.SubnetNetwork{Address: "10.1.0.0/24"}},
+			Properties: types.SubnetPropertiesResponse{Network: &types.SubnetNetworkCommon{Address: "10.1.0.0/24"}},
 		}))
 		out, err := runCmdCapture(srv.Client(), []string{
 			"network", "subnet", "update", "vpc-001", "sub-001",
@@ -514,7 +514,7 @@ func TestSubnetListCmd_WithLocationAndStatus(t *testing.T) {
 	id, name := "sub-001", "my-subnet"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetListResponse{
 		Values: []types.SubnetResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -522,7 +522,7 @@ func TestSubnetListCmd_WithLocationAndStatus(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -546,7 +546,7 @@ func TestSubnetGetCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "subnet", "get", "vpc-001", "sub-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -572,14 +572,14 @@ func TestSubnetGetCmd_WithDHCPAndNetwork(t *testing.T) {
 		},
 		Properties: types.SubnetPropertiesResponse{
 			Type:    types.SubnetTypeAdvanced,
-			Network: &types.SubnetNetwork{Address: "10.0.1.0/24"},
-			DHCP: &types.SubnetDHCP{
+			Network: &types.SubnetNetworkCommon{Address: "10.0.1.0/24"},
+			DHCP: &types.SubnetDHCPCommon{
 				Enabled: true,
-				Routes:  []types.SubnetDHCPRoute{{Address: "10.0.0.0/8", Gateway: "10.0.1.1"}},
+				Routes:  []types.SubnetDHCPRouteCommon{{Address: "10.0.0.0/8", Gateway: "10.0.1.1"}},
 				DNS:     []string{"8.8.8.8", "8.8.4.4"},
 			},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "subnet", "get", "vpc-001", "sub-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -598,22 +598,22 @@ func TestSubnetUpdateCmd_WithDHCP(t *testing.T) {
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 		Properties: types.SubnetPropertiesResponse{
 			Type:    types.SubnetTypeAdvanced,
-			Network: &types.SubnetNetwork{Address: "10.0.1.0/24"},
-			DHCP: &types.SubnetDHCP{
+			Network: &types.SubnetNetworkCommon{Address: "10.0.1.0/24"},
+			DHCP: &types.SubnetDHCPCommon{
 				Enabled: true,
-				Routes:  []types.SubnetDHCPRoute{{Address: "10.0.0.0/8", Gateway: "10.0.1.1"}},
+				Routes:  []types.SubnetDHCPRouteCommon{{Address: "10.0.0.0/8", Gateway: "10.0.1.1"}},
 				DNS:     []string{"8.8.8.8"},
 			},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	updID, updName := "sub-001", "my-subnet"
 	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-001", jsonResponse(200, types.SubnetResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &updID, Name: &updName},
 		Properties: types.SubnetPropertiesResponse{
-			Network: &types.SubnetNetwork{Address: "10.0.1.0/24"},
+			Network: &types.SubnetNetworkCommon{Address: "10.0.1.0/24"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{
 		"network", "subnet", "update", "vpc-001", "sub-001",

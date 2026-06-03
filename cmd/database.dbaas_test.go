@@ -22,7 +22,7 @@ func TestDBaaSListCmd(t *testing.T) {
 			args: []string{"database", "dbaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-001", "my-dbaas"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
 					Values: []types.DBaaSResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -38,7 +38,7 @@ func TestDBaaSListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"database", "dbaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestDBaaSListCmd(t *testing.T) {
 			args: []string{"database", "dbaas", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-001", "my-dbaas"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
 					Values: []types.DBaaSResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -66,7 +66,7 @@ func TestDBaaSListCmd(t *testing.T) {
 				id, name := "dbaas-rich", "rich-dbaas"
 				engineType, engineVersion := "postgresql", "14"
 				flavorName := "db.small"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
 					Values: []types.DBaaSResponse{
 						{
 							Metadata: types.ResourceMetadataResponse{
@@ -78,7 +78,7 @@ func TestDBaaSListCmd(t *testing.T) {
 								Engine: &types.DBaaSEngineResponse{Type: &engineType, Version: &engineVersion},
 								Flavor: &types.DBaaSFlavorResponse{Name: &flavorName},
 							},
-							Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+							Status: types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 						},
 					},
 				}))
@@ -174,7 +174,7 @@ func TestDBaaSGetCmd(t *testing.T) {
 						},
 						Flavor: &types.DBaaSFlavorResponse{Name: &flavorName},
 					},
-					Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+					Status: types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
@@ -502,7 +502,7 @@ func TestDBaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"database", "dbaas", "create",
@@ -524,7 +524,7 @@ func TestDBaaSListCmd_WithLocationAndStatus(t *testing.T) {
 	id, name := "dbaas-001", "my-db"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
 		Values: []types.DBaaSResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -532,7 +532,7 @@ func TestDBaaSListCmd_WithLocationAndStatus(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))

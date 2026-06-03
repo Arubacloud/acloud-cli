@@ -24,7 +24,7 @@ func TestVPNRouteListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "route-001", "my-route"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
-					jsonResponse(200, types.VPNRouteList{
+					jsonResponse(200, types.VPNRouteListResponse{
 						Values: []types.VPNRouteResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -41,7 +41,7 @@ func TestVPNRouteListCmd(t *testing.T) {
 			args: []string{"network", "vpnroute", "list", "vpn-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
-					jsonResponse(200, types.VPNRouteList{}))
+					jsonResponse(200, types.VPNRouteListResponse{}))
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestVPNRouteListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "route-001", "my-route"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
-					jsonResponse(200, types.VPNRouteList{
+					jsonResponse(200, types.VPNRouteListResponse{
 						Values: []types.VPNRouteResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -264,7 +264,7 @@ func TestVPNRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001",
 					jsonResponse(200, types.VPNRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "route-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001",
@@ -293,7 +293,7 @@ func TestVPNRouteUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001",
 					jsonResponse(200, types.VPNRouteResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -407,7 +407,7 @@ func TestVPNRouteCreateCmd_WithStatus(t *testing.T) {
 	state := types.StateActive
 	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"network", "vpnroute", "create", "vpn-001",
@@ -426,11 +426,11 @@ func TestVPNRouteListCmd_WithStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "route-001", "my-route"
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes", jsonResponse(200, types.VPNRouteListResponse{
 		Values: []types.VPNRouteResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-				Status:   types.ResourceStatus{State: &state},
+				Status:   types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -464,7 +464,7 @@ func TestVPNRouteGetCmd_FullDetail(t *testing.T) {
 		Properties: types.VPNRoutePropertiesResponse{
 			OnPremSubnet: "192.168.1.0/24",
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "vpnroute", "get", "vpn-001", "route-001", "--project-id", "proj-123"})
 	if err != nil {

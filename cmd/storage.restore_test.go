@@ -139,7 +139,7 @@ func TestStorageRestoreListCmd(t *testing.T) {
 			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rst-001", "my-restore"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreListResponse{
 					Values: []types.StorageRestoreResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -155,7 +155,7 @@ func TestStorageRestoreListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreListResponse{}))
 			},
 		},
 		{
@@ -163,7 +163,7 @@ func TestStorageRestoreListCmd(t *testing.T) {
 			args: []string{"storage", "restore", "list", "bkp-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "rst-001", "my-restore"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreListResponse{
 					Values: []types.StorageRestoreResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -421,9 +421,9 @@ func TestStorageRestoreGetCmd_FullDetail(t *testing.T) {
 					CreatedBy:        &createdBy,
 					Tags:             []string{"env=test"},
 				},
-				Status: types.ResourceStatus{State: &state},
-				Properties: types.StorageRestorePropertiesResult{
-					Destination: types.ReferenceResource{URI: destURI},
+				Status: types.ResourceStatusResponse{State: &state},
+				Properties: types.StorageRestorePropertiesResponse{
+					Destination: types.ReferenceResourceCommon{URI: destURI},
 				},
 			}))
 		out, err := runCmdCapture(srv.Client(), []string{"storage", "restore", "get", "bkp-001", "rst-001", "--project-id", "proj-123"})
@@ -468,14 +468,14 @@ func TestStorageRestoreListCmd_AllOptionalFields(t *testing.T) {
 	id, name := "rst-001", "my-restore"
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores",
-		jsonResponse(200, types.StorageRestoreList{
+		jsonResponse(200, types.StorageRestoreListResponse{
 			Values: []types.StorageRestoreResponse{
 				{
 					Metadata: types.ResourceMetadataResponse{
 						ID:   &id,
 						Name: &name,
 					},
-					Status: types.ResourceStatus{State: &state},
+					Status: types.ResourceStatusResponse{State: &state},
 				},
 			},
 		}))
@@ -505,7 +505,7 @@ func TestStorageRestoreCreateCmd_WithStatus(t *testing.T) {
 	}))
 	srv.OnPost("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"storage", "restore", "bkp-001", "vol-001",
@@ -522,11 +522,11 @@ func TestStorageRestoreListCmd_WithStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "restore-001", "my-restore"
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups/bkp-001/restores", jsonResponse(200, types.StorageRestoreListResponse{
 		Values: []types.StorageRestoreResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-				Status:   types.ResourceStatus{State: &state},
+				Status:   types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -557,7 +557,7 @@ func TestStorageRestoreGetCmd_WithAllOptionals(t *testing.T) {
 			CreatedBy:        &createdBy,
 			Tags:             []string{"env=test"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"storage", "restore", "get", "bkp-001", "restore-001", "--project-id", "proj-123"})
 	if err != nil {

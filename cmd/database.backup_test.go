@@ -23,7 +23,7 @@ func TestDBBackupListCmd(t *testing.T) {
 			args: []string{"database", "backup", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-001", "my-backup"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
 					Values: []types.BackupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestDBBackupListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"database", "backup", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestDBBackupListCmd(t *testing.T) {
 			args: []string{"database", "backup", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "bkp-001", "my-backup"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
 					Values: []types.BackupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -314,7 +314,7 @@ func TestDBBackupListCmd_AllOptionalFields(t *testing.T) {
 	id, name := "bkp-001", "my-backup"
 	state := types.StateActive
 	region := types.Region("IT-BG")
-	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
 		Values: []types.BackupResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -322,7 +322,7 @@ func TestDBBackupListCmd_AllOptionalFields(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -361,7 +361,7 @@ func TestDBBackupGetCmd_AllOptionalFields(t *testing.T) {
 				CreatedBy:        &createdBy,
 				Tags:             []string{"env=test"},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}
 	}
 

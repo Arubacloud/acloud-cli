@@ -23,7 +23,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
 					Values: []types.SecurityGroupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestSecurityGroupListCmd(t *testing.T) {
 			args: []string{"network", "securitygroup", "list", "vpc-001", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
 					Values: []types.SecurityGroupResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -235,7 +235,7 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
@@ -270,7 +270,7 @@ func TestSecurityGroupUpdateCmd(t *testing.T) {
 				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", jsonResponse(200, types.SecurityGroupResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -369,7 +369,7 @@ func TestSecurityGroupListCmd_AllOptionalFields(t *testing.T) {
 	id, name := "sg-001", "my-sg"
 	state := types.StateActive
 	region := types.Region("IT-BG")
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
 		Values: []types.SecurityGroupResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -377,7 +377,7 @@ func TestSecurityGroupListCmd_AllOptionalFields(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -415,7 +415,7 @@ func TestSecurityGroupGetCmd_AllOptionalFields(t *testing.T) {
 				CreatedBy:        &createdBy,
 				Tags:             []string{"env=test"},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}
 	}
 
@@ -469,7 +469,7 @@ func TestSecurityGroupCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"network", "securitygroup", "create", "vpc-001",
@@ -500,7 +500,7 @@ func TestSecurityGroupGetCmd_FullDetail(t *testing.T) {
 			CreatedBy:        &createdBy,
 			Tags:             []string{"env=test"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "securitygroup", "get", "vpc-001", "sg-001", "--project-id", "proj-123"})
 	if err != nil {

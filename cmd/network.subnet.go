@@ -118,7 +118,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
 			for _, routeStr := range dhcpRoutes {
 				parts := splitRouteString(routeStr)
 				if len(parts) == 2 {
-					dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
+					dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: parts[0], Gateway: parts[1]})
 				} else {
 					fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 				}
@@ -338,11 +338,11 @@ var subnetUpdateCmd = &cobra.Command{
 		defer cancel()
 
 		subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
-		if err != nil || subnet == nil || subnet.Raw() == nil {
+		if err != nil || subnet == nil || subnet.ID() == "" {
 			return fmt.Errorf("fetching current subnet: %w", apiErrFromV2(err))
 		}
 
-		if subnet.Raw().Status.State != nil && *subnet.Raw().Status.State == StateInCreation {
+		if subnet.State() == StateInCreation {
 			return fmt.Errorf("cannot update subnet while it is in 'InCreation' state. Please wait until the subnet is fully created")
 		}
 
@@ -356,13 +356,14 @@ var subnetUpdateCmd = &cobra.Command{
 			subnet.WithCIDR(cidr)
 		}
 
-		// Update DHCP config for Advanced subnets
-		if subnet.Raw().Properties.Type == aruba.SubnetTypeAdvanced {
-			currentDHCP := subnet.Raw().Properties.DHCP
+		// Update DHCP config for Advanced subnets.
+		// sdk-go v1.0.0 exposes Type() and DHCP() accessors (closes #133 / TD-035).
+		if subnet.Type() == aruba.SubnetTypeAdvanced {
+			currentDHCP := subnet.DHCP()
 			if cmd.Flags().Changed("dhcp-enabled") || len(dhcpRoutes) > 0 || len(dhcpDNS) > 0 {
 				dhcp := aruba.NewSubnetDHCP()
 				// Preserve existing enabled state
-				if (currentDHCP != nil && currentDHCP.Enabled) || dhcpEnabled {
+				if (currentDHCP != nil && currentDHCP.IsEnabled()) || dhcpEnabled {
 					dhcp = dhcp.Enabled()
 				}
 				// Preserve existing routes unless new ones provided
@@ -370,21 +371,21 @@ var subnetUpdateCmd = &cobra.Command{
 					for _, routeStr := range dhcpRoutes {
 						parts := splitRouteString(routeStr)
 						if len(parts) == 2 {
-							dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: parts[0], Gateway: parts[1]})
+							dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: parts[0], Gateway: parts[1]})
 						} else {
 							fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 						}
 					}
 				} else if currentDHCP != nil {
-					for _, r := range currentDHCP.Routes {
-						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRoute{Address: r.Address, Gateway: r.Gateway})
+					for _, r := range currentDHCP.Routes() {
+						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: r.Address, Gateway: r.Gateway})
 					}
 				}
 				// Preserve existing DNS unless new ones provided
 				if len(dhcpDNS) > 0 {
 					dhcp = dhcp.WithDNSServers(dhcpDNS...)
-				} else if currentDHCP != nil && len(currentDHCP.DNS) > 0 {
-					dhcp = dhcp.WithDNSServers(currentDHCP.DNS...)
+				} else if currentDHCP != nil && len(currentDHCP.DNS()) > 0 {
+					dhcp = dhcp.WithDNSServers(currentDHCP.DNS()...)
 				}
 				subnet.WithDHCP(dhcp)
 			}

@@ -83,12 +83,9 @@ func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete str
 	var completions []string
 	if list != nil {
 		for _, route := range list.Items() {
-			raw := route.Raw()
-			if raw != nil && raw.Metadata.ID != nil && raw.Metadata.Name != nil {
-				id := *raw.Metadata.ID
-				if toComplete == "" || strings.HasPrefix(id, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", id, *raw.Metadata.Name))
-				}
+			id := route.ID()
+			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, route.Name()))
 			}
 		}
 	}
@@ -246,8 +243,8 @@ var vpcpeeringrouteGetCmd = &cobra.Command{
 			}
 			fmt.Printf("Local Network:    %s\n", raw.Properties.LocalNetworkAddress)
 			fmt.Printf("Remote Network:   %s\n", raw.Properties.RemoteNetworkAddress)
-			if raw.Properties.BillingPlan != nil && raw.Properties.BillingPlan.BillingPeriod != nil {
-				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlan.BillingPeriod)
+			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+				fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
 			}
 			if len(raw.Metadata.Tags) > 0 {
 				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)

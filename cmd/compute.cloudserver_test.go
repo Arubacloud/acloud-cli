@@ -23,7 +23,7 @@ func TestCloudServerListCmd(t *testing.T) {
 			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{
 					Values: []types.CloudServerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestCloudServerListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestCloudServerListCmd(t *testing.T) {
 			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{
 					Values: []types.CloudServerResponse{
 						{Metadata: types.ResourceMetadataResponse{Name: &name}},
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
@@ -60,7 +60,7 @@ func TestCloudServerListCmd(t *testing.T) {
 			args: []string{"compute", "cloudserver", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "cs-001", "my-server"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{
 					Values: []types.CloudServerResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -553,7 +553,7 @@ func TestCloudServerSetPasswordCmd(t *testing.T) {
 func TestCompleteCloudServerID(t *testing.T) {
 	id, name := "cs-001", "test-server"
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{
 		Values: []types.CloudServerResponse{
 			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 		},
@@ -645,7 +645,7 @@ func TestCloudServerCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Properties: types.CloudServerPropertiesResult{
+		Properties: types.CloudServerPropertiesResponse{
 			Flavor: types.CloudServerFlavorResponse{
 				Name: types.CloudServerFlavor("my-flavor"),
 				CPU:  2,
@@ -653,7 +653,7 @@ func TestCloudServerCreateCmd_WithLocationAndStatus(t *testing.T) {
 				HD:   50,
 			},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"compute", "cloudserver", "create",
@@ -699,17 +699,17 @@ func TestCloudServerGetCmd_WithFullDetailFields(t *testing.T) {
 			LocationResponse: &types.LocationResponse{Value: region},
 			Tags:             []string{"env=test"},
 		},
-		Properties: types.CloudServerPropertiesResult{
+		Properties: types.CloudServerPropertiesResponse{
 			Flavor: types.CloudServerFlavorResponse{
 				Name: types.CloudServerFlavor("my-flavor"),
 				CPU:  2,
 				RAM:  4,
 				HD:   50,
 			},
-			BootVolume: types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
-			KeyPair:    types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001"},
+			BootVolume: types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Storage/blockStorages/bs-001"},
+			KeyPair:    types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Compute/keypairs/kp-001"},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "get", "cs-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -726,11 +726,11 @@ func TestCloudServerPowerOnCmd_Success(t *testing.T) {
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweron", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "power-on", "cs-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -747,11 +747,11 @@ func TestCloudServerPowerOffCmd_Success(t *testing.T) {
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001/poweroff", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"compute", "cloudserver", "power-off", "cs-001", "--project-id", "proj-123"})
 	if err != nil {
@@ -771,12 +771,12 @@ func TestCloudServerConnectCmd_Success(t *testing.T) {
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Properties: types.CloudServerPropertiesResult{
-			LinkedResources: []types.LinkedResource{
+		Properties: types.CloudServerPropertiesResponse{
+			LinkedResources: []types.LinkedResourceCommon{
 				{URI: eipURI},
 			},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 		Metadata:   types.ResourceMetadataResponse{ID: &eipID},
@@ -802,11 +802,11 @@ func TestCloudServerUpdateCmd_Success(t *testing.T) {
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
 		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &newName},
-		Status:   types.ResourceStatus{State: &state},
+		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{
 		"compute", "cloudserver", "update", "cs-001",

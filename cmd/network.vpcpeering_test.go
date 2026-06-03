@@ -24,7 +24,7 @@ func TestVPCPeeringListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-001", "my-peering"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
-					jsonResponse(200, types.VPCPeeringList{
+					jsonResponse(200, types.VPCPeeringListResponse{
 						Values: []types.VPCPeeringResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -41,7 +41,7 @@ func TestVPCPeeringListCmd(t *testing.T) {
 			args: []string{"network", "vpcpeering", "list", "vpc-001", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
-					jsonResponse(200, types.VPCPeeringList{}))
+					jsonResponse(200, types.VPCPeeringListResponse{}))
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestVPCPeeringListCmd(t *testing.T) {
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "peer-001", "my-peering"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
-					jsonResponse(200, types.VPCPeeringList{
+					jsonResponse(200, types.VPCPeeringListResponse{
 						Values: []types.VPCPeeringResponse{
 							{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 						},
@@ -257,7 +257,7 @@ func TestVPCPeeringUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					jsonResponse(200, types.VPCPeeringResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				updID, updName := "peer-001", "new-name"
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
@@ -286,7 +286,7 @@ func TestVPCPeeringUpdateCmd(t *testing.T) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					jsonResponse(200, types.VPCPeeringResponse{
 						Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-						Status:   types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+						Status:   types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 					}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings/peer-001",
 					errorResponse(500, "Internal Server Error", "boom"))
@@ -413,9 +413,9 @@ func TestVPCPeeringGetCmd_FullDetail(t *testing.T) {
 					CreatedBy:        &createdBy,
 					Tags:             []string{"env=prod"},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 				Properties: types.VPCPeeringPropertiesResponse{
-					RemoteVPC: &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
+					RemoteVPC: &types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
 				},
 			}))
 		out, err := runCmdCapture(srv.Client(), []string{"network", "vpcpeering", "get", "vpc-001", "peer-001", "--project-id", "proj-123"})
@@ -457,7 +457,7 @@ func TestVPCPeeringListCmd_AllOptionalFields(t *testing.T) {
 	state := types.StateActive
 	region := types.Region("IT-BG")
 	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings",
-		jsonResponse(200, types.VPCPeeringList{
+		jsonResponse(200, types.VPCPeeringListResponse{
 			Values: []types.VPCPeeringResponse{
 				{
 					Metadata: types.ResourceMetadataResponse{
@@ -465,9 +465,9 @@ func TestVPCPeeringListCmd_AllOptionalFields(t *testing.T) {
 						Name:             &name,
 						LocationResponse: &types.LocationResponse{Value: region},
 					},
-					Status: types.ResourceStatus{State: &state},
+					Status: types.ResourceStatusResponse{State: &state},
 					Properties: types.VPCPeeringPropertiesResponse{
-						RemoteVPC: &types.ReferenceResource{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
+						RemoteVPC: &types.ReferenceResourceCommon{URI: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"},
 					},
 				},
 			},
@@ -505,7 +505,7 @@ func TestVPCPeeringListCmd_WithAllFields(t *testing.T) {
 	region := types.Region("IT-BG")
 	state := types.StateActive
 	peerVPCURI := "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002"
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringListResponse{
 		Values: []types.VPCPeeringResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -514,9 +514,9 @@ func TestVPCPeeringListCmd_WithAllFields(t *testing.T) {
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
 				Properties: types.VPCPeeringPropertiesResponse{
-					RemoteVPC: &types.ReferenceResource{URI: peerVPCURI},
+					RemoteVPC: &types.ReferenceResourceCommon{URI: peerVPCURI},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))

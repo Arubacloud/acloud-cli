@@ -23,7 +23,7 @@ func TestJobListCmd(t *testing.T) {
 			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
 					Values: []types.JobResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestJobListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"schedule", "job", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestJobListCmd(t *testing.T) {
 			args: []string{"schedule", "job", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-001", "my-job"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
 					Values: []types.JobResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -548,7 +548,7 @@ func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
 			Enabled: true,
 			JobType: types.JobTypeOneShot,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"schedule", "job", "create",
@@ -568,7 +568,7 @@ func TestJobListCmd_WithEnabledAndLocation(t *testing.T) {
 	id, name := "job-001", "my-job"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
 		Values: []types.JobResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -580,7 +580,7 @@ func TestJobListCmd_WithEnabledAndLocation(t *testing.T) {
 					Enabled: true,
 					JobType: types.JobTypeOneShot,
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -636,7 +636,7 @@ func TestJobGetCmd_FullDetail(t *testing.T) {
 			ExecuteUntil: &execUntil,
 			Cron:         &cronExpr,
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"schedule", "job", "get", "job-001", "--project-id", "proj-123"})
 	if err != nil {

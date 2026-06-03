@@ -21,7 +21,7 @@ func TestKMSListCmd(t *testing.T) {
 			name: "success with results",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kms-001", "my-kms"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
 					Values: []types.KmsResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -37,7 +37,7 @@ func TestKMSListCmd(t *testing.T) {
 		{
 			name: "success empty",
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{}))
 			},
 			args: []string{"security", "kms", "list", "--project-id", "proj-123"},
 		},
@@ -45,7 +45,7 @@ func TestKMSListCmd(t *testing.T) {
 			name: "--output json emits valid JSON",
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kms-001", "my-kms"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
 					Values: []types.KmsResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -145,7 +145,7 @@ func TestKMSGetCmd(t *testing.T) {
 						LocationResponse: &types.LocationResponse{Value: types.Region("IT-BG")},
 						Tags:             []string{"env=prod"},
 					},
-					Status: types.ResourceStatus{State: func() *types.State { s := types.StateActive; return &s }()},
+					Status: types.ResourceStatusResponse{State: func() *types.State { s := types.StateActive; return &s }()},
 				}))
 			},
 			assertOut: func(t *testing.T, out string) {
@@ -438,7 +438,7 @@ func TestKMSCreateCmd_WithLocationAndStatus(t *testing.T) {
 			Name:             &name,
 			LocationResponse: &types.LocationResponse{Value: region},
 		},
-		Status: types.ResourceStatus{State: &state},
+		Status: types.ResourceStatusResponse{State: &state},
 	}))
 	err := runCmd(srv.Client(), []string{
 		"security", "kms", "create",
@@ -456,7 +456,7 @@ func TestKMSListCmd_WithLocationAndStatus(t *testing.T) {
 	id, name := "kms-001", "my-kms"
 	region := types.Region("IT-BG")
 	state := types.StateActive
-	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
 		Values: []types.KmsResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -464,7 +464,7 @@ func TestKMSListCmd_WithLocationAndStatus(t *testing.T) {
 					Name:             &name,
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))

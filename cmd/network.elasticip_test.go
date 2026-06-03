@@ -23,7 +23,7 @@ func TestElasticIPListCmd(t *testing.T) {
 			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
 					Values: []types.ElasticIPResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -39,7 +39,7 @@ func TestElasticIPListCmd(t *testing.T) {
 			name: "success empty",
 			args: []string{"network", "elasticip", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{}))
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{}))
 			},
 		},
 		{
@@ -47,7 +47,7 @@ func TestElasticIPListCmd(t *testing.T) {
 			args: []string{"network", "elasticip", "list", "--project-id", "proj-123", "--output", "json"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
-				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
 					Values: []types.ElasticIPResponse{
 						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
 					},
@@ -235,7 +235,7 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
@@ -270,7 +270,7 @@ func TestElasticIPUpdateCmd(t *testing.T) {
 				state := types.StateActive
 				srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", jsonResponse(200, types.ElasticIPResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
-					Status:   types.ResourceStatus{State: &state},
+					Status:   types.ResourceStatusResponse{State: &state},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-001", errorResponse(500, "Internal Server Error", "boom"))
 			},
@@ -397,7 +397,7 @@ func TestElasticIPListCmd_AllOptionalFields(t *testing.T) {
 	addr := "1.2.3.4"
 	state := types.StateActive
 	region := types.Region("IT-BG")
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
 		Values: []types.ElasticIPResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -408,7 +408,7 @@ func TestElasticIPListCmd_AllOptionalFields(t *testing.T) {
 				Properties: types.ElasticIPPropertiesResponse{
 					Address: &addr,
 				},
-				Status: types.ResourceStatus{State: &state},
+				Status: types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -452,10 +452,10 @@ func TestElasticIPGetCmd_AllOptionalFields(t *testing.T) {
 				Tags:             []string{"env=test"},
 			},
 			Properties: types.ElasticIPPropertiesResponse{
-				Address:     &addr,
-				BillingPlan: &types.BillingPlan{BillingPeriod: &billingPeriod},
+				Address:           &addr,
+				BillingPlanCommon: &types.BillingPlanCommon{BillingPeriod: &billingPeriod},
 			},
-			Status: types.ResourceStatus{State: &state},
+			Status: types.ResourceStatusResponse{State: &state},
 		}
 	}
 
@@ -487,7 +487,7 @@ func TestElasticIPListCmd_WithLocationAndStatus(t *testing.T) {
 	region := types.Region("IT-BG")
 	state := types.StateActive
 	addr := "203.0.113.1"
-	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticList{
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
 		Values: []types.ElasticIPResponse{
 			{
 				Metadata: types.ResourceMetadataResponse{
@@ -496,7 +496,7 @@ func TestElasticIPListCmd_WithLocationAndStatus(t *testing.T) {
 					LocationResponse: &types.LocationResponse{Value: region},
 				},
 				Properties: types.ElasticIPPropertiesResponse{Address: &addr},
-				Status:     types.ResourceStatus{State: &state},
+				Status:     types.ResourceStatusResponse{State: &state},
 			},
 		},
 	}))
@@ -529,7 +529,7 @@ func TestElasticIPGetCmd_FullDetail(t *testing.T) {
 			Tags:             []string{"env=test"},
 		},
 		Properties: types.ElasticIPPropertiesResponse{Address: &addr},
-		Status:     types.ResourceStatus{State: &state},
+		Status:     types.ResourceStatusResponse{State: &state},
 	}))
 	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "get", "eip-001", "--project-id", "proj-123"})
 	if err != nil {
