@@ -23,33 +23,34 @@ acloud compute cloudserver create [flags]
 **Required Flags:**
 - `--name <string>` - Name for the cloud server
 - `--region <string>` - Region code (e.g., `ITBG-Bergamo`)
-- `--flavor <string>` - Flavor name (e.g., `small`, `medium`, `large`)
-- `--boot-disk-uri <string>` - Bootable block storage URI (e.g., `/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}`)
-- `--vpc-uri <string>` - VPC URI (e.g., `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
-- `--subnet-uri <stringSlice>` - Subnet URI(s) (comma-separated)
-- `--security-group-uri <stringSlice>` - Security Group URI(s) (comma-separated)
+- `--zone <string>` - Zone/datacenter code (e.g., `ITBG-1`)
+- `--flavor <string>` - Flavor code (e.g., `CSO4A8`)
+- `--boot-disk-id <string>` - Bootable block storage ID
+- `--vpc-id <string>` - VPC ID
+- `--subnet-id <stringSlice>` - Subnet ID(s) (comma-separated)
+- `--security-group-id <stringSlice>` - Security Group ID(s) (comma-separated)
 
 **Optional Flags:**
 - `--project-id <string>` - Project ID (uses context if not specified)
-- `--keypair <string>` - Key pair name for SSH access
+- `--keypair-id <string>` - Key pair ID for SSH access
 - `--tags <stringSlice>` - Tags (comma-separated)
 - `--user-data-file <string>` - Path to cloud-init YAML file (will be base64 encoded)
-- `--elasticip-uri <string>` - Elastic IP URI (optional)
-- `--billing-period <string>` - Billing period: Hour, Month, Year (optional, default: Hour)
+- `--billing-period <string>` - Billing period: Hour, Month, Year (default: Hour)
 
 **Example:**
 ```bash
 acloud compute cloudserver create \
   --name "web-server" \
   --region "ITBG-Bergamo" \
-  --flavor "small" \
-  --boot-disk-uri "/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}" \
-  --vpc-uri "/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}" \
-  --subnet-uri "/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}" \
-  --security-group-uri "/projects/{project-id}/providers/Aruba.Network/securityGroups/{sg-id}" \
-  --keypair-uri "/projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name}" \
+  --zone "ITBG-1" \
+  --flavor "CSO4A8" \
+  --boot-disk-id "<volume-id>" \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --security-group-id "<sg-id>" \
+  --keypair-id "<keypair-id>" \
   --tags "production,web" \
-  --user-data-file "/path/to/cloud-init.yaml"
+  --billing-period Hour
 ```
 
 **Note:** The `--user-data-file` flag accepts a path to a cloud-init YAML file. The file content will be automatically base64 encoded and included in the cloud server creation request. This allows you to configure the server during initialization using cloud-init scripts.
@@ -322,13 +323,14 @@ acloud compute cloudserver connect <TAB>
    acloud compute cloudserver create \
      --name "app-server" \
      --region "ITBG-Bergamo" \
-     --flavor "medium" \
-     --boot-disk-uri "/projects/{project-id}/providers/Aruba.Storage/blockStorages/{volume-id}" \
-     --vpc-uri "/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}" \
-     --subnet-uri "/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}" \
-     --security-group-uri "/projects/{project-id}/providers/Aruba.Network/securityGroups/{sg-id}" \
-     --keypair-uri "/projects/{project-id}/providers/Aruba.Compute/keyPairs/{keypair-name}" \
-     --user-data-file "/path/to/cloud-init.yaml"
+     --zone "ITBG-1" \
+     --flavor "CSO4A8" \
+     --boot-disk-id "<volume-id>" \
+     --vpc-id "<vpc-id>" \
+     --subnet-id "<subnet-id>" \
+     --security-group-id "<sg-id>" \
+     --keypair-id "<keypair-id>" \
+     --billing-period Hour
    ```
 
 3. **Wait for the server to be ready** and check status:
