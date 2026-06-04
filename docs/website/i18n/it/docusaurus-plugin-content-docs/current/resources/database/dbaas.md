@@ -17,19 +17,25 @@ Crea una nuova istanza DBaaS nel tuo progetto.
 ### Utilizzo
 
 ```bash
-acloud database dbaas create --name <name> --region <region> --engine-id <engine-id> --flavor <flavor> [flags]
+acloud database dbaas create --name <name> --region <region> --zone <zone> --engine-id <engine-id> --flavor <flavor> --storage-size <gb> [flags]
 ```
 
 ### Flag Richiesti
 
 - `--name` - Nome per l'istanza DBaaS
 - `--region` - Codice regione (es. "ITBG-Bergamo")
-- `--engine-id` - ID engine database
-- `--flavor` - Nome flavor/piano database
+- `--zone` - Zona di disponibilità (es. "ITBG-1")
+- `--engine-id` - Identificatore engine database (es. `mysql-8.0`)
+- `--flavor` - Codice flavor/piano database (es. `DBO4A8`)
+- `--storage-size` - Dimensione storage in GB (es. `50`)
 
 ### Flag Opzionali
 
 - `--project-id` - ID progetto (usa il contesto se non specificato)
+- `--vpc-id` - ID VPC (richiesto quando il progetto ha una VPC)
+- `--subnet-id` - ID Subnet (richiesto quando il progetto ha una VPC)
+- `--security-group-id` - ID security group (richiesto quando il progetto ha una VPC)
+- `--elastic-ip-id` - ID Elastic IP per accesso pubblico
 - `--tags` - Tag (separati da virgola)
 
 ### Esempio
@@ -38,10 +44,18 @@ acloud database dbaas create --name <name> --region <region> --engine-id <engine
 acloud database dbaas create \
   --name "my-database" \
   --region "ITBG-Bergamo" \
-  --engine-id "69455aa70d0972656501d45d" \
-  --flavor "db.t3.micro" \
-  --tags "production,postgresql"
+  --zone "ITBG-1" \
+  --engine-id "mysql-8.0" \
+  --flavor "DBO4A8" \
+  --storage-size 50 \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --security-group-id "<sg-id>" \
+  --elastic-ip-id "<eip-id>" \
+  --tags "production,mysql"
 ```
+
+**Nota:** Le operazioni `update` (PUT) su database e utenti non sono supportate dall'API e restituiscono HTTP 405. Per sostituire un database o un utente, eliminarlo e ricrearlo.
 
 ## Elenca Istanze DBaaS
 

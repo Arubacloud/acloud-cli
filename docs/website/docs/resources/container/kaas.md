@@ -22,16 +22,16 @@ acloud container kaas create [flags]
 **Required Flags:**
 - `--name <string>` - Name for the KaaS cluster
 - `--region <string>` - Region code (e.g., `ITBG-Bergamo`)
-- `--vpc-uri <string>` - VPC URI (e.g., `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
-- `--subnet-uri <string>` - Subnet URI (e.g., `/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}`)
-- `--node-cidr-address <string>` - Node CIDR address in CIDR notation (e.g., `10.0.0.0/16`)
+- `--vpc-id <string>` - VPC ID
+- `--subnet-id <string>` - Subnet ID
+- `--node-cidr-address <string>` - Node CIDR address in CIDR notation (e.g., `10.0.0.0/24`)
 - `--node-cidr-name <string>` - Node CIDR name
 - `--security-group-name <string>` - Security group name
-- `--kubernetes-version <string>` - Kubernetes version (e.g., `1.28.0`)
+- `--kubernetes-version <string>` - Kubernetes version (e.g., `1.33.2`)
 - `--node-pool-name <string>` - Node pool name
 - `--node-pool-nodes <int>` - Number of nodes in the node pool
-- `--node-pool-instance <string>` - Instance configuration name for nodes
-- `--node-pool-zone <string>` - Datacenter/zone code for nodes
+- `--node-pool-instance <string>` - Instance configuration code for nodes (e.g., `K2A4`)
+- `--node-pool-zone <string>` - Datacenter/zone code for nodes (e.g., `ITBG-1`)
 
 **Optional Flags:**
 - `--project-id <string>` - Project ID (uses context if not specified)
@@ -50,18 +50,17 @@ acloud container kaas create [flags]
 acloud container kaas create \
   --name "production-cluster" \
   --region "ITBG-Bergamo" \
-  --vpc-uri "/projects/66a10244f62b99c686572a9f/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec" \
-  --subnet-uri "/projects/66a10244f62b99c686572a9f/providers/Aruba.Network/subnets/694b05ac4d0cdc87949b75f9" \
-  --node-cidr-address "10.0.0.0/16" \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --node-cidr-address "10.0.0.0/24" \
   --node-cidr-name "node-cidr" \
   --security-group-name "kaas-sg" \
-  --kubernetes-version "1.28.0" \
+  --kubernetes-version "1.33.2" \
   --node-pool-name "default-pool" \
-  --node-pool-nodes 3 \
-  --node-pool-instance "small" \
-  --node-pool-zone "ITBG-Bergamo-A" \
-  --tags "production,kubernetes" \
-  --ha
+  --node-pool-nodes 1 \
+  --node-pool-instance "K2A4" \
+  --node-pool-zone "ITBG-1" \
+  --tags "production,kubernetes"
 ```
 
 ### `list`
@@ -169,6 +168,8 @@ acloud container kaas update 69495ef64d0cdc87949b71ec \
 ```
 
 **Note:** You can update metadata (name, tags) and properties (Kubernetes version, node pools, etc.) in the same command.
+
+**Known limitation:** The SDK does not round-trip node pool fields from the GET response into the PUT body. Attempts to update node pool configuration will result in an API error ("nodepools not found"). Only metadata updates (`--name`, `--tags`) are reliably supported at this time.
 
 ### `delete`
 
