@@ -95,257 +95,267 @@ The user is granted access to the instance. Assign database-level privileges
 separately through your database client after the user is created.`,
 	Example: `  acloud database dbaas user create <dbaas-id> --username myuser --password mypassword`,
 	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbaasID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		username, _ := cmd.Flags().GetString("username")
-		password, _ := cmd.Flags().GetString("password")
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-		user := aruba.NewUser().InDBaaS(dbaasRef).WithUsername(username).WithPassword(password)
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		created, err := client.FromDatabase().Users().Create(ctx, user)
-		if err != nil {
-			return fmt.Errorf("creating user: %w", apiErrFromV2(err))
-		}
-
-		if created != nil && created.Raw() != nil {
-			raw := created.Raw()
-			fmt.Printf("\n%s\n", msgCreated("User", username))
-			fmt.Printf("Username:        %s\n", raw.Username)
-			if raw.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
-			}
-		} else {
-			fmt.Println(msgCreatedAsync("User", username))
-		}
-		return nil
-	},
+	RunE:    runDBaaSUserCreate,
 }
 
 var dbaasUserGetCmd = &cobra.Command{
 	Use:   "get [dbaas-id] [username]",
 	Short: "Get user details",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbaasID := args[0]
-		username := args[1]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
-		u, err := client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
-		if err != nil {
-			return fmt.Errorf("getting user: %w", apiErrFromV2(err))
-		}
-
-		if u != nil && u.Raw() != nil {
-			raw := u.Raw()
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(u, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nUser Details:")
-			fmt.Println("=============")
-			fmt.Printf("Username:        %s\n", raw.Username)
-			if raw.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
-			}
-			if raw.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
-			}
-			fmt.Println()
-		} else {
-			fmt.Println("User not found")
-		}
-		return nil
-	},
+	RunE:  runDBaaSUserGet,
 }
 
 var dbaasUserListCmd = &cobra.Command{
 	Use:   "list [dbaas-id]",
 	Short: "List all users in DBaaS",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbaasID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromDatabase().Users().List(ctx, dbaasRef)
-		if err != nil {
-			return fmt.Errorf("listing users: %w", apiErrFromV2(err))
-		}
-
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "USERNAME", Width: 40},
-				{Header: "CREATION DATE", Width: 25},
-				{Header: "CREATED BY", Width: 30},
-			}
-
-			var rows [][]string
-			for _, user := range list.Items() {
-				raw := user.Raw()
-				if raw == nil {
-					continue
-				}
-				creationDate := ""
-				if raw.CreationDate != nil {
-					creationDate = raw.CreationDate.Format(DateLayout)
-				}
-				createdBy := ""
-				if raw.CreatedBy != nil {
-					createdBy = *raw.CreatedBy
-				}
-				rows = append(rows, []string{raw.Username, creationDate, createdBy})
-			}
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No users found")
-		}
-		return nil
-	},
+	RunE:  runDBaaSUserList,
 }
 
 var dbaasUserUpdateCmd = &cobra.Command{
 	Use:   "update [dbaas-id] [username]",
 	Short: "Update a user (change password)",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbaasID := args[0]
-		username := args[1]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		password, _ := cmd.Flags().GetString("password")
-		if password == "" {
-			return fmt.Errorf("--password is required")
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		u, err := client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
-		if err != nil {
-			return fmt.Errorf("getting user: %w", apiErrFromV2(err))
-		}
-		if u == nil || u.Raw() == nil {
-			return fmt.Errorf("user not found")
-		}
-
-		u.WithPassword(password)
-
-		updated, err := client.FromDatabase().Users().Update(ctx, u)
-		if err != nil {
-			return fmt.Errorf("updating user: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.Raw() != nil {
-			fmt.Printf("\n%s\n", msgUpdated("User", username))
-			fmt.Printf("Username:        %s\n", updated.Raw().Username)
-		} else {
-			fmt.Println(msgUpdatedAsync("User", username))
-		}
-		return nil
-	},
+	RunE:  runDBaaSUserUpdate,
 }
 
 var dbaasUserDeleteCmd = &cobra.Command{
 	Use:   "delete [dbaas-id] [username]",
 	Short: "Delete a user",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		dbaasID := args[0]
-		username := args[1]
+	RunE:  runDBaaSUserDelete,
+}
 
-		confirm, _ := cmd.Flags().GetBool("yes")
-		if !confirm {
-			ok, err := confirmDelete(fmt.Sprintf("user '%s' in DBaaS instance", username), dbaasID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
+func runDBaaSUserCreate(cmd *cobra.Command, args []string) error {
+	dbaasID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+	user := aruba.NewUser().InDBaaS(dbaasRef).WithUsername(username).WithPassword(password)
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	created, err := client.FromDatabase().Users().Create(ctx, user)
+	if err != nil {
+		return fmt.Errorf("creating user: %w", apiErrFromV2(err))
+	}
+
+	if created != nil && created.Raw() != nil {
+		raw := created.Raw()
+		fmt.Printf("\n%s\n", msgCreated("User", username))
+		fmt.Printf("Username:        %s\n", raw.Username)
+		if raw.CreationDate != nil {
+			fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
 		}
+	} else {
+		fmt.Println(msgCreatedAsync("User", username))
+	}
+	return nil
+}
 
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
+func runDBaaSUserGet(cmd *cobra.Command, args []string) error {
+	dbaasID := args[0]
+	username := args[1]
 
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
 
-		userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
 
-		ctx, cancel := newCtx()
-		defer cancel()
+	ctx, cancel := newCtx()
+	defer cancel()
+	userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
+	u, err := client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
+	if err != nil {
+		return fmt.Errorf("getting user: %w", apiErrFromV2(err))
+	}
 
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
-			if err != nil {
-				return fmt.Errorf("dry-run: database user not found or inaccessible: %w", err)
-			}
-			fmt.Println(msgDryRun("database user", username))
+	if u != nil && u.Raw() != nil {
+		raw := u.Raw()
+
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(u, nil, nil)
 			return nil
 		}
 
-		err = client.FromDatabase().Users().Delete(ctx, aruba.URI(userURI))
-		if err != nil {
-			return fmt.Errorf("deleting user: %w", apiErrFromV2(err))
+		fmt.Println("\nUser Details:")
+		fmt.Println("=============")
+		fmt.Printf("Username:        %s\n", raw.Username)
+		if raw.CreationDate != nil {
+			fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
+		}
+		if raw.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("User not found")
+	}
+	return nil
+}
+
+func runDBaaSUserList(cmd *cobra.Command, args []string) error {
+	dbaasID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromDatabase().Users().List(ctx, dbaasRef)
+	if err != nil {
+		return fmt.Errorf("listing users: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "USERNAME", Width: 40},
+			{Header: "CREATION DATE", Width: 25},
+			{Header: "CREATED BY", Width: 30},
 		}
 
-		fmt.Println(msgDeleted("User", username))
+		var rows [][]string
+		for _, user := range list.Items() {
+			raw := user.Raw()
+			if raw == nil {
+				continue
+			}
+			creationDate := ""
+			if raw.CreationDate != nil {
+				creationDate = raw.CreationDate.Format(DateLayout)
+			}
+			createdBy := ""
+			if raw.CreatedBy != nil {
+				createdBy = *raw.CreatedBy
+			}
+			rows = append(rows, []string{raw.Username, creationDate, createdBy})
+		}
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No users found")
+	}
+	return nil
+}
+
+func runDBaaSUserUpdate(cmd *cobra.Command, args []string) error {
+	dbaasID := args[0]
+	username := args[1]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	password, _ := cmd.Flags().GetString("password")
+	if password == "" {
+		return fmt.Errorf("--password is required")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	u, err := client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
+	if err != nil {
+		return fmt.Errorf("getting user: %w", apiErrFromV2(err))
+	}
+	if u == nil || u.Raw() == nil {
+		return fmt.Errorf("user not found")
+	}
+
+	u.WithPassword(password)
+
+	updated, err := client.FromDatabase().Users().Update(ctx, u)
+	if err != nil {
+		return fmt.Errorf("updating user: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		fmt.Printf("\n%s\n", msgUpdated("User", username))
+		fmt.Printf("Username:        %s\n", updated.Raw().Username)
+	} else {
+		fmt.Println(msgUpdatedAsync("User", username))
+	}
+	return nil
+}
+
+func runDBaaSUserDelete(cmd *cobra.Command, args []string) error {
+	dbaasID := args[0]
+	username := args[1]
+
+	confirm, _ := cmd.Flags().GetBool("yes")
+	if !confirm {
+		ok, err := confirmDelete(fmt.Sprintf("user '%s' in DBaaS instance", username), dbaasID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	userURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/users/" + username
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromDatabase().Users().Get(ctx, aruba.URI(userURI))
+		if err != nil {
+			return fmt.Errorf("dry-run: database user not found or inaccessible: %w", err)
+		}
+		fmt.Println(msgDryRun("database user", username))
 		return nil
-	},
+	}
+
+	err = client.FromDatabase().Users().Delete(ctx, aruba.URI(userURI))
+	if err != nil {
+		return fmt.Errorf("deleting user: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("User", username))
+	return nil
 }

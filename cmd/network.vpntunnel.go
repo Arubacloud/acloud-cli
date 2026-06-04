@@ -194,154 +194,14 @@ var vpntunnelListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all VPN tunnels",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromNetwork().VPNTunnels().List(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("listing VPN tunnels: %w", apiErrFromV2(err))
-		}
-
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "NAME", Width: 40},
-				{Header: "ID", Width: 25},
-				{Header: "REGION", Width: 18},
-				{Header: "TYPE", Width: 15},
-				{Header: "STATUS", Width: 15},
-			}
-			var rows [][]string
-			for _, vpn := range list.Items() {
-				raw := vpn.Raw()
-				if raw == nil {
-					continue
-				}
-				name := ""
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				id := ""
-				if raw.Metadata.ID != nil {
-					id = *raw.Metadata.ID
-				}
-				region := ""
-				if raw.Metadata.LocationResponse != nil {
-					region = string(raw.Metadata.LocationResponse.Value)
-				}
-				vpnType := ""
-				if raw.Properties.VPNType != nil {
-					vpnType = string(*raw.Properties.VPNType)
-				}
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{name, id, region, vpnType, status})
-			}
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No VPN tunnels found")
-		}
-		return nil
-	},
+	RunE:  runVPNTunnelList,
 }
 
 var vpntunnelGetCmd = &cobra.Command{
 	Use:   "get <vpn-tunnel-id>",
 	Short: "Get VPN tunnel details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpnID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnID))
-		if err != nil {
-			return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
-		}
-
-		if vpn != nil && vpn.Raw() != nil {
-			raw := vpn.Raw()
-
-			fmt.Println("\nVPN Tunnel Details:")
-			fmt.Println("===================")
-
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.URI != nil {
-				fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-			}
-			if raw.Properties.VPNType != nil {
-				fmt.Printf("VPN Type:        %s\n", *raw.Properties.VPNType)
-			}
-			if raw.Properties.VPNClientProtocol != nil {
-				fmt.Printf("Protocol:        %s\n", *raw.Properties.VPNClientProtocol)
-			}
-			if raw.Properties.VPNClientSettingsCommon != nil && raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP != nil {
-				fmt.Printf("Peer IP:         %s\n", *raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP)
-			}
-			if raw.Properties.IPConfigurationsCommon != nil {
-				fmt.Println("\nIP Configuration:")
-				if raw.Properties.IPConfigurationsCommon.VPC != nil {
-					fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurationsCommon.VPC.URI)
-				}
-				if raw.Properties.IPConfigurationsCommon.Subnet != nil {
-					fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.CIDR)
-					if raw.Properties.IPConfigurationsCommon.Subnet.Name != "" {
-						fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.Name)
-					}
-				}
-				if raw.Properties.IPConfigurationsCommon.PublicIP != nil {
-					fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurationsCommon.PublicIP.URI)
-				}
-			}
-			if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-				fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
-			}
-			if raw.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-			}
-			if raw.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *raw.Status.State)
-			}
-		}
-		return nil
-	},
+	RunE:  runVPNTunnelGet,
 }
 
 var vpntunnelCreateCmd = &cobra.Command{
@@ -364,291 +224,441 @@ IKE and ESP settings are optional; the platform uses secure defaults when omitte
     --elastic-ip-id <eip-id> \
     --psk my-pre-shared-key`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name, _ := cmd.Flags().GetString("name")
-		region, _ := cmd.Flags().GetString("region")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		vpnType, _ := cmd.Flags().GetString("vpn-type")
-		protocol, _ := cmd.Flags().GetString("protocol")
-		peerIP, _ := cmd.Flags().GetString("peer-ip")
-		vpcID, _ := cmd.Flags().GetString("vpc-id")
-		subnetCIDR, _ := cmd.Flags().GetString("subnet-cidr")
-		subnetName, _ := cmd.Flags().GetString("subnet-name")
-		publicIPID, _ := cmd.Flags().GetString("elastic-ip-id")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		psk, _ := cmd.Flags().GetString("psk")
-
-		// IKE settings
-		ikeLifetime, _ := cmd.Flags().GetInt32("ike-lifetime")
-		ikeEncryption, _ := cmd.Flags().GetString("ike-encryption")
-		ikeHash, _ := cmd.Flags().GetString("ike-hash")
-		ikeDHGroup, _ := cmd.Flags().GetString("ike-dh-group")
-		ikeDPDAction, _ := cmd.Flags().GetString("ike-dpd-action")
-		ikeDPDInterval, _ := cmd.Flags().GetInt32("ike-dpd-interval")
-		ikeDPDTimeout, _ := cmd.Flags().GetInt32("ike-dpd-timeout")
-		// ESP settings
-		espLifetime, _ := cmd.Flags().GetInt32("esp-lifetime")
-		espEncryption, _ := cmd.Flags().GetString("esp-encryption")
-		if espEncryption == "" {
-			espEncryption = "aes256"
-		}
-		espHash, _ := cmd.Flags().GetString("esp-hash")
-		espPFS, _ := cmd.Flags().GetString("esp-pfs")
-		// PSK settings
-		pskCloudSite, _ := cmd.Flags().GetString("psk-cloud-site")
-		pskOnpremSite, _ := cmd.Flags().GetString("psk-onprem-site")
-
-		if subnetCIDR == "" && subnetName == "" {
-			return fmt.Errorf("--subnet-cidr or --subnet-name is required")
-		}
-
-		for _, check := range []struct {
-			val   string
-			flag  string
-			valid []string
-		}{
-			{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
-			{ikeHash, "ike-hash", vpnHashAlgorithms},
-			{ikeDHGroup, "ike-dh-group", vpnDHGroups},
-			{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
-			{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
-			{espHash, "esp-hash", vpnHashAlgorithms},
-			{espPFS, "esp-pfs", vpnPFSGroups},
-		} {
-			if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
-				return err
-			}
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		// Build IP config
-		ipConfig := aruba.NewVPNIPConfig().
-			WithVPC(aruba.VPCRef(projectID, vpcID)).
-			WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
-			WithSubnet(subnetName, subnetCIDR)
-
-		// Build IKE settings
-		ike := aruba.NewVPNIKE().WithLifetimeSeconds(int(ikeLifetime))
-		if ikeEncryption != "" {
-			ike.WithEncryption(aruba.IKEEncryption(ikeEncryption))
-		}
-		if ikeHash != "" {
-			ike.WithHash(aruba.IKEHash(ikeHash))
-		}
-		if ikeDHGroup != "" {
-			ike.WithDHGroup(aruba.IKEDHGroup(ikeDHGroup))
-		}
-		if ikeDPDAction != "" {
-			ike.WithDPDAction(aruba.IKEDPDAction(ikeDPDAction))
-		}
-		if ikeDPDInterval > 0 {
-			ike.WithDPDIntervalSeconds(int(ikeDPDInterval))
-		}
-		if ikeDPDTimeout > 0 {
-			ike.WithDPDTimeoutSeconds(int(ikeDPDTimeout))
-		}
-
-		// Build ESP settings
-		esp := aruba.NewVPNESP().
-			WithEncryption(aruba.ESPEncryption(espEncryption)).
-			WithLifetimeSeconds(int(espLifetime))
-		if espHash != "" {
-			esp.WithHash(aruba.ESPHash(espHash))
-		}
-		if espPFS != "" {
-			esp.WithPFS(aruba.ESPPFSGroup(espPFS))
-		}
-
-		// Build PSK settings
-		pskBuilder := aruba.NewVPNPSK()
-		if psk != "" {
-			pskBuilder.WithKey(psk)
-		}
-		if pskCloudSite != "" {
-			pskBuilder.WithCloudSite(pskCloudSite)
-		}
-		if pskOnpremSite != "" {
-			pskBuilder.WithOnPremSite(pskOnpremSite)
-		}
-
-		tunnel := aruba.NewVPNTunnel().
-			InProject(aruba.URI("/projects/" + projectID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			OfType(aruba.VPNType(vpnType)).
-			WithVPNClientProtocol(aruba.VPNClientProtocol(protocol)).
-			BilledBy(aruba.BillingPeriod(billingPeriod)).
-			WithPeerClientPublicIP(peerIP).
-			WithIPConfig(ipConfig).
-			WithIKESettings(ike).
-			WithESPSettings(esp).
-			WithPSKSettings(pskBuilder).
-			RetaggedAs(tags...)
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		resp, err := client.FromNetwork().VPNTunnels().Create(ctx, tunnel)
-		if err != nil {
-			return fmt.Errorf("creating VPN tunnel: %w", apiErrFromV2(err))
-		}
-
-		if resp != nil && resp.Raw() != nil {
-			raw := resp.Raw()
-			fmt.Printf("\n%s\n", msgCreated("VPN Tunnel", name))
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:       %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:     %s\n", *raw.Metadata.Name)
-			}
-			if raw.Metadata.URI != nil {
-				fmt.Printf("URI:      %s\n", *raw.Metadata.URI)
-			}
-			if raw.Properties.VPNType != nil {
-				fmt.Printf("Type:     %s\n", *raw.Properties.VPNType)
-			}
-			if raw.Properties.VPNClientProtocol != nil {
-				fmt.Printf("Protocol: %s\n", *raw.Properties.VPNClientProtocol)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:     %v\n", raw.Metadata.Tags)
-			}
-		} else {
-			fmt.Println(msgCreatedAsync("VPN Tunnel", name))
-		}
-		return nil
-	},
+	RunE: runVPNTunnelCreate,
 }
 
 var vpntunnelUpdateCmd = &cobra.Command{
 	Use:   "update <vpn-tunnel-id>",
 	Short: "Update a VPN tunnel",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpnTunnelID := args[0]
-
-		name, _ := cmd.Flags().GetString("name")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-
-		if name == "" && !cmd.Flags().Changed("tags") {
-			return fmt.Errorf("at least one of --name or --tags must be provided")
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
-		if err != nil {
-			return fmt.Errorf("getting VPN tunnel: %w", apiErrFromV2(err))
-		}
-
-		if vpn == nil || vpn.ID() == "" {
-			return fmt.Errorf("VPN tunnel not found")
-		}
-
-		if vpn.State() == StateInCreation {
-			return fmt.Errorf("cannot update VPN tunnel while it is in 'InCreation' state. Please wait until the VPN tunnel is fully created")
-		}
-
-		if name != "" {
-			vpn.Named(name)
-		}
-		if cmd.Flags().Changed("tags") {
-			vpn.RetaggedAs(tags...)
-		}
-		// sdk-go v1.0.0 fromResponse now rehydrates IKE/ESP/PSK into the wrapper
-		// via IKE()/ESP()/PSK() accessors, so Update carries them in the PUT body
-		// without manual re-attachment (closes #132 / TD-034).
-
-		updated, err := client.FromNetwork().VPNTunnels().Update(ctx, vpn)
-		if err != nil {
-			return fmt.Errorf("updating VPN tunnel: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
-			fmt.Printf("\n%s\n", msgUpdated("VPN Tunnel", vpnTunnelID))
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
-			}
-		} else {
-			fmt.Println(msgUpdatedAsync("VPN Tunnel", vpnTunnelID))
-		}
-		return nil
-	},
+	RunE:  runVPNTunnelUpdate,
 }
 
 var vpntunnelDeleteCmd = &cobra.Command{
 	Use:   "delete <vpn-tunnel-id>",
 	Short: "Delete a VPN tunnel",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpnTunnelID := args[0]
+	RunE:  runVPNTunnelDelete,
+}
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
-			ok, err := confirmDelete("VPN tunnel", vpnTunnelID)
-			if err != nil {
-				return err
+func runVPNTunnelList(cmd *cobra.Command, args []string) error {
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromNetwork().VPNTunnels().List(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("listing VPN tunnels: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 40},
+			{Header: "ID", Width: 25},
+			{Header: "REGION", Width: 18},
+			{Header: "TYPE", Width: 15},
+			{Header: "STATUS", Width: 15},
+		}
+		var rows [][]string
+		for _, vpn := range list.Items() {
+			raw := vpn.Raw()
+			if raw == nil {
+				continue
 			}
-			if !ok {
-				return nil
+			name := ""
+			if raw.Metadata.Name != nil {
+				name = *raw.Metadata.Name
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			region := ""
+			if raw.Metadata.LocationResponse != nil {
+				region = string(raw.Metadata.LocationResponse.Value)
+			}
+			vpnType := ""
+			if raw.Properties.VPNType != nil {
+				vpnType = string(*raw.Properties.VPNType)
+			}
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			rows = append(rows, []string{name, id, region, vpnType, status})
+		}
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No VPN tunnels found")
+	}
+	return nil
+}
+
+func runVPNTunnelGet(cmd *cobra.Command, args []string) error {
+	vpnID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnID))
+	if err != nil {
+		return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
+	}
+
+	if vpn != nil && vpn.Raw() != nil {
+		raw := vpn.Raw()
+
+		fmt.Println("\nVPN Tunnel Details:")
+		fmt.Println("===================")
+
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
+			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
+		}
+		if raw.Properties.VPNType != nil {
+			fmt.Printf("VPN Type:        %s\n", *raw.Properties.VPNType)
+		}
+		if raw.Properties.VPNClientProtocol != nil {
+			fmt.Printf("Protocol:        %s\n", *raw.Properties.VPNClientProtocol)
+		}
+		if raw.Properties.VPNClientSettingsCommon != nil && raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP != nil {
+			fmt.Printf("Peer IP:         %s\n", *raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP)
+		}
+		if raw.Properties.IPConfigurationsCommon != nil {
+			fmt.Println("\nIP Configuration:")
+			if raw.Properties.IPConfigurationsCommon.VPC != nil {
+				fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurationsCommon.VPC.URI)
+			}
+			if raw.Properties.IPConfigurationsCommon.Subnet != nil {
+				fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.CIDR)
+				if raw.Properties.IPConfigurationsCommon.Subnet.Name != "" {
+					fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.Name)
+				}
+			}
+			if raw.Properties.IPConfigurationsCommon.PublicIP != nil {
+				fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurationsCommon.PublicIP.URI)
 			}
 		}
+		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+			fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
+		}
+		if raw.Metadata.CreationDate != nil {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", *raw.Status.State)
+		}
+	}
+	return nil
+}
 
-		projectID, err := GetProjectID(cmd)
+func runVPNTunnelCreate(cmd *cobra.Command, args []string) error {
+	name, _ := cmd.Flags().GetString("name")
+	region, _ := cmd.Flags().GetString("region")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	vpnType, _ := cmd.Flags().GetString("vpn-type")
+	protocol, _ := cmd.Flags().GetString("protocol")
+	peerIP, _ := cmd.Flags().GetString("peer-ip")
+	vpcID, _ := cmd.Flags().GetString("vpc-id")
+	subnetCIDR, _ := cmd.Flags().GetString("subnet-cidr")
+	subnetName, _ := cmd.Flags().GetString("subnet-name")
+	publicIPID, _ := cmd.Flags().GetString("elastic-ip-id")
+	billingPeriod, _ := cmd.Flags().GetString("billing-period")
+	psk, _ := cmd.Flags().GetString("psk")
+
+	// IKE settings
+	ikeLifetime, _ := cmd.Flags().GetInt32("ike-lifetime")
+	ikeEncryption, _ := cmd.Flags().GetString("ike-encryption")
+	ikeHash, _ := cmd.Flags().GetString("ike-hash")
+	ikeDHGroup, _ := cmd.Flags().GetString("ike-dh-group")
+	ikeDPDAction, _ := cmd.Flags().GetString("ike-dpd-action")
+	ikeDPDInterval, _ := cmd.Flags().GetInt32("ike-dpd-interval")
+	ikeDPDTimeout, _ := cmd.Flags().GetInt32("ike-dpd-timeout")
+	// ESP settings
+	espLifetime, _ := cmd.Flags().GetInt32("esp-lifetime")
+	espEncryption, _ := cmd.Flags().GetString("esp-encryption")
+	if espEncryption == "" {
+		espEncryption = "aes256"
+	}
+	espHash, _ := cmd.Flags().GetString("esp-hash")
+	espPFS, _ := cmd.Flags().GetString("esp-pfs")
+	// PSK settings
+	pskCloudSite, _ := cmd.Flags().GetString("psk-cloud-site")
+	pskOnpremSite, _ := cmd.Flags().GetString("psk-onprem-site")
+
+	if subnetCIDR == "" && subnetName == "" {
+		return fmt.Errorf("--subnet-cidr or --subnet-name is required")
+	}
+
+	for _, check := range []struct {
+		val   string
+		flag  string
+		valid []string
+	}{
+		{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
+		{ikeHash, "ike-hash", vpnHashAlgorithms},
+		{ikeDHGroup, "ike-dh-group", vpnDHGroups},
+		{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
+		{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
+		{espHash, "esp-hash", vpnHashAlgorithms},
+		{espPFS, "esp-pfs", vpnPFSGroups},
+	} {
+		if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
+			return err
+		}
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	// Build IP config
+	ipConfig := aruba.NewVPNIPConfig().
+		WithVPC(aruba.VPCRef(projectID, vpcID)).
+		WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
+		WithSubnet(subnetName, subnetCIDR)
+
+	// Build IKE settings
+	ike := aruba.NewVPNIKE().WithLifetimeSeconds(int(ikeLifetime))
+	if ikeEncryption != "" {
+		ike.WithEncryption(aruba.IKEEncryption(ikeEncryption))
+	}
+	if ikeHash != "" {
+		ike.WithHash(aruba.IKEHash(ikeHash))
+	}
+	if ikeDHGroup != "" {
+		ike.WithDHGroup(aruba.IKEDHGroup(ikeDHGroup))
+	}
+	if ikeDPDAction != "" {
+		ike.WithDPDAction(aruba.IKEDPDAction(ikeDPDAction))
+	}
+	if ikeDPDInterval > 0 {
+		ike.WithDPDIntervalSeconds(int(ikeDPDInterval))
+	}
+	if ikeDPDTimeout > 0 {
+		ike.WithDPDTimeoutSeconds(int(ikeDPDTimeout))
+	}
+
+	// Build ESP settings
+	esp := aruba.NewVPNESP().
+		WithEncryption(aruba.ESPEncryption(espEncryption)).
+		WithLifetimeSeconds(int(espLifetime))
+	if espHash != "" {
+		esp.WithHash(aruba.ESPHash(espHash))
+	}
+	if espPFS != "" {
+		esp.WithPFS(aruba.ESPPFSGroup(espPFS))
+	}
+
+	// Build PSK settings
+	pskBuilder := aruba.NewVPNPSK()
+	if psk != "" {
+		pskBuilder.WithKey(psk)
+	}
+	if pskCloudSite != "" {
+		pskBuilder.WithCloudSite(pskCloudSite)
+	}
+	if pskOnpremSite != "" {
+		pskBuilder.WithOnPremSite(pskOnpremSite)
+	}
+
+	tunnel := aruba.NewVPNTunnel().
+		InProject(aruba.URI("/projects/" + projectID)).
+		Named(name).
+		InRegion(aruba.Region(region)).
+		OfType(aruba.VPNType(vpnType)).
+		WithVPNClientProtocol(aruba.VPNClientProtocol(protocol)).
+		BilledBy(aruba.BillingPeriod(billingPeriod)).
+		WithPeerClientPublicIP(peerIP).
+		WithIPConfig(ipConfig).
+		WithIKESettings(ike).
+		WithESPSettings(esp).
+		WithPSKSettings(pskBuilder).
+		RetaggedAs(tags...)
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	resp, err := client.FromNetwork().VPNTunnels().Create(ctx, tunnel)
+	if err != nil {
+		return fmt.Errorf("creating VPN tunnel: %w", apiErrFromV2(err))
+	}
+
+	if resp != nil && resp.Raw() != nil {
+		raw := resp.Raw()
+		fmt.Printf("\n%s\n", msgCreated("VPN Tunnel", name))
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:       %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:     %s\n", *raw.Metadata.Name)
+		}
+		if raw.Metadata.URI != nil {
+			fmt.Printf("URI:      %s\n", *raw.Metadata.URI)
+		}
+		if raw.Properties.VPNType != nil {
+			fmt.Printf("Type:     %s\n", *raw.Properties.VPNType)
+		}
+		if raw.Properties.VPNClientProtocol != nil {
+			fmt.Printf("Protocol: %s\n", *raw.Properties.VPNClientProtocol)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:     %v\n", raw.Metadata.Tags)
+		}
+	} else {
+		fmt.Println(msgCreatedAsync("VPN Tunnel", name))
+	}
+	return nil
+}
+
+func runVPNTunnelUpdate(cmd *cobra.Command, args []string) error {
+	vpnTunnelID := args[0]
+
+	name, _ := cmd.Flags().GetString("name")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+
+	if name == "" && !cmd.Flags().Changed("tags") {
+		return fmt.Errorf("at least one of --name or --tags must be provided")
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+	if err != nil {
+		return fmt.Errorf("getting VPN tunnel: %w", apiErrFromV2(err))
+	}
+
+	if vpn == nil || vpn.ID() == "" {
+		return fmt.Errorf("VPN tunnel not found")
+	}
+
+	if vpn.State() == StateInCreation {
+		return fmt.Errorf("cannot update VPN tunnel while it is in 'InCreation' state. Please wait until the VPN tunnel is fully created")
+	}
+
+	if name != "" {
+		vpn.Named(name)
+	}
+	if cmd.Flags().Changed("tags") {
+		vpn.RetaggedAs(tags...)
+	}
+	// sdk-go v1.0.0 fromResponse now rehydrates IKE/ESP/PSK into the wrapper
+	// via IKE()/ESP()/PSK() accessors, so Update carries them in the PUT body
+	// without manual re-attachment (closes #132 / TD-034).
+
+	updated, err := client.FromNetwork().VPNTunnels().Update(ctx, vpn)
+	if err != nil {
+		return fmt.Errorf("updating VPN tunnel: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("VPN Tunnel", vpnTunnelID))
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+	} else {
+		fmt.Println(msgUpdatedAsync("VPN Tunnel", vpnTunnelID))
+	}
+	return nil
+}
+
+func runVPNTunnelDelete(cmd *cobra.Command, args []string) error {
+	vpnTunnelID := args[0]
+
+	skipConfirm, _ := cmd.Flags().GetBool("yes")
+	if !skipConfirm {
+		ok, err := confirmDelete("VPN tunnel", vpnTunnelID)
 		if err != nil {
 			return err
 		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
-			if err != nil {
-				return fmt.Errorf("dry-run: VPN tunnel not found or inaccessible: %w", apiErrFromV2(err))
-			}
-			fmt.Println(msgDryRun("VPN tunnel", vpnTunnelID))
+		if !ok {
 			return nil
 		}
+	}
 
-		err = client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
 		if err != nil {
-			return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
+			return fmt.Errorf("dry-run: VPN tunnel not found or inaccessible: %w", apiErrFromV2(err))
 		}
-
-		fmt.Println(msgDeleted("VPN tunnel", vpnTunnelID))
+		fmt.Println(msgDryRun("VPN tunnel", vpnTunnelID))
 		return nil
-	},
+	}
+
+	err = client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+	if err != nil {
+		return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("VPN tunnel", vpnTunnelID))
+	return nil
 }

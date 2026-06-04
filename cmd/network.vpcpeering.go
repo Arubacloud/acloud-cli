@@ -60,245 +60,184 @@ peering is established.`,
 	Example: `  acloud network vpcpeering create <vpc-id> \
     --name my-peering --region IT-BG --peer-vpc-id <peer-vpc-id>`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID := args[0]
-		name, _ := cmd.Flags().GetString("name")
-		peerVPCID, _ := cmd.Flags().GetString("peer-vpc-id")
-		region, _ := cmd.Flags().GetString("region")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		peering := aruba.NewVPCPeering().
-			InVPC(aruba.VPCRef(projectID, vpcID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			PeeredWith(aruba.URI(peerVPCID)).
-			RetaggedAs(tags...)
-
-		resp, err := client.FromNetwork().VPCPeerings().Create(ctx, peering)
-		if err != nil {
-			return fmt.Errorf("creating VPC peering: %w", apiErrFromV2(err))
-		}
-		if resp != nil && resp.Raw() != nil {
-			raw := resp.Raw()
-			headers := []TableColumn{
-				{Header: "NAME", Width: 30},
-				{Header: "ID", Width: 26},
-				{Header: "PEER VPC", Width: 26},
-				{Header: "REGION", Width: 18},
-				{Header: "STATUS", Width: 15},
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			peerVPC := ""
-			if raw.Properties.RemoteVPC != nil {
-				peerVPC = raw.Properties.RemoteVPC.URI
-			}
-			regionVal := ""
-			if raw.Metadata.LocationResponse != nil {
-				regionVal = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			row := []string{name, id, peerVPC, regionVal, status}
-			PrintOutput(resp, headers, [][]string{row})
-		} else {
-			fmt.Println(msgCreatedAsync("VPC peering", name))
-		}
-		return nil
-	},
+	RunE: runVPCPeeringCreate,
 }
 
 var vpcpeeringGetCmd = &cobra.Command{
 	Use:   "get [vpc-id] [peering-id]",
 	Short: "Get VPC peering details",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID := args[0]
-		peeringID := args[1]
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-		ctx, cancel := newCtx()
-		defer cancel()
-		peering, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
-		if err != nil {
-			return fmt.Errorf("getting VPC peering: %w", apiErrFromV2(err))
-		}
-		if peering != nil && peering.Raw() != nil {
-			raw := peering.Raw()
-			fmt.Println("\nVPC Peering Details:")
-			fmt.Println("====================")
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if raw.Properties.RemoteVPC != nil {
-				fmt.Printf("Peer VPC:        %s\n", raw.Properties.RemoteVPC.URI)
-			}
-			if raw.Metadata.LocationResponse != nil {
-				fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-			}
-			if raw.Metadata.CreationDate != nil {
-				fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-			}
-			if raw.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *raw.Status.State)
-			}
-		} else {
-			fmt.Println("VPC peering not found or no data returned.")
-		}
-		return nil
-	},
+	RunE:  runVPCPeeringGet,
 }
 
 var vpcpeeringListCmd = &cobra.Command{
 	Use:   "list [vpc-id]",
 	Short: "List VPC peerings for a VPC",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID := args[0]
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromNetwork().VPCPeerings().List(ctx, aruba.VPCRef(projectID, vpcID))
-		if err != nil {
-			return fmt.Errorf("listing VPC peerings: %w", apiErrFromV2(err))
-		}
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "NAME", Width: 30},
-				{Header: "ID", Width: 26},
-				{Header: "PEER VPC", Width: 26},
-				{Header: "REGION", Width: 18},
-				{Header: "STATUS", Width: 15},
-			}
-			var rows [][]string
-			for _, peering := range list.Items() {
-				raw := peering.Raw()
-				if raw == nil {
-					continue
-				}
-				name := ""
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				id := ""
-				if raw.Metadata.ID != nil {
-					id = *raw.Metadata.ID
-				}
-				peerVPC := ""
-				if raw.Properties.RemoteVPC != nil {
-					peerVPC = raw.Properties.RemoteVPC.URI
-				}
-				region := ""
-				if raw.Metadata.LocationResponse != nil {
-					region = string(raw.Metadata.LocationResponse.Value)
-				}
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{name, id, peerVPC, region, status})
-			}
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No VPC peerings found.")
-		}
-		return nil
-	},
+	RunE:  runVPCPeeringList,
 }
 
 var vpcpeeringUpdateCmd = &cobra.Command{
 	Use:   "update [vpc-id] [peering-id]",
 	Short: "Update a VPC peering",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID := args[0]
-		peeringID := args[1]
-		name, _ := cmd.Flags().GetString("name")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		if name == "" && !cmd.Flags().Changed("tags") {
-			return fmt.Errorf("at least one of --name or --tags must be provided")
-		}
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-		ctx, cancel := newCtx()
-		defer cancel()
+	RunE:  runVPCPeeringUpdate,
+}
 
-		peering, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
-		if err != nil || peering == nil || peering.Raw() == nil {
-			return fmt.Errorf("fetching current VPC peering: %w", apiErrFromV2(err))
-		}
+var vpcpeeringDeleteCmd = &cobra.Command{
+	Use:   "delete [vpc-id] [peering-id]",
+	Short: "Delete a VPC peering",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runVPCPeeringDelete,
+}
 
-		if peering.Raw().Status.State != nil && *peering.Raw().Status.State == StateInCreation {
-			return fmt.Errorf("cannot update VPC peering while it is in 'InCreation' state. Please wait until the VPC peering is fully created")
-		}
+func runVPCPeeringCreate(cmd *cobra.Command, args []string) error {
+	vpcID := args[0]
+	name, _ := cmd.Flags().GetString("name")
+	peerVPCID, _ := cmd.Flags().GetString("peer-vpc-id")
+	region, _ := cmd.Flags().GetString("region")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	ctx, cancel := newCtx()
+	defer cancel()
 
-		if name != "" {
-			peering.Named(name)
-		}
-		if cmd.Flags().Changed("tags") {
-			peering.RetaggedAs(tags...)
-		}
+	peering := aruba.NewVPCPeering().
+		InVPC(aruba.VPCRef(projectID, vpcID)).
+		Named(name).
+		InRegion(aruba.Region(region)).
+		PeeredWith(aruba.URI(peerVPCID)).
+		RetaggedAs(tags...)
 
-		updated, err := client.FromNetwork().VPCPeerings().Update(ctx, peering)
-		if err != nil {
-			return fmt.Errorf("updating VPC peering: %w", apiErrFromV2(err))
+	resp, err := client.FromNetwork().VPCPeerings().Create(ctx, peering)
+	if err != nil {
+		return fmt.Errorf("creating VPC peering: %w", apiErrFromV2(err))
+	}
+	if resp != nil && resp.Raw() != nil {
+		raw := resp.Raw()
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "PEER VPC", Width: 26},
+			{Header: "REGION", Width: 18},
+			{Header: "STATUS", Width: 15},
 		}
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
-			headers := []TableColumn{
-				{Header: "NAME", Width: 30},
-				{Header: "ID", Width: 26},
-				{Header: "PEER VPC", Width: 26},
-				{Header: "REGION", Width: 18},
-				{Header: "STATUS", Width: 15},
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		peerVPC := ""
+		if raw.Properties.RemoteVPC != nil {
+			peerVPC = raw.Properties.RemoteVPC.URI
+		}
+		regionVal := ""
+		if raw.Metadata.LocationResponse != nil {
+			regionVal = string(raw.Metadata.LocationResponse.Value)
+		}
+		status := ""
+		if raw.Status.State != nil {
+			status = string(*raw.Status.State)
+		}
+		row := []string{name, id, peerVPC, regionVal, status}
+		PrintOutput(resp, headers, [][]string{row})
+	} else {
+		fmt.Println(msgCreatedAsync("VPC peering", name))
+	}
+	return nil
+}
+
+func runVPCPeeringGet(cmd *cobra.Command, args []string) error {
+	vpcID := args[0]
+	peeringID := args[1]
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	ctx, cancel := newCtx()
+	defer cancel()
+	peering, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
+	if err != nil {
+		return fmt.Errorf("getting VPC peering: %w", apiErrFromV2(err))
+	}
+	if peering != nil && peering.Raw() != nil {
+		raw := peering.Raw()
+		fmt.Println("\nVPC Peering Details:")
+		fmt.Println("====================")
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if raw.Properties.RemoteVPC != nil {
+			fmt.Printf("Peer VPC:        %s\n", raw.Properties.RemoteVPC.URI)
+		}
+		if raw.Metadata.LocationResponse != nil {
+			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
+		}
+		if raw.Metadata.CreationDate != nil {
+			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+		}
+		if raw.Metadata.CreatedBy != nil {
+			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", *raw.Status.State)
+		}
+	} else {
+		fmt.Println("VPC peering not found or no data returned.")
+	}
+	return nil
+}
+
+func runVPCPeeringList(cmd *cobra.Command, args []string) error {
+	vpcID := args[0]
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromNetwork().VPCPeerings().List(ctx, aruba.VPCRef(projectID, vpcID))
+	if err != nil {
+		return fmt.Errorf("listing VPC peerings: %w", apiErrFromV2(err))
+	}
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "PEER VPC", Width: 26},
+			{Header: "REGION", Width: 18},
+			{Header: "STATUS", Width: 15},
+		}
+		var rows [][]string
+		for _, peering := range list.Items() {
+			raw := peering.Raw()
+			if raw == nil {
+				continue
 			}
-			nameVal := ""
+			name := ""
 			if raw.Metadata.Name != nil {
-				nameVal = *raw.Metadata.Name
+				name = *raw.Metadata.Name
 			}
 			id := ""
 			if raw.Metadata.ID != nil {
@@ -308,77 +247,148 @@ var vpcpeeringUpdateCmd = &cobra.Command{
 			if raw.Properties.RemoteVPC != nil {
 				peerVPC = raw.Properties.RemoteVPC.URI
 			}
-			regionVal := ""
+			region := ""
 			if raw.Metadata.LocationResponse != nil {
-				regionVal = string(raw.Metadata.LocationResponse.Value)
+				region = string(raw.Metadata.LocationResponse.Value)
 			}
 			status := ""
 			if raw.Status.State != nil {
 				status = string(*raw.Status.State)
 			}
-			row := []string{nameVal, id, peerVPC, regionVal, status}
-			PrintOutput(updated, headers, [][]string{row})
-		} else {
-			fmt.Println(msgUpdatedAsync("VPC peering", peeringID))
+			rows = append(rows, []string{name, id, peerVPC, region, status})
 		}
-		return nil
-	},
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No VPC peerings found.")
+	}
+	return nil
 }
 
-var vpcpeeringDeleteCmd = &cobra.Command{
-	Use:   "delete [vpc-id] [peering-id]",
-	Short: "Delete a VPC peering",
-	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID := args[0]
-		peeringID := args[1]
+func runVPCPeeringUpdate(cmd *cobra.Command, args []string) error {
+	vpcID := args[0]
+	peeringID := args[1]
+	name, _ := cmd.Flags().GetString("name")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	if name == "" && !cmd.Flags().Changed("tags") {
+		return fmt.Errorf("at least one of --name or --tags must be provided")
+	}
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	ctx, cancel := newCtx()
+	defer cancel()
 
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
-			ok, err := confirmDelete("VPC peering", peeringID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
+	peering, err := client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
+	if err != nil || peering == nil || peering.Raw() == nil {
+		return fmt.Errorf("fetching current VPC peering: %w", apiErrFromV2(err))
+	}
+
+	if peering.Raw().Status.State != nil && *peering.Raw().Status.State == StateInCreation {
+		return fmt.Errorf("cannot update VPC peering while it is in 'InCreation' state. Please wait until the VPC peering is fully created")
+	}
+
+	if name != "" {
+		peering.Named(name)
+	}
+	if cmd.Flags().Changed("tags") {
+		peering.RetaggedAs(tags...)
+	}
+
+	updated, err := client.FromNetwork().VPCPeerings().Update(ctx, peering)
+	if err != nil {
+		return fmt.Errorf("updating VPC peering: %w", apiErrFromV2(err))
+	}
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "PEER VPC", Width: 26},
+			{Header: "REGION", Width: 18},
+			{Header: "STATUS", Width: 15},
 		}
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
+		}
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		peerVPC := ""
+		if raw.Properties.RemoteVPC != nil {
+			peerVPC = raw.Properties.RemoteVPC.URI
+		}
+		regionVal := ""
+		if raw.Metadata.LocationResponse != nil {
+			regionVal = string(raw.Metadata.LocationResponse.Value)
+		}
+		status := ""
+		if raw.Status.State != nil {
+			status = string(*raw.Status.State)
+		}
+		row := []string{nameVal, id, peerVPC, regionVal, status}
+		PrintOutput(updated, headers, [][]string{row})
+	} else {
+		fmt.Println(msgUpdatedAsync("VPC peering", peeringID))
+	}
+	return nil
+}
 
-		projectID, err := GetProjectID(cmd)
+func runVPCPeeringDelete(cmd *cobra.Command, args []string) error {
+	vpcID := args[0]
+	peeringID := args[1]
+
+	skipConfirm, _ := cmd.Flags().GetBool("yes")
+	if !skipConfirm {
+		ok, err := confirmDelete("VPC peering", peeringID)
 		if err != nil {
 			return err
 		}
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
-			if err != nil {
-				return fmt.Errorf("dry-run: VPC peering not found or inaccessible: %w", apiErrFromV2(err))
-			}
-			fmt.Println(msgDryRun("VPC peering", peeringID))
+		if !ok {
 			return nil
 		}
+	}
 
-		err = client.FromNetwork().VPCPeerings().Delete(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromNetwork().VPCPeerings().Get(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
 		if err != nil {
-			return fmt.Errorf("deleting VPC peering: %w", apiErrFromV2(err))
+			return fmt.Errorf("dry-run: VPC peering not found or inaccessible: %w", apiErrFromV2(err))
 		}
-		headers := []TableColumn{
-			{Header: "ID", Width: 26},
-			{Header: "STATUS", Width: 15},
-		}
-		status := "deleted"
-		result := struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}{peeringID, status}
-		PrintOutput(result, headers, [][]string{{peeringID, status}})
+		fmt.Println(msgDryRun("VPC peering", peeringID))
 		return nil
-	},
+	}
+
+	err = client.FromNetwork().VPCPeerings().Delete(ctx, aruba.VPCPeeringRef(projectID, vpcID, peeringID))
+	if err != nil {
+		return fmt.Errorf("deleting VPC peering: %w", apiErrFromV2(err))
+	}
+	headers := []TableColumn{
+		{Header: "ID", Width: 26},
+		{Header: "STATUS", Width: 15},
+	}
+	status := "deleted"
+	result := struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}{peeringID, status}
+	PrintOutput(result, headers, [][]string{{peeringID, status}})
+	return nil
 }

@@ -37,83 +37,7 @@ var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set configuration values",
 	Long:  `Set configuration values for acloud, such as clientId and clientSecret.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		clientID, err := cmd.Flags().GetString("client-id")
-		if err != nil {
-			return err
-		}
-		clientSecret, err := cmd.Flags().GetString("client-secret")
-		if err != nil {
-			return err
-		}
-		baseURL, err := cmd.Flags().GetString("base-url")
-		if err != nil {
-			return err
-		}
-		tokenIssuerURL, err := cmd.Flags().GetString("token-issuer-url")
-		if err != nil {
-			return err
-		}
-
-		// Load existing config or create new one
-		config, err := LoadConfig()
-		if err != nil {
-			// If config doesn't exist, create a new one
-			config = &Config{}
-		}
-
-		// Validate required fields
-		if config.ClientID == "" && clientID == "" {
-			return fmt.Errorf("--client-id is required")
-		}
-		// If --client-secret was not provided and there is no existing secret, prompt interactively
-		if config.ClientSecret == "" && clientSecret == "" {
-			prompted, err := readSecret("Enter client secret: ")
-			if err != nil {
-				return fmt.Errorf("--client-secret is required: %w", err)
-			}
-			clientSecret = prompted
-		}
-
-		// Update only provided values
-		if clientID != "" {
-			config.ClientID = clientID
-		}
-		if clientSecret != "" {
-			config.ClientSecret = clientSecret
-		}
-		if baseURL != "" {
-			config.BaseURL = baseURL
-		}
-		if tokenIssuerURL != "" {
-			config.TokenIssuerURL = tokenIssuerURL
-		}
-
-		// Final validation: both clientID and clientSecret must be set
-		if config.ClientID == "" || config.ClientSecret == "" {
-			return fmt.Errorf("both client-id and client-secret are required")
-		}
-
-		// Save config
-		if err := SaveConfig(config); err != nil {
-			return fmt.Errorf("saving configuration: %w", err)
-		}
-
-		fmt.Println("Configuration updated successfully")
-		if clientID != "" {
-			fmt.Printf("  Client ID: %s\n", clientID)
-		}
-		if clientSecret != "" {
-			fmt.Println("  Client Secret: ********")
-		}
-		if baseURL != "" {
-			fmt.Printf("  Base URL: %s\n", baseURL)
-		}
-		if tokenIssuerURL != "" {
-			fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
-		}
-		return nil
-	},
+	RunE:  runConfigSet,
 }
 
 // configShowCmd represents the config show command
@@ -121,32 +45,7 @@ var configShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show current configuration",
 	Long:  `Display the current acloud configuration.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		config, err := LoadConfig()
-		if err != nil {
-			fmt.Println("No configuration found. Please run 'acloud config set' to create one.")
-			return nil
-		}
-
-		fmt.Println("Current configuration:")
-		fmt.Printf("  Client ID: %s\n", config.ClientID)
-		if config.ClientSecret != "" {
-			fmt.Println("  Client Secret: ********")
-		} else {
-			fmt.Println("  Client Secret: (not set)")
-		}
-		baseURL := config.BaseURL
-		if baseURL == "" {
-			baseURL = DefaultBaseURL + " (default)"
-		}
-		fmt.Printf("  Base URL: %s\n", baseURL)
-		tokenIssuerURL := config.TokenIssuerURL
-		if tokenIssuerURL == "" {
-			tokenIssuerURL = DefaultTokenIssuerURL + " (default)"
-		}
-		fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
-		return nil
-	},
+	RunE:  runConfigShow,
 }
 
 func init() {
@@ -235,4 +134,109 @@ func SaveConfig(config *Config) error {
 	}
 
 	return os.WriteFile(configPath, data, FilePermConfig)
+}
+
+func runConfigSet(cmd *cobra.Command, args []string) error {
+	clientID, err := cmd.Flags().GetString("client-id")
+	if err != nil {
+		return err
+	}
+	clientSecret, err := cmd.Flags().GetString("client-secret")
+	if err != nil {
+		return err
+	}
+	baseURL, err := cmd.Flags().GetString("base-url")
+	if err != nil {
+		return err
+	}
+	tokenIssuerURL, err := cmd.Flags().GetString("token-issuer-url")
+	if err != nil {
+		return err
+	}
+
+	// Load existing config or create new one
+	config, err := LoadConfig()
+	if err != nil {
+		// If config doesn't exist, create a new one
+		config = &Config{}
+	}
+
+	// Validate required fields
+	if config.ClientID == "" && clientID == "" {
+		return fmt.Errorf("--client-id is required")
+	}
+	// If --client-secret was not provided and there is no existing secret, prompt interactively
+	if config.ClientSecret == "" && clientSecret == "" {
+		prompted, err := readSecret("Enter client secret: ")
+		if err != nil {
+			return fmt.Errorf("--client-secret is required: %w", err)
+		}
+		clientSecret = prompted
+	}
+
+	// Update only provided values
+	if clientID != "" {
+		config.ClientID = clientID
+	}
+	if clientSecret != "" {
+		config.ClientSecret = clientSecret
+	}
+	if baseURL != "" {
+		config.BaseURL = baseURL
+	}
+	if tokenIssuerURL != "" {
+		config.TokenIssuerURL = tokenIssuerURL
+	}
+
+	// Final validation: both clientID and clientSecret must be set
+	if config.ClientID == "" || config.ClientSecret == "" {
+		return fmt.Errorf("both client-id and client-secret are required")
+	}
+
+	// Save config
+	if err := SaveConfig(config); err != nil {
+		return fmt.Errorf("saving configuration: %w", err)
+	}
+
+	fmt.Println("Configuration updated successfully")
+	if clientID != "" {
+		fmt.Printf("  Client ID: %s\n", clientID)
+	}
+	if clientSecret != "" {
+		fmt.Println("  Client Secret: ********")
+	}
+	if baseURL != "" {
+		fmt.Printf("  Base URL: %s\n", baseURL)
+	}
+	if tokenIssuerURL != "" {
+		fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
+	}
+	return nil
+}
+
+func runConfigShow(cmd *cobra.Command, args []string) error {
+	config, err := LoadConfig()
+	if err != nil {
+		fmt.Println("No configuration found. Please run 'acloud config set' to create one.")
+		return nil
+	}
+
+	fmt.Println("Current configuration:")
+	fmt.Printf("  Client ID: %s\n", config.ClientID)
+	if config.ClientSecret != "" {
+		fmt.Println("  Client Secret: ********")
+	} else {
+		fmt.Println("  Client Secret: (not set)")
+	}
+	baseURL := config.BaseURL
+	if baseURL == "" {
+		baseURL = DefaultBaseURL + " (default)"
+	}
+	fmt.Printf("  Base URL: %s\n", baseURL)
+	tokenIssuerURL := config.TokenIssuerURL
+	if tokenIssuerURL == "" {
+		tokenIssuerURL = DefaultTokenIssuerURL + " (default)"
+	}
+	fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
+	return nil
 }

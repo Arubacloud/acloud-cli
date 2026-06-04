@@ -92,320 +92,330 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 	Example: `  acloud management project create --name my-project --description "Production workloads"
   acloud management project create --name dev-project --default`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get flags
-		name, _ := cmd.Flags().GetString("name")
-		description, _ := cmd.Flags().GetString("description")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		setDefault, _ := cmd.Flags().GetBool("default")
-		verbose, _ := cmd.Flags().GetBool("verbose")
-
-		// Get SDK client
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		// Build the create request
-		proj := aruba.NewProject().Named(name).RetaggedAs(tags...)
-		if description != "" {
-			proj.DescribedAs(description)
-		}
-		if setDefault {
-			proj.AsDefault()
-		}
-
-		// Debug output if verbose
-		if verbose {
-			fmt.Println("Creating project with the following parameters:")
-			fmt.Printf("  Name:        %s\n", name)
-			if description != "" {
-				fmt.Printf("  Description: %s\n", description)
-			}
-			fmt.Printf("  Default:     %t\n", setDefault)
-			if len(tags) > 0 {
-				fmt.Printf("  Tags:        %v\n", tags)
-			}
-			fmt.Println()
-		}
-
-		// Create the project using the SDK
-		ctx, cancel := newCtx()
-		defer cancel()
-		created, err := client.FromProject().Create(ctx, proj)
-		if err != nil {
-			return fmt.Errorf("creating project: %w", apiErrFromV2(err))
-		}
-
-		if created != nil && created.ID() != "" {
-			headers := []TableColumn{
-				{Header: "ID", Width: 30},
-				{Header: "NAME", Width: 40},
-				{Header: "DEFAULT", Width: 10},
-			}
-			defaultVal := "No"
-			if created.IsDefault() {
-				defaultVal = "Yes"
-			}
-			row := []string{created.ID(), created.Name(), defaultVal}
-			PrintOutput(created, headers, [][]string{row})
-		} else {
-			fmt.Println(msgCreatedAsync("Project", name))
-		}
-		return nil
-	},
+	RunE: runProjectCreate,
 }
 
 var projectGetCmd = &cobra.Command{
 	Use:   "get [project-id]",
 	Short: "Get project details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID := args[0]
-
-		// Get SDK client
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		// Get project details using the SDK
-		ctx, cancel := newCtx()
-		defer cancel()
-		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("getting project: %w", apiErrFromV2(err))
-		}
-
-		if p != nil && p.ID() != "" {
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(p, nil, nil)
-				return nil
-			}
-
-			// Display project details
-			fmt.Println("\nProject Details:")
-			fmt.Println("================")
-
-			fmt.Printf("ID:              %s\n", p.ID())
-			fmt.Printf("Name:            %s\n", p.Name())
-
-			if p.Description() != "" {
-				fmt.Printf("Description:     %s\n", p.Description())
-			}
-
-			fmt.Printf("Default:         %t\n", p.IsDefault())
-
-			if !p.CreatedAt().IsZero() {
-				fmt.Printf("Creation Date:   %s\n", p.CreatedAt().Format(DateLayout))
-			}
-			if !p.UpdatedAt().IsZero() {
-				fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
-			}
-			// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0. TECH_DEBT: TD-033 (#131)
-			// See https://github.com/Arubacloud/acloud-cli/issues/131
-			if raw := p.Raw(); raw != nil {
-				if raw.Metadata.CreatedBy != nil {
-					fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-				}
-				if raw.Metadata.UpdatedBy != nil {
-					fmt.Printf("Updated By:      %s\n", *raw.Metadata.UpdatedBy)
-				}
-			}
-
-			tags := p.Tags()
-			if len(tags) > 0 {
-				fmt.Printf("Tags:            %v\n", tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-
-			fmt.Println()
-		} else {
-			fmt.Println("Project not found")
-		}
-		return nil
-	},
+	RunE:  runProjectGet,
 }
 
 var projectUpdateCmd = &cobra.Command{
 	Use:   "update [project-id]",
 	Short: "Update a project (description and/or tags only)",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID := args[0]
-
-		// Get flags
-		description, _ := cmd.Flags().GetString("description")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-
-		// At least one field must be provided
-		if description == "" && !cmd.Flags().Changed("tags") {
-			return fmt.Errorf("at least one of --description or --tags must be provided")
-		}
-
-		// Get SDK client
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		// First, get the current project details to preserve existing values.
-		// projectWrapper calls Get and normalises any API error via apiErrFromV2.
-		ctx, cancel := newCtx()
-		defer cancel()
-		p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("fetching current project: %w", apiErrFromV2(err))
-		}
-
-		if p == nil || p.ID() == "" {
-			return fmt.Errorf("project not found or no data returned")
-		}
-
-		// Apply updates
-		if description != "" {
-			p.DescribedAs(description)
-		}
-		if cmd.Flags().Changed("tags") {
-			p.RetaggedAs(tags...)
-		}
-
-		// Update the project using the SDK
-		updated, err := client.FromProject().Update(ctx, p)
-		if err != nil {
-			return fmt.Errorf("updating project: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.ID() != "" {
-			headers := []TableColumn{
-				{Header: "ID", Width: 30},
-				{Header: "NAME", Width: 40},
-				{Header: "DEFAULT", Width: 10},
-			}
-			defaultVal := "No"
-			if updated.IsDefault() {
-				defaultVal = "Yes"
-			}
-			row := []string{updated.ID(), updated.Name(), defaultVal}
-			PrintOutput(updated, headers, [][]string{row})
-		} else {
-			fmt.Println(msgUpdatedAsync("Project", projectID))
-		}
-		return nil
-	},
+	RunE:  runProjectUpdate,
 }
 
 var projectDeleteCmd = &cobra.Command{
 	Use:   "delete [project-id]",
 	Short: "Delete a project",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID := args[0]
-
-		// Get confirmation flag
-		confirm, _ := cmd.Flags().GetBool("yes")
-
-		// If not confirmed, ask for confirmation
-		if !confirm {
-			ok, err := confirmDelete("project", projectID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
-
-		// Get SDK client
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		projectRef := aruba.URI("/projects/" + projectID)
-
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromProject().Get(ctx, projectRef)
-			if err != nil {
-				return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
-			}
-			fmt.Println(msgDryRun("project", projectID))
-			return nil
-		}
-
-		// Delete the project using the SDK
-		err = client.FromProject().Delete(ctx, projectRef)
-		if err != nil {
-			return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
-		}
-
-		headers := []TableColumn{
-			{Header: "ID", Width: 30},
-			{Header: "STATUS", Width: 15},
-		}
-		status := "deleted"
-		result := struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		}{projectID, status}
-		PrintOutput(result, headers, [][]string{{projectID, status}})
-		return nil
-	},
+	RunE:  runProjectDelete,
 }
 
 var projectListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all projects",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get SDK client
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
+	RunE:  runProjectList,
+}
+
+func runProjectCreate(cmd *cobra.Command, args []string) error {
+	// Get flags
+	name, _ := cmd.Flags().GetString("name")
+	description, _ := cmd.Flags().GetString("description")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	setDefault, _ := cmd.Flags().GetBool("default")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	// Get SDK client
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	// Build the create request
+	proj := aruba.NewProject().Named(name).RetaggedAs(tags...)
+	if description != "" {
+		proj.DescribedAs(description)
+	}
+	if setDefault {
+		proj.AsDefault()
+	}
+
+	// Debug output if verbose
+	if verbose {
+		fmt.Println("Creating project with the following parameters:")
+		fmt.Printf("  Name:        %s\n", name)
+		if description != "" {
+			fmt.Printf("  Description: %s\n", description)
+		}
+		fmt.Printf("  Default:     %t\n", setDefault)
+		if len(tags) > 0 {
+			fmt.Printf("  Tags:        %v\n", tags)
+		}
+		fmt.Println()
+	}
+
+	// Create the project using the SDK
+	ctx, cancel := newCtx()
+	defer cancel()
+	created, err := client.FromProject().Create(ctx, proj)
+	if err != nil {
+		return fmt.Errorf("creating project: %w", apiErrFromV2(err))
+	}
+
+	if created != nil && created.ID() != "" {
+		headers := []TableColumn{
+			{Header: "ID", Width: 30},
+			{Header: "NAME", Width: 40},
+			{Header: "DEFAULT", Width: 10},
+		}
+		defaultVal := "No"
+		if created.IsDefault() {
+			defaultVal = "Yes"
+		}
+		row := []string{created.ID(), created.Name(), defaultVal}
+		PrintOutput(created, headers, [][]string{row})
+	} else {
+		fmt.Println(msgCreatedAsync("Project", name))
+	}
+	return nil
+}
+
+func runProjectGet(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+
+	// Get SDK client
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	// Get project details using the SDK
+	ctx, cancel := newCtx()
+	defer cancel()
+	p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("getting project: %w", apiErrFromV2(err))
+	}
+
+	if p != nil && p.ID() != "" {
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(p, nil, nil)
+			return nil
 		}
 
-		// List projects using the SDK
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromProject().List(ctx)
-		if err != nil {
-			return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
+		// Display project details
+		fmt.Println("\nProject Details:")
+		fmt.Println("================")
+
+		fmt.Printf("ID:              %s\n", p.ID())
+		fmt.Printf("Name:            %s\n", p.Name())
+
+		if p.Description() != "" {
+			fmt.Printf("Description:     %s\n", p.Description())
 		}
 
-		if list != nil && len(list.Items()) > 0 {
-			// Define table columns
-			headers := []TableColumn{
-				{Header: "NAME", Width: 40},
-				{Header: "ID", Width: 30},
-				{Header: "CREATION DATE", Width: 15},
+		fmt.Printf("Default:         %t\n", p.IsDefault())
+
+		if !p.CreatedAt().IsZero() {
+			fmt.Printf("Creation Date:   %s\n", p.CreatedAt().Format(DateLayout))
+		}
+		if !p.UpdatedAt().IsZero() {
+			fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
+		}
+		// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0. TECH_DEBT: TD-033 (#131)
+		// See https://github.com/Arubacloud/acloud-cli/issues/131
+		if raw := p.Raw(); raw != nil {
+			if raw.Metadata.CreatedBy != nil {
+				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
 			}
-
-			// Build rows
-			var rows [][]string
-			for _, p := range list.Items() {
-				name := p.Name()
-				id := p.ID()
-
-				// Format creation date as dd-mm-yyyy
-				creationDate := "N/A"
-				if !p.CreatedAt().IsZero() {
-					creationDate = p.CreatedAt().Format("02-01-2006")
-				}
-
-				rows = append(rows, []string{name, id, creationDate})
+			if raw.Metadata.UpdatedBy != nil {
+				fmt.Printf("Updated By:      %s\n", *raw.Metadata.UpdatedBy)
 			}
+		}
 
-			// Print the table
-			PrintOutput(list, headers, rows)
+		tags := p.Tags()
+		if len(tags) > 0 {
+			fmt.Printf("Tags:            %v\n", tags)
 		} else {
-			fmt.Println("No projects found")
+			fmt.Printf("Tags:            []\n")
 		}
+
+		fmt.Println()
+	} else {
+		fmt.Println("Project not found")
+	}
+	return nil
+}
+
+func runProjectUpdate(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+
+	// Get flags
+	description, _ := cmd.Flags().GetString("description")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+
+	// At least one field must be provided
+	if description == "" && !cmd.Flags().Changed("tags") {
+		return fmt.Errorf("at least one of --description or --tags must be provided")
+	}
+
+	// Get SDK client
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	// First, get the current project details to preserve existing values.
+	// projectWrapper calls Get and normalises any API error via apiErrFromV2.
+	ctx, cancel := newCtx()
+	defer cancel()
+	p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("fetching current project: %w", apiErrFromV2(err))
+	}
+
+	if p == nil || p.ID() == "" {
+		return fmt.Errorf("project not found or no data returned")
+	}
+
+	// Apply updates
+	if description != "" {
+		p.DescribedAs(description)
+	}
+	if cmd.Flags().Changed("tags") {
+		p.RetaggedAs(tags...)
+	}
+
+	// Update the project using the SDK
+	updated, err := client.FromProject().Update(ctx, p)
+	if err != nil {
+		return fmt.Errorf("updating project: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.ID() != "" {
+		headers := []TableColumn{
+			{Header: "ID", Width: 30},
+			{Header: "NAME", Width: 40},
+			{Header: "DEFAULT", Width: 10},
+		}
+		defaultVal := "No"
+		if updated.IsDefault() {
+			defaultVal = "Yes"
+		}
+		row := []string{updated.ID(), updated.Name(), defaultVal}
+		PrintOutput(updated, headers, [][]string{row})
+	} else {
+		fmt.Println(msgUpdatedAsync("Project", projectID))
+	}
+	return nil
+}
+
+func runProjectDelete(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+
+	// Get confirmation flag
+	confirm, _ := cmd.Flags().GetBool("yes")
+
+	// If not confirmed, ask for confirmation
+	if !confirm {
+		ok, err := confirmDelete("project", projectID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	// Get SDK client
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	projectRef := aruba.URI("/projects/" + projectID)
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromProject().Get(ctx, projectRef)
+		if err != nil {
+			return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
+		}
+		fmt.Println(msgDryRun("project", projectID))
 		return nil
-	},
+	}
+
+	// Delete the project using the SDK
+	err = client.FromProject().Delete(ctx, projectRef)
+	if err != nil {
+		return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
+	}
+
+	headers := []TableColumn{
+		{Header: "ID", Width: 30},
+		{Header: "STATUS", Width: 15},
+	}
+	status := "deleted"
+	result := struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}{projectID, status}
+	PrintOutput(result, headers, [][]string{{projectID, status}})
+	return nil
+}
+
+func runProjectList(cmd *cobra.Command, args []string) error {
+	// Get SDK client
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	// List projects using the SDK
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromProject().List(ctx)
+	if err != nil {
+		return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		// Define table columns
+		headers := []TableColumn{
+			{Header: "NAME", Width: 40},
+			{Header: "ID", Width: 30},
+			{Header: "CREATION DATE", Width: 15},
+		}
+
+		// Build rows
+		var rows [][]string
+		for _, p := range list.Items() {
+			name := p.Name()
+			id := p.ID()
+
+			// Format creation date as dd-mm-yyyy
+			creationDate := "N/A"
+			if !p.CreatedAt().IsZero() {
+				creationDate = p.CreatedAt().Format("02-01-2006")
+			}
+
+			rows = append(rows, []string{name, id, creationDate})
+		}
+
+		// Print the table
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No projects found")
+	}
+	return nil
 }

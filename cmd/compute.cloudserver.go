@@ -153,599 +153,617 @@ Billing period: Hour (default), Month, or Year.`,
     --subnet-id <subnet-id> \
     --security-group-id <sg-id>`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		vpcID, _ := cmd.Flags().GetString("vpc-id")
-		subnetIDs, _ := cmd.Flags().GetStringSlice("subnet-id")
-		sgIDs, _ := cmd.Flags().GetStringSlice("security-group-id")
-		elasticIPID, _ := cmd.Flags().GetString("elasticip-id")
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		name, _ := cmd.Flags().GetString("name")
-		region, _ := cmd.Flags().GetString("region")
-		zone, _ := cmd.Flags().GetString("zone")
-		flavor, _ := cmd.Flags().GetString("flavor")
-		bootDiskID, _ := cmd.Flags().GetString("boot-disk-id")
-		keypairID, _ := cmd.Flags().GetString("keypair-id")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-		billingPeriod, _ := cmd.Flags().GetString("billing-period")
-		userDataFile, _ := cmd.Flags().GetString("user-data-file")
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		subnetRefs := make([]aruba.Ref, len(subnetIDs))
-		for i, s := range subnetIDs {
-			subnetRefs[i] = aruba.SubnetRef(projectID, vpcID, s)
-		}
-		sgRefs := make([]aruba.Ref, len(sgIDs))
-		for i, sg := range sgIDs {
-			sgRefs[i] = aruba.SecurityGroupRef(projectID, vpcID, sg)
-		}
-		server := aruba.NewCloudServer().
-			InProject(aruba.URI("/projects/" + projectID)).
-			Named(name).
-			InRegion(aruba.Region(region)).
-			InZone(aruba.Zone(zone)).
-			OfFlavor(aruba.CloudServerFlavor(flavor)).
-			BootingFrom(volumeRef(projectID, bootDiskID)).
-			WithVPC(aruba.VPCRef(projectID, vpcID)).
-			OnSubnets(subnetRefs...).
-			WithSecurityGroups(sgRefs...).
-			RetaggedAs(tags...).
-			BilledBy(aruba.BillingPeriod(billingPeriod))
-
-		if elasticIPID != "" {
-			server.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
-		}
-		if keypairID != "" {
-			server.UsingKeyPair(keypairRef(projectID, keypairID))
-		}
-		if userDataFile != "" {
-			fileContent, err := os.ReadFile(userDataFile)
-			if err != nil {
-				return fmt.Errorf("reading user-data file: %w", err)
-			}
-			userDataBase64 := base64.StdEncoding.EncodeToString(fileContent)
-			server.WithUserData(userDataBase64)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		resp, err := client.FromCompute().CloudServers().Create(ctx, server)
-		if err != nil {
-			return fmt.Errorf("creating cloud server: %w", apiErrFromV2(err))
-		}
-
-		if resp != nil && resp.Raw() != nil {
-			raw := resp.Raw()
-			headers := []TableColumn{
-				{Header: "ID", Width: 30},
-				{Header: "NAME", Width: 40},
-				{Header: "FLAVOR", Width: 20},
-				{Header: "CPU", Width: 10},
-				{Header: "RAM(GB)", Width: 15},
-				{Header: "HD(GB)", Width: 15},
-				{Header: "REGION", Width: 20},
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			nameVal := ""
-			if raw.Metadata.Name != nil {
-				nameVal = *raw.Metadata.Name
-			}
-			flavorName := raw.Properties.Flavor.Name
-			cpu := raw.Properties.Flavor.CPU
-			ram := raw.Properties.Flavor.RAM
-			hd := raw.Properties.Flavor.HD
-			regionValue := ""
-			if raw.Metadata.LocationResponse != nil {
-				regionValue = string(raw.Metadata.LocationResponse.Value)
-			}
-			row := []string{
-				id,
-				nameVal,
-				string(flavorName),
-				fmt.Sprintf("%d", cpu),
-				fmt.Sprintf("%d", ram),
-				fmt.Sprintf("%d", hd),
-				regionValue,
-			}
-			PrintOutput(resp, headers, [][]string{row})
-		} else {
-			fmt.Println(msgCreatedAsync("Cloud server", name))
-		}
-		return nil
-	},
+	RunE: runCloudServerCreate,
 }
 
 var cloudserverGetCmd = &cobra.Command{
 	Use:   "get [cloudserver-id]",
 	Short: "Get cloud server details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
-		}
-
-		if server != nil && server.Raw() != nil {
-			raw := server.Raw()
-
-			format := resolveOutputFormat()
-			if format == OutputFormatJSON || format == OutputFormatYAML {
-				PrintOutput(server, nil, nil)
-				return nil
-			}
-
-			fmt.Println("\nCloud Server Details:")
-			fmt.Println("====================")
-
-			if raw.Metadata.ID != nil {
-				fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-			}
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-			}
-			if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-				fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-			}
-
-			if raw.Properties.Flavor.Name != "" {
-				fmt.Printf("Flavor:          %s\n", raw.Properties.Flavor.Name)
-			}
-			fmt.Printf("CPU:             %d\n", raw.Properties.Flavor.CPU)
-			fmt.Printf("RAM:             %d GB\n", raw.Properties.Flavor.RAM)
-			fmt.Printf("HD:              %d GB\n", raw.Properties.Flavor.HD)
-
-			if raw.Properties.BootVolume.URI != "" {
-				fmt.Printf("Boot Volume URI: %s\n", raw.Properties.BootVolume.URI)
-			}
-
-			if raw.Properties.KeyPair.URI != "" {
-				fmt.Printf("Keypair URI:     %s\n", raw.Properties.KeyPair.URI)
-			}
-
-			if raw.Status.State != nil {
-				fmt.Printf("Status:          %s\n", *raw.Status.State)
-			}
-
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-			} else {
-				fmt.Printf("Tags:            []\n")
-			}
-
-			verbose, _ := cmd.Flags().GetBool("verbose")
-			if verbose {
-				jsonData, _ := json.MarshalIndent(raw, "", "  ")
-				fmt.Println("\nFull JSON Response:")
-				fmt.Println("==================")
-				fmt.Println(string(jsonData))
-			}
-		} else {
-			fmt.Println("Cloud server not found or no data returned.")
-		}
-		return nil
-	},
+	RunE:  runCloudServerGet,
 }
 
 var cloudserverUpdateCmd = &cobra.Command{
 	Use:   "update [cloudserver-id]",
 	Short: "Update a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		name, _ := cmd.Flags().GetString("name")
-		tags, _ := cmd.Flags().GetStringSlice("tags")
-
-		if name == "" && !cmd.Flags().Changed("tags") {
-			return fmt.Errorf("at least one of --name or --tags must be provided")
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("fetching current cloud server: %w", apiErrFromV2(err))
-		}
-
-		if server == nil || server.Raw() == nil {
-			return fmt.Errorf("cloud server not found")
-		}
-
-		if name != "" {
-			server.Named(name)
-		}
-		if cmd.Flags().Changed("tags") {
-			server.RetaggedAs(tags...)
-		}
-
-		updated, err := client.FromCompute().CloudServers().Update(ctx, server)
-		if err != nil {
-			return fmt.Errorf("updating cloud server: %w", apiErrFromV2(err))
-		}
-
-		if updated != nil && updated.Raw() != nil {
-			raw := updated.Raw()
-			fmt.Printf("\n%s\n", msgUpdated("Cloud server", serverID))
-			if raw.Metadata.Name != nil {
-				fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
-			}
-			if len(raw.Metadata.Tags) > 0 {
-				fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
-			}
-		} else {
-			fmt.Println(msgUpdatedAsync("Cloud server", serverID))
-		}
-		return nil
-	},
+	RunE:  runCloudServerUpdate,
 }
 
 var cloudserverDeleteCmd = &cobra.Command{
 	Use:   "delete [cloudserver-id]",
 	Short: "Delete a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if !skipConfirm {
-			ok, err := confirmDelete("cloud server", serverID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-		}
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			_, err = client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-			if err != nil {
-				return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
-			}
-			fmt.Println(msgDryRun("cloud server", serverID))
-			return nil
-		}
-
-		err = client.FromCompute().CloudServers().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("deleting cloud server: %w", apiErrFromV2(err))
-		}
-
-		fmt.Println(msgDeleted("Cloud server", serverID))
-		return nil
-	},
+	RunE:  runCloudServerDelete,
 }
 
 var cloudserverListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all cloud servers",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		list, err := client.FromCompute().CloudServers().List(ctx, aruba.URI("/projects/"+projectID))
-		if err != nil {
-			return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
-		}
-
-		if list != nil && len(list.Items()) > 0 {
-			headers := []TableColumn{
-				{Header: "NAME", Width: 25},
-				{Header: "ID", Width: 30},
-				{Header: "LOCATION", Width: 15},
-				{Header: "FLAVOR", Width: 15},
-				{Header: "STATUS", Width: 15},
-			}
-
-			var rows [][]string
-			for _, server := range list.Items() {
-				raw := server.Raw()
-				if raw == nil || raw.Metadata.ID == nil || *raw.Metadata.ID == "" {
-					continue
-				}
-				id := *raw.Metadata.ID
-				var name string
-				if raw.Metadata.Name != nil {
-					name = *raw.Metadata.Name
-				}
-				var location string
-				if raw.Metadata.LocationResponse != nil {
-					location = string(raw.Metadata.LocationResponse.Value)
-				}
-				flavor := raw.Properties.Flavor.Name
-				status := ""
-				if raw.Status.State != nil {
-					status = string(*raw.Status.State)
-				}
-				rows = append(rows, []string{
-					name,
-					id,
-					location,
-					string(flavor),
-					status,
-				})
-			}
-
-			if len(rows) == 0 {
-				fmt.Println("No cloud servers found")
-				return nil
-			}
-			PrintOutput(list, headers, rows)
-		} else {
-			fmt.Println("No cloud servers found")
-		}
-		return nil
-	},
+	RunE:  runCloudServerList,
 }
 
 var cloudserverPowerOnCmd = &cobra.Command{
 	Use:   "power-on [cloudserver-id]",
 	Short: "Power on a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		// GET the server wrapper first (enables action methods)
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
-		}
-
-		err = server.PowerOn(ctx)
-		if err != nil {
-			return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
-		}
-
-		fmt.Println(msgAction("Cloud server", serverID, "powered on"))
-		if server.Raw() != nil {
-			if server.Raw().Metadata.Name != nil {
-				fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
-			}
-			if server.Raw().Status.State != nil {
-				fmt.Printf("Status: %s\n", *server.Raw().Status.State)
-			}
-		}
-		return nil
-	},
+	RunE:  runCloudServerPowerOn,
 }
 
 var cloudserverPowerOffCmd = &cobra.Command{
 	Use:   "power-off [cloudserver-id]",
 	Short: "Power off a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		// GET the server wrapper first (enables action methods)
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
-		}
-
-		err = server.PowerOff(ctx)
-		if err != nil {
-			return fmt.Errorf("powering off cloud server: %w", apiErrFromV2(err))
-		}
-
-		fmt.Println(msgAction("Cloud server", serverID, "powered off"))
-		if server.Raw() != nil {
-			if server.Raw().Metadata.Name != nil {
-				fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
-			}
-			if server.Raw().Status.State != nil {
-				fmt.Printf("Status: %s\n", *server.Raw().Status.State)
-			}
-		}
-		return nil
-	},
+	RunE:  runCloudServerPowerOff,
 }
 
 var cloudserverSetPasswordCmd = &cobra.Command{
 	Use:   "set-password [cloudserver-id]",
 	Short: "Set password for a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
-
-		projectID, err := GetProjectID(cmd)
-		if err != nil {
-			return err
-		}
-
-		password, _ := cmd.Flags().GetString("password")
-		if password == "" {
-			return fmt.Errorf("--password is required")
-		}
-
-		client, err := GetArubaClient()
-		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
-		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-		// GET the server wrapper first (enables action methods)
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
-		}
-
-		err = server.SetPassword(ctx, password)
-		if err != nil {
-			return fmt.Errorf("setting cloud server password: %w", apiErrFromV2(err))
-		}
-
-		fmt.Println(msgAction("Cloud server", serverID, "password set"))
-		return nil
-	},
+	RunE:  runCloudServerSetPassword,
 }
 
 var cloudserverConnectCmd = &cobra.Command{
 	Use:   "connect [cloudserver-id]",
 	Short: "Get SSH connection information for a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID := args[0]
+	RunE:  runCloudServerConnect,
+}
 
-		projectID, err := GetProjectID(cmd)
+func runCloudServerCreate(cmd *cobra.Command, args []string) error {
+	vpcID, _ := cmd.Flags().GetString("vpc-id")
+	subnetIDs, _ := cmd.Flags().GetStringSlice("subnet-id")
+	sgIDs, _ := cmd.Flags().GetStringSlice("security-group-id")
+	elasticIPID, _ := cmd.Flags().GetString("elasticip-id")
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	region, _ := cmd.Flags().GetString("region")
+	zone, _ := cmd.Flags().GetString("zone")
+	flavor, _ := cmd.Flags().GetString("flavor")
+	bootDiskID, _ := cmd.Flags().GetString("boot-disk-id")
+	keypairID, _ := cmd.Flags().GetString("keypair-id")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	billingPeriod, _ := cmd.Flags().GetString("billing-period")
+	userDataFile, _ := cmd.Flags().GetString("user-data-file")
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	subnetRefs := make([]aruba.Ref, len(subnetIDs))
+	for i, s := range subnetIDs {
+		subnetRefs[i] = aruba.SubnetRef(projectID, vpcID, s)
+	}
+	sgRefs := make([]aruba.Ref, len(sgIDs))
+	for i, sg := range sgIDs {
+		sgRefs[i] = aruba.SecurityGroupRef(projectID, vpcID, sg)
+	}
+	server := aruba.NewCloudServer().
+		InProject(aruba.URI("/projects/" + projectID)).
+		Named(name).
+		InRegion(aruba.Region(region)).
+		InZone(aruba.Zone(zone)).
+		OfFlavor(aruba.CloudServerFlavor(flavor)).
+		BootingFrom(volumeRef(projectID, bootDiskID)).
+		WithVPC(aruba.VPCRef(projectID, vpcID)).
+		OnSubnets(subnetRefs...).
+		WithSecurityGroups(sgRefs...).
+		RetaggedAs(tags...).
+		BilledBy(aruba.BillingPeriod(billingPeriod))
+
+	if elasticIPID != "" {
+		server.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
+	}
+	if keypairID != "" {
+		server.UsingKeyPair(keypairRef(projectID, keypairID))
+	}
+	if userDataFile != "" {
+		fileContent, err := os.ReadFile(userDataFile)
+		if err != nil {
+			return fmt.Errorf("reading user-data file: %w", err)
+		}
+		userDataBase64 := base64.StdEncoding.EncodeToString(fileContent)
+		server.WithUserData(userDataBase64)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	resp, err := client.FromCompute().CloudServers().Create(ctx, server)
+	if err != nil {
+		return fmt.Errorf("creating cloud server: %w", apiErrFromV2(err))
+	}
+
+	if resp != nil && resp.Raw() != nil {
+		raw := resp.Raw()
+		headers := []TableColumn{
+			{Header: "ID", Width: 30},
+			{Header: "NAME", Width: 40},
+			{Header: "FLAVOR", Width: 20},
+			{Header: "CPU", Width: 10},
+			{Header: "RAM(GB)", Width: 15},
+			{Header: "HD(GB)", Width: 15},
+			{Header: "REGION", Width: 20},
+		}
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
+		}
+		flavorName := raw.Properties.Flavor.Name
+		cpu := raw.Properties.Flavor.CPU
+		ram := raw.Properties.Flavor.RAM
+		hd := raw.Properties.Flavor.HD
+		regionValue := ""
+		if raw.Metadata.LocationResponse != nil {
+			regionValue = string(raw.Metadata.LocationResponse.Value)
+		}
+		row := []string{
+			id,
+			nameVal,
+			string(flavorName),
+			fmt.Sprintf("%d", cpu),
+			fmt.Sprintf("%d", ram),
+			fmt.Sprintf("%d", hd),
+			regionValue,
+		}
+		PrintOutput(resp, headers, [][]string{row})
+	} else {
+		fmt.Println(msgCreatedAsync("Cloud server", name))
+	}
+	return nil
+}
+
+func runCloudServerGet(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
+	}
+
+	if server != nil && server.Raw() != nil {
+		raw := server.Raw()
+
+		format := resolveOutputFormat()
+		if format == OutputFormatJSON || format == OutputFormatYAML {
+			PrintOutput(server, nil, nil)
+			return nil
+		}
+
+		fmt.Println("\nCloud Server Details:")
+		fmt.Println("====================")
+
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
+			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
+		}
+
+		if raw.Properties.Flavor.Name != "" {
+			fmt.Printf("Flavor:          %s\n", raw.Properties.Flavor.Name)
+		}
+		fmt.Printf("CPU:             %d\n", raw.Properties.Flavor.CPU)
+		fmt.Printf("RAM:             %d GB\n", raw.Properties.Flavor.RAM)
+		fmt.Printf("HD:              %d GB\n", raw.Properties.Flavor.HD)
+
+		if raw.Properties.BootVolume.URI != "" {
+			fmt.Printf("Boot Volume URI: %s\n", raw.Properties.BootVolume.URI)
+		}
+
+		if raw.Properties.KeyPair.URI != "" {
+			fmt.Printf("Keypair URI:     %s\n", raw.Properties.KeyPair.URI)
+		}
+
+		if raw.Status.State != nil {
+			fmt.Printf("Status:          %s\n", *raw.Status.State)
+		}
+
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		} else {
+			fmt.Printf("Tags:            []\n")
+		}
+
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		if verbose {
+			jsonData, _ := json.MarshalIndent(raw, "", "  ")
+			fmt.Println("\nFull JSON Response:")
+			fmt.Println("==================")
+			fmt.Println(string(jsonData))
+		}
+	} else {
+		fmt.Println("Cloud server not found or no data returned.")
+	}
+	return nil
+}
+
+func runCloudServerUpdate(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	name, _ := cmd.Flags().GetString("name")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+
+	if name == "" && !cmd.Flags().Changed("tags") {
+		return fmt.Errorf("at least one of --name or --tags must be provided")
+	}
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("fetching current cloud server: %w", apiErrFromV2(err))
+	}
+
+	if server == nil || server.Raw() == nil {
+		return fmt.Errorf("cloud server not found")
+	}
+
+	if name != "" {
+		server.Named(name)
+	}
+	if cmd.Flags().Changed("tags") {
+		server.RetaggedAs(tags...)
+	}
+
+	updated, err := client.FromCompute().CloudServers().Update(ctx, server)
+	if err != nil {
+		return fmt.Errorf("updating cloud server: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("Cloud server", serverID))
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+	} else {
+		fmt.Println(msgUpdatedAsync("Cloud server", serverID))
+	}
+	return nil
+}
+
+func runCloudServerDelete(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	skipConfirm, _ := cmd.Flags().GetBool("yes")
+	if !skipConfirm {
+		ok, err := confirmDelete("cloud server", serverID)
 		if err != nil {
 			return err
 		}
-
-		user, _ := cmd.Flags().GetString("user")
-		if user == "" || user == "<user>" {
-			fmt.Println("Error: --user is required")
-			fmt.Println("\nCommon SSH users by image type:")
-			fmt.Println("  - Ubuntu/Debian: ubuntu")
-			fmt.Println("  - CentOS/RHEL: centos or root")
-			fmt.Println("  - Other Linux: root or check image documentation")
-			fmt.Println("\nFor more information, see: https://kb.arubacloud.com/cmp/en/computing/cloud-server.aspx")
-			return fmt.Errorf("--user is required")
+		if !ok {
+			return nil
 		}
+	}
 
-		client, err := GetArubaClient()
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		_, err = client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
 		if err != nil {
-			return fmt.Errorf("initializing client: %w", err)
+			return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
 		}
-
-		ctx, cancel := newCtx()
-		defer cancel()
-
-		// Get the cloud server details
-		server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
-		}
-
-		if server == nil || server.Raw() == nil {
-			fmt.Println("Cloud server not found or no data returned.")
-			return nil
-		}
-
-		raw := server.Raw()
-
-		// Check for ElasticIP in linked resources
-		var elasticIPURI string
-		for _, linkedResource := range raw.Properties.LinkedResources {
-			if strings.Contains(linkedResource.URI, "providers/Aruba.Network/elasticIps") {
-				elasticIPURI = linkedResource.URI
-				break
-			}
-		}
-
-		if elasticIPURI == "" {
-			fmt.Println("No Elastic IP found for this cloud server.")
-			fmt.Println("The server must have an Elastic IP linked to use the connect command.")
-			return nil
-		}
-
-		// Extract ElasticIP ID from URI
-		elasticIPID := extractIDFromURI(elasticIPURI)
-		if elasticIPID == "" {
-			return fmt.Errorf("could not extract Elastic IP ID from URI: %s", elasticIPURI)
-		}
-
-		// Get ElasticIP details
-		eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, elasticIPID))
-		if err != nil {
-			return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
-		}
-
-		if eip == nil || eip.Raw() == nil {
-			fmt.Println("Elastic IP not found or no data returned.")
-			return nil
-		}
-
-		eipRaw := eip.Raw()
-		if eipRaw.Properties.Address == nil || *eipRaw.Properties.Address == "" {
-			fmt.Println("Elastic IP address not available.")
-			return nil
-		}
-
-		// Print SSH connection command
-		fmt.Printf("Connect by running: ssh %s@%s\n", user, *eipRaw.Properties.Address)
+		fmt.Println(msgDryRun("cloud server", serverID))
 		return nil
-	},
+	}
+
+	err = client.FromCompute().CloudServers().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("deleting cloud server: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("Cloud server", serverID))
+	return nil
+}
+
+func runCloudServerList(cmd *cobra.Command, args []string) error {
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	list, err := client.FromCompute().CloudServers().List(ctx, aruba.URI("/projects/"+projectID))
+	if err != nil {
+		return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 25},
+			{Header: "ID", Width: 30},
+			{Header: "LOCATION", Width: 15},
+			{Header: "FLAVOR", Width: 15},
+			{Header: "STATUS", Width: 15},
+		}
+
+		var rows [][]string
+		for _, server := range list.Items() {
+			raw := server.Raw()
+			if raw == nil || raw.Metadata.ID == nil || *raw.Metadata.ID == "" {
+				continue
+			}
+			id := *raw.Metadata.ID
+			var name string
+			if raw.Metadata.Name != nil {
+				name = *raw.Metadata.Name
+			}
+			var location string
+			if raw.Metadata.LocationResponse != nil {
+				location = string(raw.Metadata.LocationResponse.Value)
+			}
+			flavor := raw.Properties.Flavor.Name
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			rows = append(rows, []string{
+				name,
+				id,
+				location,
+				string(flavor),
+				status,
+			})
+		}
+
+		if len(rows) == 0 {
+			fmt.Println("No cloud servers found")
+			return nil
+		}
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No cloud servers found")
+	}
+	return nil
+}
+
+func runCloudServerPowerOn(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	// GET the server wrapper first (enables action methods)
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
+	}
+
+	err = server.PowerOn(ctx)
+	if err != nil {
+		return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgAction("Cloud server", serverID, "powered on"))
+	if server.Raw() != nil {
+		if server.Raw().Metadata.Name != nil {
+			fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
+		}
+		if server.Raw().Status.State != nil {
+			fmt.Printf("Status: %s\n", *server.Raw().Status.State)
+		}
+	}
+	return nil
+}
+
+func runCloudServerPowerOff(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	// GET the server wrapper first (enables action methods)
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
+	}
+
+	err = server.PowerOff(ctx)
+	if err != nil {
+		return fmt.Errorf("powering off cloud server: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgAction("Cloud server", serverID, "powered off"))
+	if server.Raw() != nil {
+		if server.Raw().Metadata.Name != nil {
+			fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
+		}
+		if server.Raw().Status.State != nil {
+			fmt.Printf("Status: %s\n", *server.Raw().Status.State)
+		}
+	}
+	return nil
+}
+
+func runCloudServerSetPassword(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	password, _ := cmd.Flags().GetString("password")
+	if password == "" {
+		return fmt.Errorf("--password is required")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	// GET the server wrapper first (enables action methods)
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
+	}
+
+	err = server.SetPassword(ctx, password)
+	if err != nil {
+		return fmt.Errorf("setting cloud server password: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgAction("Cloud server", serverID, "password set"))
+	return nil
+}
+
+func runCloudServerConnect(cmd *cobra.Command, args []string) error {
+	serverID := args[0]
+
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return err
+	}
+
+	user, _ := cmd.Flags().GetString("user")
+	if user == "" || user == "<user>" {
+		fmt.Println("Error: --user is required")
+		fmt.Println("\nCommon SSH users by image type:")
+		fmt.Println("  - Ubuntu/Debian: ubuntu")
+		fmt.Println("  - CentOS/RHEL: centos or root")
+		fmt.Println("  - Other Linux: root or check image documentation")
+		fmt.Println("\nFor more information, see: https://kb.arubacloud.com/cmp/en/computing/cloud-server.aspx")
+		return fmt.Errorf("--user is required")
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	// Get the cloud server details
+	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+	if err != nil {
+		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
+	}
+
+	if server == nil || server.Raw() == nil {
+		fmt.Println("Cloud server not found or no data returned.")
+		return nil
+	}
+
+	raw := server.Raw()
+
+	// Check for ElasticIP in linked resources
+	var elasticIPURI string
+	for _, linkedResource := range raw.Properties.LinkedResources {
+		if strings.Contains(linkedResource.URI, "providers/Aruba.Network/elasticIps") {
+			elasticIPURI = linkedResource.URI
+			break
+		}
+	}
+
+	if elasticIPURI == "" {
+		fmt.Println("No Elastic IP found for this cloud server.")
+		fmt.Println("The server must have an Elastic IP linked to use the connect command.")
+		return nil
+	}
+
+	// Extract ElasticIP ID from URI
+	elasticIPID := extractIDFromURI(elasticIPURI)
+	if elasticIPID == "" {
+		return fmt.Errorf("could not extract Elastic IP ID from URI: %s", elasticIPURI)
+	}
+
+	// Get ElasticIP details
+	eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, elasticIPID))
+	if err != nil {
+		return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
+	}
+
+	if eip == nil || eip.Raw() == nil {
+		fmt.Println("Elastic IP not found or no data returned.")
+		return nil
+	}
+
+	eipRaw := eip.Raw()
+	if eipRaw.Properties.Address == nil || *eipRaw.Properties.Address == "" {
+		fmt.Println("Elastic IP address not available.")
+		return nil
+	}
+
+	// Print SSH connection command
+	fmt.Printf("Connect by running: ssh %s@%s\n", user, *eipRaw.Properties.Address)
+	return nil
 }
