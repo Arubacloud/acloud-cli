@@ -1,32 +1,37 @@
-# acloud-cli
+# acloud — The official CLI for Aruba Cloud
 
 [![GitHub release](https://img.shields.io/github/tag/Arubacloud/acloud-cli.svg?label=release)](https://github.com/Arubacloud/acloud-cli/releases/latest)
 [![codecov](https://codecov.io/gh/Arubacloud/acloud-cli/graph/badge.svg)](https://codecov.io/gh/Arubacloud/acloud-cli)
 
-**acloud-cli** is the official Command Line Interface (CLI) for the **Aruba Cloud Management Platform**.  
-It allows developers, DevOps engineers, and platform operators to interact with Aruba Cloud APIs directly from the terminal for automation, scripting, and infrastructure management.
-
-> ⚠️ **Development Status**  
-> This CLI is under active development and is **not production-ready**.  
-> Commands, APIs, and behavior may change between releases.
+A single, unified command-line interface for managing the full range of Aruba Cloud infrastructure resources directly from your terminal.
 
 ---
 
-## Features and Capabilities
+## Features
 
-The Aruba Cloud CLI provides programmatic access to the following platform services:
+- **Full resource coverage** — compute, networking, storage, databases, containers, security, and scheduling
+- **Multiple output formats** — human-readable table, `table-json`, `table-yaml`, `json`, `yaml`
+- **Shell completion** — Bash, Zsh, Fish, and PowerShell
+- **Named contexts** — switch between projects without repeating `--project-id`
+- **Safe delete** — `--dry-run` to validate before deleting; `--yes` to skip prompts
+- **Pagination** — `--limit` and `--offset` on all list commands
+- **Debug mode** — full HTTP request/response logging via `--debug`
+- **CI/CD ready** — scriptable, non-interactive, JSON/YAML output for pipeline integration
 
-- Project and organization management
-- Block storage volumes, snapshots, backups, and restores
-- Network resources such as VPCs, subnets, security groups, and VPNs
-- Kubernetes as a Service (KaaS) cluster management
-- Infrastructure lifecycle operations and automation workflows
+---
 
-This tool is designed for:
-- Infrastructure as Code (IaC) workflows
-- CI/CD pipelines
-- Automation and scripting
-- Advanced terminal-based cloud management
+## Resource Coverage
+
+| Category | Resources |
+|----------|-----------|
+| **Management** | Projects |
+| **Compute** | Cloud Servers, Key Pairs |
+| **Storage** | Block Storage, Snapshots, Backups, Restores |
+| **Network** | VPC, Subnet, Security Group, Security Rule, Elastic IP, Load Balancer, VPC Peering, VPN Tunnel, VPN Route |
+| **Container** | Kubernetes as a Service (KaaS), Container Registry |
+| **Database** | DBaaS instances, Databases, Users, Grants, Backups |
+| **Security** | KMS Keys |
+| **Schedule** | Jobs (OneShot and Recurring) |
 
 ---
 
@@ -61,24 +66,22 @@ scoop bucket add arubacloud https://github.com/Arubacloud/scoop-bucket
 scoop install acloud
 ```
 
-### Manual binary install
+### Manual binary
 
 Precompiled static binaries (no runtime dependencies) are on the [releases page](https://github.com/Arubacloud/acloud-cli/releases/latest).
 
-**Linux (amd64):**
 ```bash
+# Linux (amd64)
 curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
 chmod +x acloud-linux-amd64 && sudo mv acloud-linux-amd64 /usr/local/bin/acloud
-```
 
-**macOS (Apple Silicon):**
-```bash
+# macOS (Apple Silicon)
 curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-darwin-arm64
 chmod +x acloud-darwin-arm64 && sudo mv acloud-darwin-arm64 /usr/local/bin/acloud
 ```
 
-**Windows (PowerShell):**
 ```powershell
+# Windows (PowerShell)
 Invoke-WebRequest `
   -Uri "https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-windows-amd64.exe" `
   -OutFile "acloud.exe"
@@ -86,7 +89,7 @@ Invoke-WebRequest `
 
 Move `acloud.exe` to a directory on your `PATH`.
 
-### Verify installation
+### Verify
 
 ```bash
 acloud --version
@@ -94,120 +97,102 @@ acloud --version
 
 ---
 
-## Configuration
-Before using the CLI, you must configure your Aruba Cloud API credentials.
+## Quick Start
 
-### Set Credentials
+### 1. Configure credentials
+
 ```bash
-# Recommended: pass --client-id on the command line; the secret is prompted securely (echo disabled)
+# Prompts for the secret with echo disabled (recommended)
 acloud config set --client-id YOUR_CLIENT_ID
-# Enter client secret: (hidden input)
 
-# Alternative for CI/automation (both flags on the command line)
+# Or pass both flags (suitable for CI/CD — prefer environment variables instead)
 acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
 ```
 
-> **Security note**: Avoid passing `--client-secret` interactively — it will appear in your shell history. Omitting the flag causes the CLI to prompt for it with echo disabled.
+> **Security note**: Avoid passing `--client-secret` in interactive sessions — it will appear in your shell history.
 
-Credentials are stored securely in:
+Credentials are stored in `~/.acloud.yaml`.
+
+### 2. Set a context
+
+Contexts bind a name to a project ID so you never need to pass `--project-id` again:
+
 ```bash
-~/.acloud.yaml
+acloud context set prod --project-id "YOUR_PROJECT_ID"
+acloud context use prod
 ```
 
-### View Configuration
+### 3. Start managing resources
+
 ```bash
-acloud config show
+acloud management project list
+acloud compute cloudserver list
+acloud network vpc list
+acloud storage blockstorage list
+acloud database dbaas list
 ```
+
 ---
 
-## Quick Start
-### 1. Configure Credentials
+## Shell Completion
+
 ```bash
-acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+# Bash
+echo 'source <(acloud completion bash)' >> ~/.bashrc
+
+# Zsh
+echo 'source <(acloud completion zsh)' >> ~/.zshrc
+
+# Fish
+acloud completion fish | source
+
+# PowerShell
+acloud completion powershell | Out-String | Invoke-Expression
 ```
 
-### 2. Create and Use a Context (Recommended)
-Contexts allow you to work with a specific project without repeatedly passing --project-id
-```bash
-acloud context set my-prod --project-id "YOUR_PROJECT_ID"
-acloud context use my-prod
-```
+---
 
-### 3. Explore Resources
-```bash
-# List projects
-acloud management project list
+## Output Formats
 
-# List block storage volumes
-acloud storage blockstorage list
-
-# List snapshots
-acloud storage snapshot list
-```
-
-## Context Management
-Manage multiple project contexts to simplify multi-environment workflows:
-```bash
-acloud context set prod --project-id "prod-project-id"
-acloud context set dev --project-id "dev-project-id"
-acloud context set staging --project-id "staging-project-id"
-
-acloud context use prod
-acloud context use dev
-
-acloud context current
-acloud context list
-acloud context delete staging
-```bash
-
-## Usage
-```bash
-acloud --help
-acloud config --help
-```
-
-## Debug Mode
-```bash
-acloud --debug network vpc list
-# Short form
-acloud -d network vpc list
-```
-
-Debug mode enables:
-- HTTP request and response logging
-- Detailed JSON payloads
-- Full error response details
-
-> **Security Warning**: Debug output may include credentials and tokens from HTTP headers. Do not use in shared terminal sessions or paste its output publicly.
-
-Debug output is sent to stderr and does not interfere with command output.
-
-## Output Format
-
-All list and get commands accept a global `--output` (`-o`) flag:
+All `list` and `get` commands accept a global `--output` (`-o`) flag:
 
 | Value | Description |
 |-------|-------------|
 | `table` | Human-readable fixed-width table (default) |
-| `table-json` | JSON array of flat snake_case objects (one per row) |
-| `table-yaml` | YAML sequence of flat snake_case mappings (one per row) |
-| `json` | Full SDK response object as indented JSON |
-| `yaml` | Full SDK response object as YAML |
+| `table-json` | Flat JSON array — one object per row, easy to pipe to `jq` |
+| `table-yaml` | Flat YAML sequence — one mapping per row |
+| `json` | Full SDK response as indented JSON |
+| `yaml` | Full SDK response as YAML |
 
 ```bash
-acloud network vpc list                  # table (default)
-acloud network vpc list -o table-json    # flat JSON array — easy to pipe to jq
-acloud network vpc list -o json          # full SDK response envelope
+acloud network vpc list                   # table (default)
+acloud network vpc list -o table-json     # flat JSON — pipe to jq
+acloud network vpc list -o json           # full SDK envelope
+
+# Example: extract all VPC IDs with jq
+acloud network vpc list -o table-json | jq -r '.[].id'
 ```
 
-Use `table-json` for scripting with tools like `jq`:
+---
+
+## Context Management
+
 ```bash
-acloud storage blockstorage list -o table-json | jq '.[].name'
+acloud context set prod    --project-id "prod-project-id"
+acloud context set dev     --project-id "dev-project-id"
+acloud context set staging --project-id "staging-project-id"
+
+acloud context use prod
+acloud context current
+acloud context list
+acloud context delete staging
 ```
 
-## Safe Delete (Dry Run)
+---
 
-Every delete command supports `--dry-run` to validate existence without deleting:
+## Safe Delete
+
+Every delete command supports `--dry-run` to confirm the resource exists without removing it:
 
 ```bash
 acloud storage blockstorage delete <volume-id> --dry-run
@@ -216,50 +201,42 @@ acloud storage blockstorage delete <volume-id> --dry-run
 
 Pass `--yes` (or `-y`) to skip the interactive confirmation prompt.
 
+---
+
 ## Pagination
 
-All list commands accept `--limit` and `--offset` flags:
+All list commands support `--limit` and `--offset`:
 
 ```bash
-acloud storage blockstorage list --limit 10           # first 10 results
-acloud storage blockstorage list --limit 10 --offset 10  # second page
+acloud storage blockstorage list --limit 10             # first 10 results
+acloud storage blockstorage list --limit 10 --offset 10 # second page
 ```
+
+---
+
+## Debug Mode
+
+```bash
+acloud --debug network vpc list
+acloud -d network vpc list       # short form
+```
+
+Enables full HTTP request/response logging including headers, query parameters, and JSON bodies. Output goes to stderr and does not interfere with command output.
+
+> **Security warning**: Debug output may include credentials and tokens. Do not use in shared terminal sessions or paste its output publicly.
+
+---
 
 ## Documentation
-📚 Full documentation is available at:
-https://arubacloud.github.io/acloud-cli/
 
-The documentation website includes:
-- Getting started guides
-- Authentication and configuration references
-- Complete command and resource documentation
-- Examples and tutorials
-- Versioned documentation for each CLI release
+Full documentation: **https://arubacloud.github.io/acloud-cli/**
 
-Local source files are available in the docs/ directory.
-
-## Testing
-End-to-end (E2E) tests validate CRUD operations across all resource categories.
-
-### Required Environment Variables
-```bash
-export ACLOUD_PROJECT_ID="your-project-id"
-export ACLOUD_REGION="ITBG-Bergamo"
-```
-
-## Run E2E Tests
-```bash
-./e2e/management/test.sh
-./e2e/storage/test.sh
-./e2e/network/test.sh
-./e2e/container/test.sh
-```
-
-Container (KaaS) tests require additional environment variables.
-See [e2e/README.md](e2e/README.md) for full instructions and prerequisites.
+---
 
 ## Contributing
-Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
 
 ## License
-See the [LICENSE](LICENSE) file for licensing details.
+
+See [LICENSE](LICENSE) for licensing details.
