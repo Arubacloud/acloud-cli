@@ -4,7 +4,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Arubacloud/acloud-cli)](https://github.com/Arubacloud/acloud-cli/blob/main/go.mod)
 [![Release](https://img.shields.io/github/v/release/Arubacloud/acloud-cli)](https://github.com/Arubacloud/acloud-cli/releases)
 [![Codecov](https://codecov.io/gh/Arubacloud/acloud-cli/branch/main/graph/badge.svg)](https://codecov.io/gh/Arubacloud/acloud-cli)
-[![License](https://img.shields.io/github/license/Arubacloud/acloud-cli)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 A single, unified command-line interface for managing the full range of Aruba Cloud infrastructure resources directly from your terminal.
 
