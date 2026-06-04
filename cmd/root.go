@@ -180,6 +180,8 @@ func GetArubaClient() (aruba.Client, error) {
 		options = options.WithDefaultLogger()
 	}
 
+	options = options.WithUserAgent("acloud-cli@" + rootCmd.Version)
+
 	client, err := aruba.NewClient(options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Aruba Cloud client: %w", err)
