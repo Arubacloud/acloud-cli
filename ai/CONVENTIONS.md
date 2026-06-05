@@ -52,7 +52,7 @@ resource IDs, not full URI paths.
 
 ## Cobra Command Struct Fields
 
-**Always set:** `Use`, `Short`, `RunE`
+**Always set:** `Use`, `Short`, `RunE` (points to the named `<Family><Resource><Action>Run` wiring function — never an anonymous closure)
 
 **Set when needed:**
 - `Args` — use `cobra.ExactArgs(N)` or `cobra.NoArgs` for validation
@@ -67,7 +67,7 @@ var blockstorageGetCmd = &cobra.Command{
     Use:   "get [volume-id]",
     Short: "Get block storage details",
     Args:  cobra.ExactArgs(1),
-    Run:   func(cmd *cobra.Command, args []string) { ... },
+    RunE:  StorageBlockStorageGetRun, // named wiring function, never anonymous
 }
 
 var blockstorageCmd = &cobra.Command{
@@ -166,8 +166,24 @@ Never dereference a response pointer without a nil guard.
 
 ## Adding a New Resource
 
+Follow the Args / Operation / Run decomposition for every handler (see section below).
+
 1. Create `cmd/<category>.<resource>.go`. Define all subcommand vars at package level.
-2. Register in `init()`:
+2. For each action (Create / Get / Update / Delete / List / …):
+   a. Define `<Family><Resource><Action>Args` struct with typed fields.
+   b. Implement `ParseFromCobraCommand(cmd)` — reads flags, resolves `ProjectID` via
+      `GetProjectID(cmd)`, casts strings to SDK enum types.
+   c. Implement `Validate()` — pure function, no SDK, no I/O. Checks required fields,
+      string lengths, `slices.Contains` against `valid*` slices in `cmd/enums.go`.
+   d. Implement `New<...>ArgsFromCobraCommand(cmd)` constructor that calls Parse then
+      Validate, wrapping errors with `ErrParsingFailed` / `ErrValidationFailed`.
+   e. Implement `<Family><Resource><Action>(ctx, client aruba.Client, args <...>Args) error`
+      — the pure operation (SDK call + rendering). Must not call `GetArubaClient`,
+      `GetProjectID`, or `cmd.Flags()`.
+   f. Implement `<Family><Resource><Action>Run(cmd, _ []string) error` — thin wiring:
+      `New…Args` → `GetArubaClient` → `newCtx` → operation. Delete adds `confirmDelete`
+      and `--dry-run` here.
+3. Register in `init()`:
    ```go
    func init() {
        parentCmd.AddCommand(resourceCmd)
@@ -185,6 +201,7 @@ Never dereference a response pointer without a nil guard.
        resourceCreateCmd.MarkFlagRequired("region")
 
        resourceDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+       resourceDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
        // Completion
        resourceGetCmd.ValidArgsFunction    = completeResourceID
@@ -192,13 +209,17 @@ Never dereference a response pointer without a nil guard.
        resourceDeleteCmd.ValidArgsFunction = completeResourceID
    }
    ```
-3. Use `GetArubaClient()` and `GetProjectID(cmd)` from `cmd/root.go` — never read flags or initialize the SDK directly.
-4. Implement `completeResourceID` following the shell completion pattern in `ARCHITECTURE.md`.
-5. Register the parent category command in `cmd/<category>.go`'s `init()` if it doesn't already exist.
+4. Wire `RunE` to the named wiring function: `RunE: <Family><Resource><Action>Run`.
+5. Implement `completeResourceID` following the shell completion pattern in `ARCHITECTURE.md`.
+6. Register the parent category command in `cmd/<category>.go`'s `init()` if it doesn't already exist.
 
 ---
 
-## Standard Command Bodies
+## Args / Operation / Run Decomposition
+
+Every Cobra `RunE` handler is decomposed into **four named symbols** per action. This
+makes the operation function testable with a mocked SDK client and Validate() testable
+as a pure Go function — no rootCmd.Execute() required.
 
 SDK v1.0.0 uses a fluent wrapper layer. `client.From<Svc>().<Resource>()` returns a
 typed client whose CRUD methods take/return hydrated wrapper types (`*aruba.<T>`,
@@ -230,128 +251,205 @@ files — never redefined. Path-segment casing must match the API exactly (see
 `delete`. Do not add a `NewLoadBalancer()` builder call or Create/Update/Delete
 command vars.
 
-### list
+### Naming convention
+
+`<Family>` is the Cobra category prefix: `Compute`, `Storage`, `Network`, `Database`,
+`Container`, `Security`, `Schedule`, `Management`, `Config`, `Context`. `<Resource>` is
+the resource name in PascalCase (`CloudServer`, `BlockStorage`, `VPC`, …). `<Action>` is
+the verb: `Create`, `Get`, `List`, `Update`, `Delete`, plus any non-CRUD verbs already in
+the tree (`PowerOn`, `PowerOff`, `SetPassword`, `Connect`, `Set`, `Use`, `Current`, `Show`).
+
+### 1. Args struct
+
 ```go
-client, err := GetArubaClient()
-if err != nil { return fmt.Errorf("initializing client: %w", err) }
-
-ctx, cancel := newCtx()
-defer cancel()
-list, err := client.From<Svc>().<Resource>().List(ctx, listOpts(cmd)...)
-if err != nil { return fmt.Errorf("listing <resources>: %w", apiErrFromV2(err)) }
-
-if list != nil && len(list.Items()) > 0 {
-    headers := []TableColumn{
-        {Header: "NAME", Width: 30},
-        {Header: "ID",   Width: 26},
-        // ...
-    }
-    var rows [][]string
-    for _, r := range list.Items() {
-        rows = append(rows, []string{r.Name(), r.ID(), ...})
-    }
-    // For -o json/yaml, extract the typed list from Raw() — see <resource>ListPayload.
-    PrintOutput(<resource>ListPayload(list), headers, rows)
-} else {
-    fmt.Println("No <resources> found")
+type ComputeCloudServerCreateArgs struct {
+    ProjectID        string
+    Name             string
+    Region           aruba.Region           // typed enum, not string
+    Zone             aruba.Zone
+    Flavor           aruba.CloudServerFlavor
+    BootDiskID       string
+    VPCID            string
+    SubnetIDs        []string               // IDs; operation builds aruba.Ref
+    SecurityGroupIDs []string
+    ElasticIPID      string
+    KeypairID        string
+    Tags             []string
+    BillingPeriod    aruba.BillingPeriod
+    UserDataFile     string
 }
 ```
 
-### get
+Rules:
+- Enum fields use the SDK type, not `string`. The string→type cast happens in
+  `ParseFromCobraCommand`; value-set membership is checked in `Validate`.
+- `ProjectID` is the resolved value from `GetProjectID(cmd)`, not the raw flag.
+- Cross-resource refs stay as ID strings; the operation function builds `aruba.Ref`.
+- Delete args include `DryRun bool` and `SkipConfirm bool`; the Run wiring reads them
+  and short-circuits before calling the operation.
+
+### 2. Constructor + ParseFromCobraCommand + Validate
+
 ```go
-resourceID := args[0]
-client, err := GetArubaClient()
-if err != nil { return fmt.Errorf("initializing client: %w", err) }
-
-ctx, cancel := newCtx()
-defer cancel()
-got, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
-if err != nil { return fmt.Errorf("getting <resource>: %w", apiErrFromV2(err)) }
-
-// Re-parse for fields the wrapper omits and for -o json/yaml (wrapper is not marshalable).
-resource := <resource>FromRaw(got)
-if resource != nil {
-    format := resolveOutputFormat()
-    if format == OutputFormatJSON || format == OutputFormatYAML {
-        PrintOutput(resource, nil, nil)
-        return nil
+// Errors sentinel package-vars are in cmd/args.go.
+func NewComputeCloudServerCreateArgsFromCobraCommand(cmd *cobra.Command) (*ComputeCloudServerCreateArgs, error) {
+    args := &ComputeCloudServerCreateArgs{}
+    if err := args.ParseFromCobraCommand(cmd); err != nil {
+        return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
     }
-    fmt.Println("\n<Resource> Details:")
-    fmt.Println("===================")
-    if resource.Metadata.ID != nil { fmt.Printf("ID:   %s\n", *resource.Metadata.ID) }
+    if err := args.Validate(); err != nil {
+        return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+    }
+    return args, nil
+}
+
+func (a *ComputeCloudServerCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+    var errs []error
+    var err error
+    if a.ProjectID, err = GetProjectID(cmd); err != nil { errs = append(errs, err) }
+    if a.Name, err = cmd.Flags().GetString("name"); err != nil { errs = append(errs, err) }
+    if s, err := cmd.Flags().GetString("region"); err == nil {
+        a.Region = aruba.Region(s) // cast here; value-set check in Validate
+    } else { errs = append(errs, err) }
+    // ... remaining fields ...
+    return errors.Join(errs...)
+}
+
+func (a *ComputeCloudServerCreateArgs) Validate() error {
+    var errs []error
+    if len(a.Name) < 3 { errs = append(errs, errors.New("--name must be at least 3 characters")) }
+    if len(a.Name) > 64 { errs = append(errs, errors.New("--name must be at most 64 characters")) }
+    if !slices.Contains(validRegions, a.Region) {
+        errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+    }
+    if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+        errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+    }
+    if a.VPCID == "" { errs = append(errs, errors.New("--vpc-id is required")) }
+    if len(a.SubnetIDs) == 0 { errs = append(errs, errors.New("--subnet-id requires at least one value")) }
     // ...
-} else {
-    fmt.Println("<Resource> not found")
+    return errors.Join(errs...)
 }
 ```
 
-### create
+**Enum-validation rule:** For enums where the SDK exposes no fixed set (e.g.
+`aruba.KubernetesVersion`), `Validate()` checks `!= ""` only — never
+`slices.Contains`. Annotate inline. Valid-value slices for cross-resource enums are
+declared in `cmd/enums.go`; single-resource enums stay in the resource file.
+
+### 3. Operation function
+
 ```go
-// 1. Extract flags; validate required ones early
-// 2. GetArubaClient
-// 3. Build wrapper via aruba.New<T>() fluent setters:
-wrapper := aruba.New<T>().Named(name)
-if description != "" { wrapper.WithDescription(description) }
-// ...
-// 4. Call Create:
-ctx, cancel := newCtx()
-defer cancel()
-created, err := client.From<Svc>().<Resource>().Create(ctx, wrapper, ...)
-if err != nil { return fmt.Errorf("creating <resource>: %w", apiErrFromV2(err)) }
-// 5. Re-parse for output (wrapper not marshalable; may expose extra fields):
-resource := <resource>FromRaw(created)
-if resource != nil {
-    PrintOutput(resource, headers, [][]string{row})
-} else {
-    fmt.Println(msgCreatedAsync("<Resource>", name))
+func ComputeCloudServerCreate(ctx context.Context, client aruba.Client, args ComputeCloudServerCreateArgs) error {
+    subnetRefs := make([]aruba.Ref, len(args.SubnetIDs))
+    for i, s := range args.SubnetIDs { subnetRefs[i] = aruba.SubnetRef(args.ProjectID, args.VPCID, s) }
+
+    server := aruba.NewCloudServer().
+        InProject(projectRef(args.ProjectID)).
+        Named(args.Name).
+        InRegion(args.Region).
+        InZone(args.Zone).
+        OfFlavor(args.Flavor).
+        BootingFrom(volumeRef(args.ProjectID, args.BootDiskID)).
+        WithVPC(aruba.VPCRef(args.ProjectID, args.VPCID)).
+        OnSubnets(subnetRefs...).
+        BilledBy(args.BillingPeriod)
+    // ... optional fields ...
+
+    resp, err := client.FromCompute().CloudServers().Create(ctx, server)
+    if err != nil { return fmt.Errorf("creating cloud server: %w", apiErrFromV2(err)) }
+
+    if resp != nil && resp.Raw() != nil {
+        // ... build headers + row, call PrintOutput(resp, headers, rows) ...
+    } else {
+        fmt.Println(msgCreatedAsync("Cloud server", args.Name))
+    }
+    return nil
 }
 ```
 
-### update
-```go
-// 1. Get current resource via Get to preserve unmodified fields:
-current, err := client.From<Svc>().<Resource>().Get(ctx, <ref>, ...)
-if err != nil { return fmt.Errorf("fetching current <resource>: %w", apiErrFromV2(err)) }
-// 2. Apply only the flags that were explicitly Changed:
-if description != "" { current.WithDescription(description) }
-if cmd.Flags().Changed("tags") { current.RetaggedAs(tags...) }
-// 3. Call Update with the hydrated wrapper (ID is preserved from Get):
-updated, err := client.From<Svc>().<Resource>().Update(ctx, current, ...)
-if err != nil { return fmt.Errorf("updating <resource>: %w", apiErrFromV2(err)) }
-// 4. Re-parse and render:
-resource := <resource>FromRaw(updated)
-if resource != nil {
-    PrintOutput(resource, headers, [][]string{row})
-} else {
-    fmt.Println(msgUpdatedAsync("<Resource>", id))
-}
-```
+**Constraints on the operation function:**
+- Must not call `GetArubaClient()`, `GetProjectID()`, `cmd.Flags()`, or read `os.Stdin`.
+- Takes `ctx context.Context` and `client aruba.Client` as its first two arguments.
+- Accepts `args <Family><Resource><Action>Args` by value (not pointer).
+- Config-less resources (Config, Context) omit the `client` parameter.
 
-### delete
+### 4. Run wiring
+
 ```go
-// 1. --dry-run: call Get to validate existence, print msgDryRun, return nil
-dryRun, _ := cmd.Flags().GetBool("dry-run")
-if dryRun {
-    _, err := client.From<Svc>().<Resource>().Get(ctx, <ref>)
-    if err != nil { return fmt.Errorf("dry-run: <resource> not found or inaccessible: %w", apiErrFromV2(err)) }
-    fmt.Println(msgDryRun("<resource type>", id))
+func ComputeCloudServerCreateRun(cmd *cobra.Command, _ []string) error {
+    args, err := NewComputeCloudServerCreateArgsFromCobraCommand(cmd)
+    if err != nil { return fmt.Errorf("checking args: %w", err) }
+
+    client, err := GetArubaClient()
+    if err != nil { return fmt.Errorf("initializing client: %w", err) }
+
+    ctx, cancel := newCtx()
+    defer cancel()
+
+    if err := ComputeCloudServerCreate(ctx, client, *args); err != nil {
+        return fmt.Errorf("running command: %w", err)
+    }
     return nil
 }
 
-// 2. Confirmation (before GetArubaClient in the non-dry-run path):
-confirmed, err := confirmDelete("<resource type>", id)
-if err != nil { return err }
-if !confirmed { return nil }
-
-// 3. GetArubaClient, Delete — returns error only (no response object):
-if err := client.From<Svc>().<Resource>().Delete(ctx, <ref>); err != nil {
-    return fmt.Errorf("deleting <resource>: %w", apiErrFromV2(err))
+var cloudserverCreateCmd = &cobra.Command{
+    // ...
+    RunE: ComputeCloudServerCreateRun, // named, not anonymous
 }
-// 4. Success output (use PrintOutput for -o json support):
-PrintOutput(result, headers, [][]string{row})
 ```
 
-`confirmDelete(resourceType, id string) (bool, error)` is a helper in `cmd/root.go` that detects non-interactive stdin and skips the prompt when `--yes` is set or when stdin is not a terminal. Use it — do not inline the prompt.
+Delete wiring is the only variant — `confirmDelete` and `--dry-run` live here:
+
+```go
+func ComputeCloudServerDeleteRun(cmd *cobra.Command, args []string) error {
+    a, err := NewComputeCloudServerDeleteArgsFromCobraCommand(cmd, args)
+    if err != nil { return fmt.Errorf("checking args: %w", err) }
+
+    if !a.SkipConfirm {
+        ok, err := confirmDelete("cloud server", a.ID)
+        if err != nil { return err }
+        if !ok { return nil }
+    }
+
+    client, err := GetArubaClient()
+    if err != nil { return fmt.Errorf("initializing client: %w", err) }
+    ctx, cancel := newCtx(); defer cancel()
+
+    if a.DryRun {
+        if _, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(a.ProjectID, a.ID)); err != nil {
+            return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
+        }
+        fmt.Println(msgDryRun("cloud server", a.ID))
+        return nil
+    }
+
+    if err := ComputeCloudServerDelete(ctx, client, *a); err != nil {
+        return fmt.Errorf("running command: %w", err)
+    }
+    return nil
+}
+```
+
+`confirmDelete(resourceType, id string) (bool, error)` is a helper in `cmd/root.go` that
+detects non-interactive stdin and skips the prompt when `--yes` is set or when stdin is
+not a terminal. Use it — do not inline the prompt.
+
+### File layout
+
+Keep all four symbols for a resource in the same file (e.g. `cmd/compute.cloudserver.go`).
+The file grows but remains self-contained and grep-able. Tests live in the matching
+`*_test.go` file; no separate `*_args_test.go`.
+
+### Test layers
+
+Three layers per resource (see `ARCHITECTURE.md` "Args / Operation / Run"):
+- **Layer 1 — Validate:** table-driven pure-Go tests, one per action. Assert
+  `errors.Is(err, ErrValidationFailed)` after the constructor wraps.
+- **Layer 2 — Operation:** call the operation function directly with `newArubaTestServer(t).Client()`.
+  Use `captureStdout` (root_test.go:277) for output assertions.
+- **Layer 3 — Invocation:** existing `Test*Cmd` table tests via `runCmd` kept as-is.
+  One case per action is enough to prove the RunE wiring compiles and runs end-to-end.
 
 ---
 
