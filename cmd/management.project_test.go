@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -461,5 +463,201 @@ func TestProjectListCmd_WithProjectData(t *testing.T) {
 	}
 	if !strings.Contains(out, "proj-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Args struct unit tests (pure, no HTTP)
+// =============================================================================
+
+func TestManagementProjectCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        ManagementProjectCreateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid args",
+			args:    ManagementProjectCreateArgs{Name: "my-project"},
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			args:        ManagementProjectCreateArgs{Name: "ab"},
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			args:    ManagementProjectCreateArgs{Name: "abc"},
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			args:        ManagementProjectCreateArgs{Name: strings.Repeat("x", 65)},
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:    "name maximum length 64",
+			args:    ManagementProjectCreateArgs{Name: strings.Repeat("x", 64)},
+			wantErr: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestManagementProjectCreateArgs_Validate_WrappedByConstructor(t *testing.T) {
+	args := ManagementProjectCreateArgs{Name: "x"} // too short
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	wrapped := errors.Join(ErrValidationFailed, err) // mirrors constructor pattern
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed in chain, got: %v", wrapped)
+	}
+}
+
+func TestManagementProjectUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        ManagementProjectUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid with description",
+			args:    ManagementProjectUpdateArgs{ID: "proj-001", Description: "new desc"},
+			wantErr: false,
+		},
+		{
+			name:    "valid with tags changed",
+			args:    ManagementProjectUpdateArgs{ID: "proj-001", TagsChanged: true},
+			wantErr: false,
+		},
+		{
+			name:        "no fields changed",
+			args:        ManagementProjectUpdateArgs{ID: "proj-001"},
+			wantErr:     true,
+			errContains: "at least one of",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestManagementProjectCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-new", "my-project"
+	srv.OnPost("/projects", jsonResponse(200, types.ProjectResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectCreate(context.Background(), srv.Client(), ManagementProjectCreateArgs{
+			Name: "my-project",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "proj-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestManagementProjectCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := ManagementProjectCreate(context.Background(), srv.Client(), ManagementProjectCreateArgs{
+		Name: "my-project",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating project") {
+		t.Errorf("error %q does not contain 'creating project'", err.Error())
+	}
+}
+
+func TestManagementProjectList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-001", "my-project"
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
+		Values: []types.ProjectResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectList(context.Background(), srv.Client(), ManagementProjectListArgs{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "proj-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestManagementProjectList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectList(context.Background(), srv.Client(), ManagementProjectListArgs{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No projects found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestManagementProjectList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := ManagementProjectList(context.Background(), srv.Client(), ManagementProjectListArgs{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listing projects") {
+		t.Errorf("error %q does not contain 'listing projects'", err.Error())
 	}
 }
