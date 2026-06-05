@@ -253,7 +253,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-new", "my-dbaas"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
@@ -268,7 +268,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "success with networking flags",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
 				"--vpc-id", "vpc-001",
 				"--subnet-id", "sub-001",
 				"--security-group-id", "sg-001",
@@ -288,19 +288,19 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --engine-id",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--flavor", "db.small", "--storage-size", "50"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "engine-id",
 		},
 		{
 			name: "server error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -309,7 +309,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -508,7 +508,7 @@ func TestDBaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"database", "dbaas", "create",
 		"--project-id", "proj-123",
 		"--name", "my-db",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--zone", "IT-BG-1",
 		"--engine-id", "mysql-8.0",
 		"--flavor", "DBO4A8",
