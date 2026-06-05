@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -153,7 +156,7 @@ func TestJobCreateCmd(t *testing.T) {
 		"schedule", "job", "create",
 		"--project-id", "proj-123",
 		"--name", "my-job",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
 	}
@@ -381,7 +384,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-recurring-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "Recurring",
 				"--cron", "0 * * * *",
 				"--execute-until", "2027-01-01T00:00:00Z",
@@ -399,7 +402,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "Recurring",
 				"--execute-until", "2027-01-01T00:00:00Z",
 			},
@@ -412,7 +415,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "Recurring",
 				"--cron", "0 * * * *",
 			},
@@ -425,7 +428,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "Invalid",
 				"--schedule-at", "2026-06-01T10:00:00Z",
 			},
@@ -438,7 +441,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "OneShot",
 			},
 			wantErr:     true,
@@ -450,7 +453,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"schedule", "job", "create",
 				"--project-id", "proj-123",
 				"--name", "my-job",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--job-type", "OneShot",
 				"--schedule-at", "2026-06-01T10:00:00Z",
 				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
@@ -486,7 +489,7 @@ func TestJobCreateCmd_Disabled(t *testing.T) {
 		"schedule", "job", "create",
 		"--project-id", "proj-123",
 		"--name", "my-job",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
 		"--enabled=false",
@@ -502,7 +505,7 @@ func TestJobCreateCmd_InvalidScheduleAt(t *testing.T) {
 		"schedule", "job", "create",
 		"--project-id", "proj-123",
 		"--name", "my-job",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "not-a-date",
 	})
@@ -520,7 +523,7 @@ func TestJobCreateCmd_InvalidExecuteUntil(t *testing.T) {
 		"schedule", "job", "create",
 		"--project-id", "proj-123",
 		"--name", "my-job",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--job-type", "Recurring",
 		"--cron", "0 0 * * *",
 		"--execute-until", "not-a-date",
@@ -536,7 +539,7 @@ func TestJobCreateCmd_InvalidExecuteUntil(t *testing.T) {
 func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "job-001", "my-job"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
 		Metadata: types.ResourceMetadataResponse{
@@ -554,7 +557,7 @@ func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
 		"schedule", "job", "create",
 		"--project-id", "proj-123",
 		"--name", "my-job",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
 	})
@@ -566,7 +569,7 @@ func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
 func TestJobListCmd_WithEnabledAndLocation(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "job-001", "my-job"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
 		Values: []types.JobResponse{
@@ -612,7 +615,7 @@ func TestJobGetCmd_FullDetail(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "job-001", "my-job"
 	uri := "/projects/proj-123/providers/Aruba.Schedule/jobs/job-001"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	createdBy := "test-user@example.com"
 	schedAt := "2026-06-01T10:00:00Z"
@@ -673,5 +676,447 @@ func TestJobUpdateCmd_WithEnabledAndTags(t *testing.T) {
 	}
 	if !strings.Contains(out, "job-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate tests (pure Go, no SDK, no HTTP)
+// =============================================================================
+
+func validScheduleJobCreateArgs() ScheduleJobCreateArgs {
+	return ScheduleJobCreateArgs{
+		ProjectID: "proj-123",
+		Name:      "my-job",
+		Region:    aruba.RegionITBGBergamo,
+		JobType:   aruba.JobTypeOneShot,
+		Enabled:   true,
+		Tags:      []string{},
+		ShotTime:  "2026-06-01T10:00:00Z",
+	}
+}
+
+func TestScheduleJobCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*ScheduleJobCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid OneShot args",
+			wantErr: false,
+		},
+		{
+			name: "valid Recurring args",
+			mutate: func(a *ScheduleJobCreateArgs) {
+				a.JobType = aruba.JobTypeRecurring
+				a.ShotTime = ""
+				a.CronExpr = "0 * * * *"
+				a.EndTime = "2027-01-01T00:00:00Z"
+			},
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *ScheduleJobCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *ScheduleJobCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *ScheduleJobCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:    "name maximum length 64",
+			mutate:  func(a *ScheduleJobCreateArgs) { a.Name = strings.Repeat("x", 64) },
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *ScheduleJobCreateArgs) { a.Region = aruba.Region("ZZ-Invalid") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid job-type",
+			mutate:      func(a *ScheduleJobCreateArgs) { a.JobType = aruba.JobType("WeeklyBatch") },
+			wantErr:     true,
+			errContains: "--job-type",
+		},
+		// OneShot / Recurring mutual-exclusion checks.
+		{
+			name: "OneShot missing ShotTime",
+			mutate: func(a *ScheduleJobCreateArgs) {
+				a.JobType = aruba.JobTypeOneShot
+				a.ShotTime = ""
+			},
+			wantErr:     true,
+			errContains: "--schedule-at is required for OneShot",
+		},
+		{
+			name: "Recurring missing CronExpr",
+			mutate: func(a *ScheduleJobCreateArgs) {
+				a.JobType = aruba.JobTypeRecurring
+				a.ShotTime = ""
+				a.CronExpr = ""
+				a.EndTime = "2027-01-01T00:00:00Z"
+			},
+			wantErr:     true,
+			errContains: "--cron is required for Recurring",
+		},
+		{
+			name: "Recurring missing EndTime",
+			mutate: func(a *ScheduleJobCreateArgs) {
+				a.JobType = aruba.JobTypeRecurring
+				a.ShotTime = ""
+				a.CronExpr = "0 * * * *"
+				a.EndTime = ""
+			},
+			wantErr:     true,
+			errContains: "--execute-until is required for Recurring",
+		},
+		{
+			name: "Recurring missing both CronExpr and EndTime",
+			mutate: func(a *ScheduleJobCreateArgs) {
+				a.JobType = aruba.JobTypeRecurring
+				a.ShotTime = ""
+				a.CronExpr = ""
+				a.EndTime = ""
+			},
+			wantErr:     true,
+			errContains: "--cron is required for Recurring",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validScheduleJobCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestScheduleJobCreateArgs_Validate_WrappedByConstructor(t *testing.T) {
+	args := validScheduleJobCreateArgs()
+	args.Name = "x" // too short — triggers ErrValidationFailed when wrapped by constructor
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	wrapped := errors.Join(ErrValidationFailed, err)
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed in chain, got: %v", wrapped)
+	}
+}
+
+func TestScheduleJobUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        ScheduleJobUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid with name",
+			args:    ScheduleJobUpdateArgs{ProjectID: "proj-123", ID: "job-001", Name: "new-name"},
+			wantErr: false,
+		},
+		{
+			name:    "valid with enabled set",
+			args:    ScheduleJobUpdateArgs{ProjectID: "proj-123", ID: "job-001", EnabledSet: true},
+			wantErr: false,
+		},
+		{
+			name:    "valid with tags changed",
+			args:    ScheduleJobUpdateArgs{ProjectID: "proj-123", ID: "job-001", TagsChanged: true},
+			wantErr: false,
+		},
+		{
+			name:        "no fields changed",
+			args:        ScheduleJobUpdateArgs{ProjectID: "proj-123", ID: "job-001"},
+			wantErr:     true,
+			errContains: "at least one of",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestScheduleJobCreate_HappyPath_OneShot(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-new", "my-job"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobCreate(context.Background(), srv.Client(), validScheduleJobCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobCreate_HappyPath_Recurring(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-recur", "my-recurring-job"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	args := validScheduleJobCreateArgs()
+	args.Name = "my-recurring-job"
+	args.JobType = aruba.JobTypeRecurring
+	args.ShotTime = ""
+	args.CronExpr = "0 * * * *"
+	args.EndTime = "2027-01-01T00:00:00Z"
+
+	out := captureStdout(func() {
+		err := ScheduleJobCreate(context.Background(), srv.Client(), args)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-recur") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := ScheduleJobCreate(context.Background(), srv.Client(), validScheduleJobCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating job") {
+		t.Errorf("error %q does not contain 'creating job'", err.Error())
+	}
+}
+
+func TestScheduleJobList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{
+		Values: []types.JobResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobList(context.Background(), srv.Client(), ScheduleJobListArgs{ProjectID: "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", jsonResponse(200, types.JobListResponse{}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobList(context.Background(), srv.Client(), ScheduleJobListArgs{ProjectID: "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No jobs found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestScheduleJobList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := ScheduleJobList(context.Background(), srv.Client(), ScheduleJobListArgs{ProjectID: "proj-123"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listing jobs") {
+		t.Errorf("error %q does not contain 'listing jobs'", err.Error())
+	}
+}
+
+func TestScheduleJobGet_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobGet(context.Background(), srv.Client(), ScheduleJobGetArgs{
+			ProjectID: "proj-123",
+			ID:        "job-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobGet_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(404, "Not Found", "resource not found"))
+
+	err := ScheduleJobGet(context.Background(), srv.Client(), ScheduleJobGetArgs{
+		ProjectID: "proj-123",
+		ID:        "job-001",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "getting job") {
+		t.Errorf("error %q does not contain 'getting job'", err.Error())
+	}
+}
+
+func TestScheduleJobDelete_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnDelete("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, nil))
+
+	out := captureStdout(func() {
+		err := ScheduleJobDelete(context.Background(), srv.Client(), ScheduleJobDeleteArgs{
+			ProjectID: "proj-123",
+			ID:        "job-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobDelete_DryRun(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	// Only register Get; if Delete is called the harness t.Errorf on the unregistered route.
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobDelete(context.Background(), srv.Client(), ScheduleJobDeleteArgs{
+			ProjectID: "proj-123",
+			ID:        "job-001",
+			DryRun:    true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in dry-run output, got: %s", out)
+	}
+}
+
+func TestScheduleJobDelete_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnDelete("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(500, "Internal Server Error", "in use"))
+
+	err := ScheduleJobDelete(context.Background(), srv.Client(), ScheduleJobDeleteArgs{
+		ProjectID: "proj-123",
+		ID:        "job-001",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "deleting job") {
+		t.Errorf("error %q does not contain 'deleting job'", err.Error())
+	}
+}
+
+func TestScheduleJobUpdate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	newName := "renamed-job"
+	srv.OnPut("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", jsonResponse(200, types.JobResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &newName},
+	}))
+
+	out := captureStdout(func() {
+		err := ScheduleJobUpdate(context.Background(), srv.Client(), ScheduleJobUpdateArgs{
+			ProjectID: "proj-123",
+			ID:        "job-001",
+			Name:      "renamed-job",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "job-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestScheduleJobUpdate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Schedule/jobs/job-001", errorResponse(404, "Not Found", "not found"))
+
+	err := ScheduleJobUpdate(context.Background(), srv.Client(), ScheduleJobUpdateArgs{
+		ProjectID: "proj-123",
+		ID:        "job-001",
+		Name:      "x",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "getting job") {
+		t.Errorf("error %q does not contain 'getting job'", err.Error())
 	}
 }
