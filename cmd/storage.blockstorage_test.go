@@ -476,7 +476,7 @@ func TestBlockStorageCreateCmd_WithSnapshotID(t *testing.T) {
 		"storage", "blockstorage", "create",
 		"--project-id", "proj-123",
 		"--name", "my-volume",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--size", "50",
 		"--snapshot-id", "snap-001",
 	})
