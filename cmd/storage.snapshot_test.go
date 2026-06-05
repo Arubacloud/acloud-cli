@@ -161,7 +161,7 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", snapshotVolID,
 	}
 	tests := []struct {
@@ -189,13 +189,13 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "IT-BG", "--volume-id", snapshotVolID},
+			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--volume-id", snapshotVolID},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --volume-id",
-			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "my-snapshot", "--region", "IT-BG"},
+			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "my-snapshot", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "volume-id",
 		},
@@ -397,7 +397,7 @@ func TestSnapshotCreateCmd_Verbose(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", snapshotVolID,
 		"--verbose",
 	})
@@ -426,7 +426,7 @@ func TestSnapshotCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", "vol-001",
 	})
 	if err != nil {
