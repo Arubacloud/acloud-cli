@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -165,7 +167,7 @@ func TestVPCPeeringCreateCmd(t *testing.T) {
 		"network", "vpcpeering", "create", "vpc-001",
 		"--project-id", "proj-123",
 		"--name", "my-peering",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--peer-vpc-id", "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002",
 	}
 	tests := []struct {
@@ -526,5 +528,93 @@ func TestVPCPeeringListCmd_WithAllFields(t *testing.T) {
 	}
 	if !strings.Contains(out, "peer-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkVPCPeeringCreateArgs() NetworkVPCPeeringCreateArgs {
+	return NetworkVPCPeeringCreateArgs{
+		ProjectID: "proj-123",
+		VPCID:     "vpc-001",
+		Name:      "my-peering",
+		Region:    aruba.RegionITBGBergamo,
+		PeerVPCID: "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-002",
+	}
+}
+
+func TestNetworkVPCPeeringCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkVPCPeeringCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkVPCPeeringCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkVPCPeeringCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkVPCPeeringCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "peer-new", "my-peering"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPCPeeringCreate(context.Background(), srv.Client(), validNetworkVPCPeeringCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "peer-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPCPeeringCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := NetworkVPCPeeringCreate(context.Background(), srv.Client(), validNetworkVPCPeeringCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating VPC peering") {
+		t.Errorf("error %q does not contain 'creating VPC peering'", err.Error())
 	}
 }
