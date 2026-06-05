@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -58,6 +60,12 @@ func init() {
 	containerregistryDeleteCmd.ValidArgsFunction = completeContainerRegistryID
 }
 
+// containerRegistryRef builds the URI for a specific container registry.
+func containerRegistryRef(projectID, registryID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID +
+		"/providers/Aruba.Container/registries/" + registryID)
+}
+
 func completeContainerRegistryID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	projectID, err := GetProjectID(cmd)
 	if err != nil {
@@ -111,83 +119,390 @@ Billing period: Hour (default), Month, or Year.`,
     --public-ip-id <eip-id> \
     --block-storage-id <vol-id>`,
 	Args: cobra.NoArgs,
-	RunE: runContainerRegistryCreate,
+	RunE: ContainerContainerRegistryCreateRun,
 }
 
 var containerregistryGetCmd = &cobra.Command{
 	Use:   "get [containerregistry-id]",
 	Short: "Get container registry details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContainerRegistryGet,
+	RunE:  ContainerContainerRegistryGetRun,
 }
 
 var containerregistryListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all container registries",
 	Args:  cobra.NoArgs,
-	RunE:  runContainerRegistryList,
+	RunE:  ContainerContainerRegistryListRun,
 }
 
 var containerregistryUpdateCmd = &cobra.Command{
 	Use:   "update [containerregistry-id]",
 	Short: "Update a container registry",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContainerRegistryUpdate,
+	RunE:  ContainerContainerRegistryUpdateRun,
 }
 
 var containerregistryDeleteCmd = &cobra.Command{
 	Use:   "delete [containerregistry-id]",
 	Short: "Delete a container registry",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContainerRegistryDelete,
+	RunE:  ContainerContainerRegistryDeleteRun,
 }
 
-func runContainerRegistryCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// ContainerContainerRegistryCreateArgs holds the typed arguments for creating a container registry.
+type ContainerContainerRegistryCreateArgs struct {
+	ProjectID      string
+	Name           string
+	Region         aruba.Region
+	VPCID          string
+	SubnetID       string
+	SGID           string
+	PublicIPID     string
+	BlockStorageID string
+	BillingPeriod  aruba.BillingPeriod
+	AdminUsername  string
+	SizeFlavor     aruba.ContainerRegistrySizeFlavor
+	Tags           []string
+}
+
+// ContainerContainerRegistryGetArgs holds the typed arguments for getting a container registry.
+type ContainerContainerRegistryGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// ContainerContainerRegistryListArgs holds the typed arguments for listing container registries.
+type ContainerContainerRegistryListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// ContainerContainerRegistryUpdateArgs holds the typed arguments for updating a container registry.
+type ContainerContainerRegistryUpdateArgs struct {
+	ProjectID     string
+	ID            string
+	Name          string
+	Tags          []string
+	TagsChanged   bool
+	BillingPeriod aruba.BillingPeriod
+	SizeFlavor    aruba.ContainerRegistrySizeFlavor
+}
+
+// ContainerContainerRegistryDeleteArgs holds the typed arguments for deleting a container registry.
+type ContainerContainerRegistryDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewContainerContainerRegistryCreateArgsFromCobraCommand parses and validates args for create.
+func NewContainerContainerRegistryCreateArgsFromCobraCommand(cmd *cobra.Command) (*ContainerContainerRegistryCreateArgs, error) {
+	args := &ContainerContainerRegistryCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewContainerContainerRegistryGetArgsFromCobraCommand parses and validates args for get.
+func NewContainerContainerRegistryGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ContainerContainerRegistryGetArgs, error) {
+	args := &ContainerContainerRegistryGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewContainerContainerRegistryListArgsFromCobraCommand parses and validates args for list.
+func NewContainerContainerRegistryListArgsFromCobraCommand(cmd *cobra.Command) (*ContainerContainerRegistryListArgs, error) {
+	args := &ContainerContainerRegistryListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewContainerContainerRegistryUpdateArgsFromCobraCommand parses and validates args for update.
+func NewContainerContainerRegistryUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ContainerContainerRegistryUpdateArgs, error) {
+	args := &ContainerContainerRegistryUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewContainerContainerRegistryDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewContainerContainerRegistryDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ContainerContainerRegistryDeleteArgs, error) {
+	args := &ContainerContainerRegistryDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *ContainerContainerRegistryCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.VPCID, err = cmd.Flags().GetString("vpc-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SubnetID, err = cmd.Flags().GetString("subnet-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SGID, err = cmd.Flags().GetString("security-group-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.PublicIPID, err = cmd.Flags().GetString("public-ip-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.BlockStorageID, err = cmd.Flags().GetString("block-storage-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.AdminUsername, err = cmd.Flags().GetString("admin-username"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("concurrent-users"); err == nil {
+		a.SizeFlavor = aruba.ContainerRegistrySizeFlavor(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	publicIPID, _ := cmd.Flags().GetString("public-ip-id")
-	vpcID, _ := cmd.Flags().GetString("vpc-id")
-	subnetID, _ := cmd.Flags().GetString("subnet-id")
-	sgID, _ := cmd.Flags().GetString("security-group-id")
-	blockStorageID, _ := cmd.Flags().GetString("block-storage-id")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	adminUsername, _ := cmd.Flags().GetString("admin-username")
-	concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *ContainerContainerRegistryGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *ContainerContainerRegistryListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *ContainerContainerRegistryUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("concurrent-users"); err == nil {
+		a.SizeFlavor = aruba.ContainerRegistrySizeFlavor(s)
+	} else {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *ContainerContainerRegistryDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *ContainerContainerRegistryCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	// BillingPeriod is optional; validate only when provided.
+	if a.BillingPeriod != "" && !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	// SizeFlavor is optional; validate only when provided.
+	if a.SizeFlavor != "" && !slices.Contains(validContainerRegistrySizeFlavors, a.SizeFlavor) {
+		errs = append(errs, fmt.Errorf("--concurrent-users %q: must be one of %v", a.SizeFlavor, validContainerRegistrySizeFlavors))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *ContainerContainerRegistryGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("container registry ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *ContainerContainerRegistryListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *ContainerContainerRegistryUpdateArgs) Validate() error {
+	var errs []error
+
+	if a.ID == "" {
+		errs = append(errs, errors.New("container registry ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged && a.BillingPeriod == "" && a.SizeFlavor == "" {
+		errs = append(errs, errors.New("at least one of --name, --tags, --billing-period, or --concurrent-users must be provided"))
+	}
+	// BillingPeriod is optional; validate only when provided.
+	if a.BillingPeriod != "" && !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	// SizeFlavor is optional; validate only when provided.
+	if a.SizeFlavor != "" && !slices.Contains(validContainerRegistrySizeFlavors, a.SizeFlavor) {
+		errs = append(errs, fmt.Errorf("--concurrent-users %q: must be one of %v", a.SizeFlavor, validContainerRegistrySizeFlavors))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *ContainerContainerRegistryDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("container registry ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// ContainerContainerRegistryCreate creates a new container registry.
+func ContainerContainerRegistryCreate(ctx context.Context, client aruba.Client, args ContainerContainerRegistryCreateArgs) error {
 	registry := aruba.NewContainerRegistry().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
-		WithVPC(aruba.VPCRef(projectID, vpcID)).
-		WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID)).
-		WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID)).
-		WithBlockStorage(volumeRef(projectID, blockStorageID)).
-		RetaggedAs(tags...)
+		InProject(projectRef(args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		WithElasticIP(aruba.ElasticIPRef(args.ProjectID, args.PublicIPID)).
+		WithVPC(aruba.VPCRef(args.ProjectID, args.VPCID)).
+		WithSubnet(aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID)).
+		WithSecurityGroup(aruba.SecurityGroupRef(args.ProjectID, args.VPCID, args.SGID)).
+		WithBlockStorage(volumeRef(args.ProjectID, args.BlockStorageID)).
+		RetaggedAs(args.Tags...)
 
-	if adminUsername != "" {
-		registry.WithAdminUsername(adminUsername)
+	if args.AdminUsername != "" {
+		registry.WithAdminUsername(args.AdminUsername)
 	}
-	if billingPeriod != "" {
-		registry.BilledBy(aruba.BillingPeriod(billingPeriod))
+	if args.BillingPeriod != "" {
+		registry.BilledBy(args.BillingPeriod)
 	}
-	if concurrentUsers != "" {
-		registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
+	if args.SizeFlavor != "" {
+		registry.OfSize(args.SizeFlavor)
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromContainer().ContainerRegistry().Create(ctx, registry)
 	if err != nil {
 		return fmt.Errorf("creating container registry: %w", apiErrFromV2(err))
@@ -219,28 +534,14 @@ func runContainerRegistryCreate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 	} else {
-		fmt.Println(msgCreatedAsync("Container registry", name))
+		fmt.Println(msgCreatedAsync("Container registry", args.Name))
 	}
 	return nil
 }
 
-func runContainerRegistryGet(cmd *cobra.Command, args []string) error {
-	registryID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
-	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+// ContainerContainerRegistryGet retrieves and displays a container registry's details.
+func ContainerContainerRegistryGet(ctx context.Context, client aruba.Client, args ContainerContainerRegistryGetArgs) error {
+	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, containerRegistryRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting container registry: %w", apiErrFromV2(err))
 	}
@@ -313,20 +614,9 @@ func runContainerRegistryGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runContainerRegistryList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromContainer().ContainerRegistry().List(ctx, aruba.URI("/projects/"+projectID))
+// ContainerContainerRegistryList lists all container registries in a project.
+func ContainerContainerRegistryList(ctx context.Context, client aruba.Client, args ContainerContainerRegistryListArgs) error {
+	list, err := client.FromContainer().ContainerRegistry().List(ctx, aruba.URI("/projects/"+args.ProjectID))
 	if err != nil {
 		return fmt.Errorf("listing container registries: %w", apiErrFromV2(err))
 	}
@@ -370,32 +660,9 @@ func runContainerRegistryList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runContainerRegistryUpdate(cmd *cobra.Command, args []string) error {
-	registryID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	concurrentUsers, _ := cmd.Flags().GetString("concurrent-users")
-
-	if name == "" && !cmd.Flags().Changed("tags") && billingPeriod == "" && concurrentUsers == "" {
-		return fmt.Errorf("at least one of --name, --tags, --billing-period, or --concurrent-users must be provided")
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
-	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+// ContainerContainerRegistryUpdate updates a container registry's mutable fields.
+func ContainerContainerRegistryUpdate(ctx context.Context, client aruba.Client, args ContainerContainerRegistryUpdateArgs) error {
+	registry, err := client.FromContainer().ContainerRegistry().Get(ctx, containerRegistryRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("fetching current container registry: %w", apiErrFromV2(err))
 	}
@@ -403,17 +670,17 @@ func runContainerRegistryUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("container registry not found")
 	}
 
-	if name != "" {
-		registry.Named(name)
+	if args.Name != "" {
+		registry.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		registry.RetaggedAs(tags...)
+	if args.TagsChanged {
+		registry.RetaggedAs(args.Tags...)
 	}
-	if billingPeriod != "" {
-		registry.BilledBy(aruba.BillingPeriod(billingPeriod))
+	if args.BillingPeriod != "" {
+		registry.BilledBy(args.BillingPeriod)
 	}
-	if concurrentUsers != "" {
-		registry.OfSize(aruba.ContainerRegistrySizeFlavor(concurrentUsers))
+	if args.SizeFlavor != "" {
+		registry.OfSize(args.SizeFlavor)
 	}
 
 	updated, err := client.FromContainer().ContainerRegistry().Update(ctx, registry)
@@ -423,7 +690,7 @@ func runContainerRegistryUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("Container registry", registryID))
+		fmt.Printf("\n%s\n", msgUpdated("Container registry", args.ID))
 		if raw.Metadata.Name != nil {
 			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
 		}
@@ -434,28 +701,30 @@ func runContainerRegistryUpdate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
 		}
 	} else {
-		fmt.Println(msgUpdatedAsync("Container registry", registryID))
+		fmt.Println(msgUpdatedAsync("Container registry", args.ID))
 	}
 	return nil
 }
 
-func runContainerRegistryDelete(cmd *cobra.Command, args []string) error {
-	registryID := args[0]
-
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete("container registry", registryID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
+// ContainerContainerRegistryDelete deletes a container registry.
+func ContainerContainerRegistryDelete(ctx context.Context, client aruba.Client, args ContainerContainerRegistryDeleteArgs) error {
+	err := client.FromContainer().ContainerRegistry().Delete(ctx, containerRegistryRef(args.ProjectID, args.ID))
 	if err != nil {
-		return err
+		return fmt.Errorf("deleting container registry: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("Container registry", args.ID))
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// ContainerContainerRegistryCreateRun is the Cobra RunE handler for container registry create.
+func ContainerContainerRegistryCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewContainerContainerRegistryCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -465,23 +734,112 @@ func runContainerRegistryDelete(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := newCtx()
 	defer cancel()
-	registryURI := "/projects/" + projectID + "/providers/Aruba.Container/registries/" + registryID
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromContainer().ContainerRegistry().Get(ctx, aruba.URI(registryURI))
+	if err := ContainerContainerRegistryCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ContainerContainerRegistryGetRun is the Cobra RunE handler for container registry get.
+func ContainerContainerRegistryGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewContainerContainerRegistryGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContainerContainerRegistryGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ContainerContainerRegistryListRun is the Cobra RunE handler for container registry list.
+func ContainerContainerRegistryListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewContainerContainerRegistryListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContainerContainerRegistryList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ContainerContainerRegistryUpdateRun is the Cobra RunE handler for container registry update.
+func ContainerContainerRegistryUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewContainerContainerRegistryUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContainerContainerRegistryUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ContainerContainerRegistryDeleteRun is the Cobra RunE handler for container registry delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func ContainerContainerRegistryDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewContainerContainerRegistryDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("container registry", args.ID)
 		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromContainer().ContainerRegistry().Get(ctx, containerRegistryRef(args.ProjectID, args.ID)); err != nil {
 			return fmt.Errorf("dry-run: container registry not found or inaccessible: %w", err)
 		}
-		fmt.Println(msgDryRun("container registry", registryID))
+		fmt.Println(msgDryRun("container registry", args.ID))
 		return nil
 	}
 
-	err = client.FromContainer().ContainerRegistry().Delete(ctx, aruba.URI(registryURI))
-	if err != nil {
-		return fmt.Errorf("deleting container registry: %w", apiErrFromV2(err))
+	if err := ContainerContainerRegistryDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
-
-	fmt.Println(msgDeleted("Container registry", registryID))
 	return nil
 }

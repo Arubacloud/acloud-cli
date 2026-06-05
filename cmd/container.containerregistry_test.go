@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -153,7 +156,7 @@ func TestContainerRegistryCreateCmd(t *testing.T) {
 		"container", "containerregistry", "create",
 		"--project-id", "proj-123",
 		"--name", "my-registry",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--public-ip-id", "eip-001",
 		"--vpc-id", "vpc-001",
 		"--subnet-id", "sub-001",
@@ -191,7 +194,7 @@ func TestContainerRegistryCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --region",
-			args:        removeFlag(baseArgs, "--region", "IT-BG"),
+			args:        removeFlag(baseArgs, "--region", "ITBG-Bergamo"),
 			wantErr:     true,
 			errContains: "region",
 		},
@@ -373,7 +376,7 @@ func TestContainerRegistryUpdateCmd(t *testing.T) {
 func TestContainerRegistryCreateCmd_OptionalFlags(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "cr-001", "my-registry"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	srv.OnPost("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryResponse{
 		Metadata: types.ResourceMetadataResponse{
@@ -387,7 +390,7 @@ func TestContainerRegistryCreateCmd_OptionalFlags(t *testing.T) {
 		"container", "containerregistry", "create",
 		"--project-id", "proj-123",
 		"--name", "my-registry",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--vpc-id", "vpc-001",
 		"--subnet-id", "sub-001",
 		"--security-group-id", "sg-001",
@@ -405,7 +408,7 @@ func TestContainerRegistryCreateCmd_OptionalFlags(t *testing.T) {
 func TestContainerRegistryListCmd_WithLocation(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "cr-001", "my-registry"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
 		Values: []types.ContainerRegistryResponse{
@@ -432,7 +435,7 @@ func TestContainerRegistryGetCmd_FullDetail(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "cr-001", "my-registry"
 	uri := "/projects/proj-123/providers/Aruba.Container/registries/cr-001"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	createdBy := "test-user@example.com"
 	now := time.Now()
@@ -496,5 +499,322 @@ func TestContainerRegistryGetCmd_WithAllOptionalProps(t *testing.T) {
 	}
 	if !strings.Contains(out, "cr-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate tests (pure Go, no SDK, no server)
+// =============================================================================
+
+func validContainerRegistryCreateArgs() ContainerContainerRegistryCreateArgs {
+	return ContainerContainerRegistryCreateArgs{
+		ProjectID:      "proj-123",
+		Name:           "my-registry",
+		Region:         aruba.RegionITBGBergamo,
+		VPCID:          "vpc-001",
+		SubnetID:       "sub-001",
+		SGID:           "sg-001",
+		PublicIPID:     "eip-001",
+		BlockStorageID: "vol-001",
+		Tags:           []string{},
+	}
+}
+
+func TestContainerContainerRegistryCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*ContainerContainerRegistryCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid args",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *ContainerContainerRegistryCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *ContainerContainerRegistryCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:    "name maximum length 64",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.Name = strings.Repeat("x", 64) },
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *ContainerContainerRegistryCreateArgs) { a.Region = aruba.Region("ZZ-Invalid") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *ContainerContainerRegistryCreateArgs) { a.BillingPeriod = aruba.BillingPeriod("Quarterly") },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:    "valid billing period Hour",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.BillingPeriod = aruba.BillingPeriodHour },
+			wantErr: false,
+		},
+		{
+			name:    "billing period empty (optional) is valid",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.BillingPeriod = "" },
+			wantErr: false,
+		},
+		{
+			name: "invalid size flavor",
+			mutate: func(a *ContainerContainerRegistryCreateArgs) {
+				a.SizeFlavor = aruba.ContainerRegistrySizeFlavor("Huge")
+			},
+			wantErr:     true,
+			errContains: "--concurrent-users",
+		},
+		{
+			name:    "valid size flavor Small",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.SizeFlavor = aruba.ContainerRegistrySizeFlavorSmall },
+			wantErr: false,
+		},
+		{
+			name:    "valid size flavor Medium",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.SizeFlavor = aruba.ContainerRegistrySizeFlavorMedium },
+			wantErr: false,
+		},
+		{
+			name: "valid size flavor HighPerf",
+			mutate: func(a *ContainerContainerRegistryCreateArgs) {
+				a.SizeFlavor = aruba.ContainerRegistrySizeFlavorHighPerf
+			},
+			wantErr: false,
+		},
+		{
+			name:    "size flavor empty (optional) is valid",
+			mutate:  func(a *ContainerContainerRegistryCreateArgs) { a.SizeFlavor = "" },
+			wantErr: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validContainerRegistryCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestContainerContainerRegistryCreateArgs_Validate_WrappedByConstructor(t *testing.T) {
+	args := validContainerRegistryCreateArgs()
+	args.Name = "x" // too short
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	wrapped := errors.Join(ErrValidationFailed, err)
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed in chain, got: %v", wrapped)
+	}
+}
+
+func TestContainerContainerRegistryUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        ContainerContainerRegistryUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid with name",
+			args:    ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", Name: "new-name"},
+			wantErr: false,
+		},
+		{
+			name:    "valid with tags changed",
+			args:    ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", TagsChanged: true},
+			wantErr: false,
+		},
+		{
+			name:    "valid with billing period",
+			args:    ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", BillingPeriod: aruba.BillingPeriodMonth},
+			wantErr: false,
+		},
+		{
+			name:    "valid with size flavor",
+			args:    ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", SizeFlavor: aruba.ContainerRegistrySizeFlavorSmall},
+			wantErr: false,
+		},
+		{
+			name:        "no fields changed",
+			args:        ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001"},
+			wantErr:     true,
+			errContains: "at least one",
+		},
+		{
+			name:        "invalid billing period",
+			args:        ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", BillingPeriod: "Quarterly"},
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:        "invalid size flavor",
+			args:        ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", ID: "cr-001", SizeFlavor: "Huge"},
+			wantErr:     true,
+			errContains: "--concurrent-users",
+		},
+		{
+			name:        "missing ID",
+			args:        ContainerContainerRegistryUpdateArgs{ProjectID: "proj-123", Name: "new-name"},
+			wantErr:     true,
+			errContains: "container registry ID is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestContainerContainerRegistryCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-new", "my-registry"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ContainerContainerRegistryCreate(context.Background(), srv.Client(), validContainerRegistryCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "cr-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestContainerContainerRegistryCreate_AsyncResponse(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// SDK validates metadata; use a valid response with ID and Name set.
+	id, name := "reg-new", "my-registry"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(202, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ContainerContainerRegistryCreate(context.Background(), srv.Client(), validContainerRegistryCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "my-registry") && !strings.Contains(out, "reg-new") {
+		t.Errorf("expected name or ID in output, got: %s", out)
+	}
+}
+
+func TestContainerContainerRegistryCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/registries", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := ContainerContainerRegistryCreate(context.Background(), srv.Client(), validContainerRegistryCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating container registry") {
+		t.Errorf("error %q does not contain 'creating container registry'", err.Error())
+	}
+}
+
+func TestContainerContainerRegistryList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-001", "my-registry"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{
+		Values: []types.ContainerRegistryResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := ContainerContainerRegistryList(context.Background(), srv.Client(), ContainerContainerRegistryListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "cr-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestContainerContainerRegistryList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", jsonResponse(200, types.ContainerRegistryListResponse{}))
+
+	out := captureStdout(func() {
+		err := ContainerContainerRegistryList(context.Background(), srv.Client(), ContainerContainerRegistryListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No container registries found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestContainerContainerRegistryList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := ContainerContainerRegistryList(context.Background(), srv.Client(), ContainerContainerRegistryListArgs{
+		ProjectID: "proj-123",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listing container registries") {
+		t.Errorf("error %q does not contain 'listing container registries'", err.Error())
 	}
 }
