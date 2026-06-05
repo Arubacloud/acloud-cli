@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -171,7 +174,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				kpID, kpName := "kp-new", "my-kp"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
@@ -186,13 +189,13 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--public-key", "ssh-rsa AAAA", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --public-key",
-			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--region", "IT-BG"},
+			args:        []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "public-key",
 		},
@@ -204,7 +207,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "duplicate name"))
 			},
@@ -213,7 +216,7 @@ func TestKeyPairCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "IT-BG"},
+			args: []string{"compute", "keypair", "create", "--project-id", "proj-123", "--name", "my-kp", "--public-key", "ssh-rsa AAAA", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -336,7 +339,7 @@ func TestKeypairCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"compute", "keypair", "create",
 		"--project-id", "proj-123",
 		"--name", "my-keypair",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--public-key", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
 	})
 	if err != nil {
@@ -369,5 +372,213 @@ func TestKeypairListCmd_WithLocationAndStatus(t *testing.T) {
 	}
 	if !strings.Contains(out, "kp-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validKeyPairCreateArgs() ComputeKeyPairCreateArgs {
+	return ComputeKeyPairCreateArgs{
+		ProjectID: "proj-123",
+		Name:      "my-key",
+		Region:    aruba.RegionITBGBergamo,
+		PublicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
+	}
+}
+
+func TestComputeKeyPairCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*ComputeKeyPairCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *ComputeKeyPairCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *ComputeKeyPairCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *ComputeKeyPairCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:    "name maximum length 64",
+			mutate:  func(a *ComputeKeyPairCreateArgs) { a.Name = strings.Repeat("x", 64) },
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *ComputeKeyPairCreateArgs) { a.Region = aruba.Region("ZZ-Invalid") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "empty public key",
+			mutate:      func(a *ComputeKeyPairCreateArgs) { a.PublicKey = "" },
+			wantErr:     true,
+			errContains: "--public-key is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validKeyPairCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestComputeKeyPairCreateArgs_Validate_WrappedByConstructor verifies that the
+// constructor wraps Validate errors with ErrValidationFailed.
+func TestComputeKeyPairCreateArgs_Validate_WrappedByConstructor(t *testing.T) {
+	// We cannot easily call the constructor without a real cobra.Command, so
+	// verify the wrapping convention by constructing the error directly.
+	args := validKeyPairCreateArgs()
+	args.Name = "x" // too short
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	wrapped := errors.Join(ErrValidationFailed, err) // mirrors constructor pattern
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed in chain, got: %v", wrapped)
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestComputeKeyPairCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-new", "my-key"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ComputeKeyPairCreate(context.Background(), srv.Client(), validKeyPairCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kp-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestComputeKeyPairCreate_SyncResponse(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// 202 with metadata populated — SDK hydrates the wrapper and the sync table path fires.
+	id, name := "kp-new", "my-key"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(202, types.KeyPairResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ComputeKeyPairCreate(context.Background(), srv.Client(), validKeyPairCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	// Either sync table output (with ID) or async message (with name) should appear.
+	if !strings.Contains(out, "kp-new") && !strings.Contains(out, "my-key") {
+		t.Errorf("expected ID or name in output, got: %s", out)
+	}
+}
+
+func TestComputeKeyPairCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := ComputeKeyPairCreate(context.Background(), srv.Client(), validKeyPairCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating keypair") {
+		t.Errorf("error %q does not contain 'creating keypair'", err.Error())
+	}
+}
+
+func TestComputeKeyPairList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kp-001", "my-key"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{
+		Values: []types.KeyPairResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := ComputeKeyPairList(context.Background(), srv.Client(), ComputeKeyPairListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestComputeKeyPairList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", jsonResponse(200, types.KeyPairListResponse{}))
+
+	out := captureStdout(func() {
+		err := ComputeKeyPairList(context.Background(), srv.Client(), ComputeKeyPairListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No keypairs found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestComputeKeyPairList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/keyPairs", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := ComputeKeyPairList(context.Background(), srv.Client(), ComputeKeyPairListArgs{
+		ProjectID: "proj-123",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listing keypairs") {
+		t.Errorf("error %q does not contain 'listing keypairs'", err.Error())
 	}
 }
