@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -95,65 +97,315 @@ var kmsCreateCmd = &cobra.Command{
 	Long: `Create a new Key Management System instance for storing and managing secrets.
 
 Billing period: Hour (default), Month, or Year.`,
-	Example: `  acloud security kms create --name my-kms --region IT-BG
-  acloud security kms create --name prod-kms --region IT-BG --billing-period Month`,
+	Example: `  acloud security kms create --name my-kms --region ITBG-Bergamo
+  acloud security kms create --name prod-kms --region ITBG-Bergamo --billing-period Month`,
 	Args: cobra.NoArgs,
-	RunE: runKMSCreate,
+	RunE: SecurityKMSCreateRun,
 }
 
 var kmsGetCmd = &cobra.Command{
 	Use:   "get [kms-id]",
 	Short: "Get KMS resource details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKMSGet,
+	RunE:  SecurityKMSGetRun,
 }
 
 var kmsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all KMS resources",
 	Args:  cobra.NoArgs,
-	RunE:  runKMSList,
+	RunE:  SecurityKMSListRun,
 }
 
 var kmsUpdateCmd = &cobra.Command{
 	Use:   "update [kms-id]",
 	Short: "Update a KMS resource",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKMSUpdate,
+	RunE:  SecurityKMSUpdateRun,
 }
 
 var kmsDeleteCmd = &cobra.Command{
 	Use:   "delete [kms-id]",
 	Short: "Delete a KMS resource",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKMSDelete,
+	RunE:  SecurityKMSDeleteRun,
 }
 
-func runKMSCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// SecurityKMSCreateArgs holds the typed arguments for creating a KMS resource.
+type SecurityKMSCreateArgs struct {
+	ProjectID     string
+	Name          string
+	Region        aruba.Region
+	BillingPeriod aruba.BillingPeriod
+	Tags          []string
+}
+
+// SecurityKMSGetArgs holds the typed arguments for getting a KMS resource.
+type SecurityKMSGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// SecurityKMSUpdateArgs holds the typed arguments for updating a KMS resource.
+type SecurityKMSUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// SecurityKMSDeleteArgs holds the typed arguments for deleting a KMS resource.
+type SecurityKMSDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// SecurityKMSListArgs holds the typed arguments for listing KMS resources.
+type SecurityKMSListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewSecurityKMSCreateArgsFromCobraCommand parses and validates args for create.
+func NewSecurityKMSCreateArgsFromCobraCommand(cmd *cobra.Command) (*SecurityKMSCreateArgs, error) {
+	args := &SecurityKMSCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewSecurityKMSGetArgsFromCobraCommand parses and validates args for get.
+func NewSecurityKMSGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*SecurityKMSGetArgs, error) {
+	args := &SecurityKMSGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewSecurityKMSUpdateArgsFromCobraCommand parses and validates args for update.
+func NewSecurityKMSUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*SecurityKMSUpdateArgs, error) {
+	args := &SecurityKMSUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewSecurityKMSDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewSecurityKMSDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*SecurityKMSDeleteArgs, error) {
+	args := &SecurityKMSDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewSecurityKMSListArgsFromCobraCommand parses and validates args for list.
+func NewSecurityKMSListArgsFromCobraCommand(cmd *cobra.Command) (*SecurityKMSListArgs, error) {
+	args := &SecurityKMSListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *SecurityKMSCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *SecurityKMSGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *SecurityKMSUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *SecurityKMSDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *SecurityKMSListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *SecurityKMSCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *SecurityKMSGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("KMS ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *SecurityKMSUpdateArgs) Validate() error {
+	if a.Name == "" && !a.TagsChanged {
+		return errors.New("at least one of --name or --tags must be provided")
+	}
+	return nil
+}
+
+// Validate checks the delete args for correctness.
+func (a *SecurityKMSDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("KMS ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *SecurityKMSListArgs) Validate() error {
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// SecurityKMSCreate creates a new KMS resource.
+func SecurityKMSCreate(ctx context.Context, client aruba.Client, args SecurityKMSCreateArgs) error {
 	kms := aruba.NewKMS().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		BilledBy(aruba.BillingPeriod(billingPeriod)).
-		RetaggedAs(tags...)
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		BilledBy(args.BillingPeriod).
+		RetaggedAs(args.Tags...)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromSecurity().KMS().Create(ctx, kms)
 	if err != nil {
 		return fmt.Errorf("creating KMS: %w", apiErrFromV2(err))
@@ -186,27 +438,14 @@ func runKMSCreate(cmd *cobra.Command, args []string) error {
 		row := []string{id, nameVal, regionVal, statusVal}
 		PrintOutput(created, headers, [][]string{row})
 	} else {
-		fmt.Println(msgCreatedAsync("KMS", name))
+		fmt.Println(msgCreatedAsync("KMS", args.Name))
 	}
 	return nil
 }
 
-func runKMSGet(cmd *cobra.Command, args []string) error {
-	kmsID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	kms, err := client.FromSecurity().KMS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Security/kms/"+kmsID))
+// SecurityKMSGet retrieves KMS resource details.
+func SecurityKMSGet(ctx context.Context, client aruba.Client, args SecurityKMSGetArgs) error {
+	kms, err := client.FromSecurity().KMS().Get(ctx, kmsRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 	}
@@ -256,20 +495,68 @@ func runKMSGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runKMSList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
+// SecurityKMSUpdate updates a KMS resource's name and/or tags.
+func SecurityKMSUpdate(ctx context.Context, client aruba.Client, args SecurityKMSUpdateArgs) error {
+	kms, err := client.FromSecurity().KMS().Get(ctx, kmsRef(args.ProjectID, args.ID))
 	if err != nil {
-		return err
+		return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	if kms == nil || kms.Raw() == nil {
+		return fmt.Errorf("KMS not found")
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromSecurity().KMS().List(ctx, aruba.URI("/projects/"+projectID))
+	if args.Name != "" {
+		kms.Named(args.Name)
+	}
+	if args.TagsChanged {
+		kms.RetaggedAs(args.Tags...)
+	}
+
+	updated, err := client.FromSecurity().KMS().Update(ctx, kms)
+	if err != nil {
+		return fmt.Errorf("updating KMS: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("KMS", args.ID))
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+	} else {
+		fmt.Println(msgUpdatedAsync("KMS", args.ID))
+	}
+	return nil
+}
+
+// SecurityKMSDelete deletes a KMS resource.
+func SecurityKMSDelete(ctx context.Context, client aruba.Client, args SecurityKMSDeleteArgs) error {
+	if args.DryRun {
+		_, err := client.FromSecurity().KMS().Get(ctx, kmsRef(args.ProjectID, args.ID))
+		if err != nil {
+			return fmt.Errorf("dry-run: KMS not found or inaccessible: %w", err)
+		}
+		fmt.Println(msgDryRun("KMS", args.ID))
+		return nil
+	}
+
+	if err := client.FromSecurity().KMS().Delete(ctx, kmsRef(args.ProjectID, args.ID)); err != nil {
+		return fmt.Errorf("deleting KMS: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("KMS", args.ID))
+	return nil
+}
+
+// SecurityKMSList lists all KMS resources in a project.
+func SecurityKMSList(ctx context.Context, client aruba.Client, args SecurityKMSListArgs) error {
+	list, err := client.FromSecurity().KMS().List(ctx, aruba.URI("/projects/"+args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing KMS: %w", apiErrFromV2(err))
 	}
@@ -313,19 +600,15 @@ func runKMSList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runKMSUpdate(cmd *cobra.Command, args []string) error {
-	kmsID := args[0]
+// =============================================================================
+// Run wiring functions
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
+// SecurityKMSCreateRun is the RunE wiring for KMS create.
+func SecurityKMSCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewSecurityKMSCreateArgsFromCobraCommand(cmd)
 	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -335,51 +618,18 @@ func runKMSUpdate(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := newCtx()
 	defer cancel()
-	kms, err := client.FromSecurity().KMS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Security/kms/"+kmsID))
-	if err != nil {
-		return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
-	}
 
-	if kms == nil || kms.Raw() == nil {
-		return fmt.Errorf("KMS not found")
-	}
-
-	if name != "" {
-		kms.Named(name)
-	}
-	if cmd.Flags().Changed("tags") {
-		kms.RetaggedAs(tags...)
-	}
-
-	updated, err := client.FromSecurity().KMS().Update(ctx, kms)
-	if err != nil {
-		return fmt.Errorf("updating KMS: %w", apiErrFromV2(err))
-	}
-
-	if updated != nil && updated.Raw() != nil {
-		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("KMS", kmsID))
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		}
-	} else {
-		fmt.Println(msgUpdatedAsync("KMS", kmsID))
+	if err := SecurityKMSCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }
 
-func runKMSDelete(cmd *cobra.Command, args []string) error {
-	kmsID := args[0]
-
-	projectID, err := GetProjectID(cmd)
+// SecurityKMSGetRun is the RunE wiring for KMS get.
+func SecurityKMSGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewSecurityKMSGetArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -390,19 +640,81 @@ func runKMSDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromSecurity().KMS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Security/kms/"+kmsID))
-		if err != nil {
-			return fmt.Errorf("dry-run: KMS not found or inaccessible: %w", err)
-		}
-		fmt.Println(msgDryRun("KMS", kmsID))
-		return nil
+	if err := SecurityKMSGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// SecurityKMSUpdateRun is the RunE wiring for KMS update.
+func SecurityKMSUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewSecurityKMSUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	if err := client.FromSecurity().KMS().Delete(ctx, kmsRef(projectID, kmsID)); err != nil {
-		return fmt.Errorf("deleting KMS: %w", apiErrFromV2(err))
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
 	}
-	fmt.Println(msgDeleted("KMS", kmsID))
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := SecurityKMSUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// SecurityKMSDeleteRun is the RunE wiring for KMS delete.
+func SecurityKMSDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	a, err := NewSecurityKMSDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !a.SkipConfirm {
+		ok, err := confirmDelete("KMS", a.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := SecurityKMSDelete(ctx, client, *a); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// SecurityKMSListRun is the RunE wiring for KMS list.
+func SecurityKMSListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewSecurityKMSListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := SecurityKMSList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }
