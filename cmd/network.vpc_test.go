@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -159,7 +161,7 @@ func TestVPCCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "IT-BG"},
+			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "vpc-001", "new-vpc"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCResponse{
@@ -174,7 +176,7 @@ func TestVPCCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "vpc", "create", "--project-id", "proj-123", "--region", "IT-BG"},
+			args:        []string{"network", "vpc", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "name",
 		},
@@ -186,7 +188,7 @@ func TestVPCCreateCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "IT-BG"},
+			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -195,7 +197,7 @@ func TestVPCCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "IT-BG"},
+			args: []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "new-vpc", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -512,5 +514,236 @@ func TestVPCGetCmd_FullDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "vpc-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkVPCCreateArgs() NetworkVPCCreateArgs {
+	return NetworkVPCCreateArgs{
+		ProjectID: "proj-123",
+		Name:      "my-vpc",
+		Region:    aruba.RegionITBGBergamo,
+	}
+}
+
+func TestNetworkVPCCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkVPCCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *NetworkVPCCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *NetworkVPCCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *NetworkVPCCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkVPCCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkVPCCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNetworkVPCGetArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPCGetArgs{ProjectID: "p1", ID: "vpc-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty ID", func(t *testing.T) {
+		args := NetworkVPCGetArgs{ProjectID: "p1", ID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+}
+
+func TestNetworkVPCUpdateArgs_Validate(t *testing.T) {
+	t.Run("happy path with name", func(t *testing.T) {
+		args := NetworkVPCUpdateArgs{ProjectID: "p1", ID: "vpc-001", Name: "new-name"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("happy path with tags changed", func(t *testing.T) {
+		args := NetworkVPCUpdateArgs{ProjectID: "p1", ID: "vpc-001", TagsChanged: true}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("no name and no tags", func(t *testing.T) {
+		args := NetworkVPCUpdateArgs{ProjectID: "p1", ID: "vpc-001"}
+		err := args.Validate()
+		if err == nil {
+			t.Fatal("expected error when no flags provided")
+		}
+		if !strings.Contains(err.Error(), "at least one") {
+			t.Errorf("error %q does not contain 'at least one'", err.Error())
+		}
+	})
+}
+
+func TestNetworkVPCDeleteArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPCDeleteArgs{ProjectID: "p1", ID: "vpc-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty ID", func(t *testing.T) {
+		args := NetworkVPCDeleteArgs{ProjectID: "p1", ID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+}
+
+func TestNetworkVPCListArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPCListArgs{ProjectID: "proj-123"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty project ID", func(t *testing.T) {
+		args := NetworkVPCListArgs{}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty project ID")
+		}
+	})
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkVPCCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpc-new", "my-vpc"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPCCreate(context.Background(), srv.Client(), validNetworkVPCCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "vpc-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPCCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := NetworkVPCCreate(context.Background(), srv.Client(), validNetworkVPCCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating VPC") {
+		t.Errorf("error %q does not contain 'creating VPC'", err.Error())
+	}
+}
+
+func TestNetworkVPCCreate_AsyncResponse(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// Async creation: server returns 202 with metadata but the SDK may not populate Raw().
+	id, name := "vpc-new", "my-vpc"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(202, types.VPCResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPCCreate(context.Background(), srv.Client(), validNetworkVPCCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "vpc-new") && !strings.Contains(out, "my-vpc") {
+		t.Errorf("expected ID or name in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPCList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpc-001", "my-vpc"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPCList(context.Background(), srv.Client(), NetworkVPCListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "vpc-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPCList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{}))
+
+	out := captureStdout(func() {
+		err := NetworkVPCList(context.Background(), srv.Client(), NetworkVPCListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No VPCs found") {
+		t.Errorf("expected empty message, got: %s", out)
 	}
 }
