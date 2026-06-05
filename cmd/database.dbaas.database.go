@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -55,10 +56,9 @@ func completeDBaaSDatabaseID(cmd *cobra.Command, args []string, toComplete strin
 	}
 
 	dbaasID := args[0]
-	dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
 
 	ctx := context.Background()
-	list, err := client.FromDatabase().Databases().List(ctx, dbaasRef)
+	list, err := client.FromDatabase().Databases().List(ctx, dbaasRef(projectID, dbaasID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -93,57 +93,331 @@ The DBaaS instance must already exist and be in a ready state.
 Use 'acloud database dbaas get <dbaas-id>' to check its status.`,
 	Example: `  acloud database dbaas database create <dbaas-id> --name myapp_db`,
 	Args:    cobra.ExactArgs(1),
-	RunE:    runDBaaSDatabaseCreate,
+	RunE:    DatabaseDBaaSDatabaseCreateRun,
 }
 
 var dbaasDatabaseGetCmd = &cobra.Command{
 	Use:   "get [dbaas-id] [database-name]",
 	Short: "Get database details",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runDBaaSDatabaseGet,
+	RunE:  DatabaseDBaaSDatabaseGetRun,
 }
 
 var dbaasDatabaseListCmd = &cobra.Command{
 	Use:   "list [dbaas-id]",
 	Short: "List all databases in DBaaS",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDBaaSDatabaseList,
+	RunE:  DatabaseDBaaSDatabaseListRun,
 }
 
 var dbaasDatabaseUpdateCmd = &cobra.Command{
 	Use:   "update [dbaas-id] [database-name]",
 	Short: "Update a database",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runDBaaSDatabaseUpdate,
+	RunE:  DatabaseDBaaSDatabaseUpdateRun,
 }
 
 var dbaasDatabaseDeleteCmd = &cobra.Command{
 	Use:   "delete [dbaas-id] [database-name]",
 	Short: "Delete a database",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runDBaaSDatabaseDelete,
+	RunE:  DatabaseDBaaSDatabaseDeleteRun,
 }
 
-func runDBaaSDatabaseCreate(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// DatabaseDBaaSDatabaseCreateArgs holds the typed arguments for creating a database.
+type DatabaseDBaaSDatabaseCreateArgs struct {
+	ProjectID string
+	DBaaSID   string
+	Name      string
+}
+
+// DatabaseDBaaSDatabaseGetArgs holds the typed arguments for getting a database.
+type DatabaseDBaaSDatabaseGetArgs struct {
+	ProjectID    string
+	DBaaSID      string
+	DatabaseName string
+}
+
+// DatabaseDBaaSDatabaseUpdateArgs holds the typed arguments for updating a database.
+type DatabaseDBaaSDatabaseUpdateArgs struct {
+	ProjectID    string
+	DBaaSID      string
+	DatabaseName string
+	Name         string
+}
+
+// DatabaseDBaaSDatabaseDeleteArgs holds the typed arguments for deleting a database.
+type DatabaseDBaaSDatabaseDeleteArgs struct {
+	ProjectID    string
+	DBaaSID      string
+	DatabaseName string
+	DryRun       bool
+	SkipConfirm  bool
+}
+
+// DatabaseDBaaSDatabaseListArgs holds the typed arguments for listing databases.
+type DatabaseDBaaSDatabaseListArgs struct {
+	ProjectID string
+	DBaaSID   string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewDatabaseDBaaSDatabaseCreateArgsFromCobraCommand parses and validates args for create.
+func NewDatabaseDBaaSDatabaseCreateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDatabaseCreateArgs, error) {
+	args := &DatabaseDBaaSDatabaseCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSDatabaseGetArgsFromCobraCommand parses and validates args for get.
+func NewDatabaseDBaaSDatabaseGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDatabaseGetArgs, error) {
+	args := &DatabaseDBaaSDatabaseGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSDatabaseUpdateArgsFromCobraCommand parses and validates args for update.
+func NewDatabaseDBaaSDatabaseUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDatabaseUpdateArgs, error) {
+	args := &DatabaseDBaaSDatabaseUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSDatabaseDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewDatabaseDBaaSDatabaseDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDatabaseDeleteArgs, error) {
+	args := &DatabaseDBaaSDatabaseDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSDatabaseListArgsFromCobraCommand parses and validates args for list.
+func NewDatabaseDBaaSDatabaseListArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDatabaseListArgs, error) {
+	args := &DatabaseDBaaSDatabaseListArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the create args struct.
+func (a *DatabaseDBaaSDatabaseCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.DBaaSID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *DatabaseDBaaSDatabaseGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.DBaaSID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.DatabaseName = cobraArgs[1]
 	}
 
-	dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
-	db := aruba.NewDatabase().InDBaaS(dbaasRef).Named(name)
+	return errors.Join(errs...)
+}
 
-	ctx, cancel := newCtx()
-	defer cancel()
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *DatabaseDBaaSDatabaseUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.DBaaSID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.DatabaseName = cobraArgs[1]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *DatabaseDBaaSDatabaseDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.DBaaSID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.DatabaseName = cobraArgs[1]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the list args struct.
+func (a *DatabaseDBaaSDatabaseListArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.DBaaSID = cobraArgs[0]
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *DatabaseDBaaSDatabaseCreateArgs) Validate() error {
+	var errs []error
+
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *DatabaseDBaaSDatabaseGetArgs) Validate() error {
+	var errs []error
+
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+	if a.DatabaseName == "" {
+		errs = append(errs, errors.New("database name is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the update args for correctness.
+func (a *DatabaseDBaaSDatabaseUpdateArgs) Validate() error {
+	var errs []error
+
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+	if a.DatabaseName == "" {
+		errs = append(errs, errors.New("database name is required"))
+	}
+	if a.Name == "" {
+		errs = append(errs, errors.New("--name is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *DatabaseDBaaSDatabaseDeleteArgs) Validate() error {
+	var errs []error
+
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+	if a.DatabaseName == "" {
+		errs = append(errs, errors.New("database name is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the list args for correctness.
+func (a *DatabaseDBaaSDatabaseListArgs) Validate() error {
+	var errs []error
+
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// DatabaseDBaaSDatabaseCreate creates a new database inside a DBaaS instance.
+func DatabaseDBaaSDatabaseCreate(ctx context.Context, client aruba.Client, args DatabaseDBaaSDatabaseCreateArgs) error {
+	db := aruba.NewDatabase().
+		InDBaaS(dbaasRef(args.ProjectID, args.DBaaSID)).
+		Named(args.Name)
+
 	created, err := client.FromDatabase().Databases().Create(ctx, db)
 	if err != nil {
 		return fmt.Errorf("creating database: %w", apiErrFromV2(err))
@@ -151,35 +425,20 @@ func runDBaaSDatabaseCreate(cmd *cobra.Command, args []string) error {
 
 	if created != nil && created.Raw() != nil {
 		raw := created.Raw()
-		fmt.Printf("\n%s\n", msgCreated("Database", name))
+		fmt.Printf("\n%s\n", msgCreated("Database", args.Name))
 		fmt.Printf("Name:            %s\n", raw.Name)
 		if raw.CreationDate != nil {
 			fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
 		}
 	} else {
-		fmt.Println(msgCreatedAsync("Database", name))
+		fmt.Println(msgCreatedAsync("Database", args.Name))
 	}
 	return nil
 }
 
-func runDBaaSDatabaseGet(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
-	databaseName := args[1]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	dbURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + databaseName
-	db, err := client.FromDatabase().Databases().Get(ctx, aruba.URI(dbURI))
+// DatabaseDBaaSDatabaseGet retrieves and displays a database's details.
+func DatabaseDBaaSDatabaseGet(ctx context.Context, client aruba.Client, args DatabaseDBaaSDatabaseGetArgs) error {
+	db, err := client.FromDatabase().Databases().Get(ctx, databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName))
 	if err != nil {
 		return fmt.Errorf("getting database: %w", apiErrFromV2(err))
 	}
@@ -209,24 +468,45 @@ func runDBaaSDatabaseGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDBaaSDatabaseList(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
-
-	projectID, err := GetProjectID(cmd)
+// DatabaseDBaaSDatabaseUpdate updates a database's name.
+func DatabaseDBaaSDatabaseUpdate(ctx context.Context, client aruba.Client, args DatabaseDBaaSDatabaseUpdateArgs) error {
+	db, err := client.FromDatabase().Databases().Get(ctx, databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName))
 	if err != nil {
-		return err
+		return fmt.Errorf("getting database: %w", apiErrFromV2(err))
+	}
+	if db == nil || db.Raw() == nil {
+		return fmt.Errorf("database not found")
 	}
 
-	client, err := GetArubaClient()
+	db.Named(args.Name)
+
+	updated, err := client.FromDatabase().Databases().Update(ctx, db)
 	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+		return fmt.Errorf("updating database: %w", apiErrFromV2(err))
 	}
 
-	dbaasRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID)
+	if updated != nil && updated.Raw() != nil {
+		fmt.Printf("\n%s\n", msgUpdated("Database", args.DatabaseName))
+		fmt.Printf("Name:            %s\n", updated.Raw().Name)
+	} else {
+		fmt.Println(msgUpdatedAsync("Database", args.DatabaseName))
+	}
+	return nil
+}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromDatabase().Databases().List(ctx, dbaasRef)
+// DatabaseDBaaSDatabaseDelete deletes a database from a DBaaS instance.
+func DatabaseDBaaSDatabaseDelete(ctx context.Context, client aruba.Client, args DatabaseDBaaSDatabaseDeleteArgs) error {
+	err := client.FromDatabase().Databases().Delete(ctx, databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName))
+	if err != nil {
+		return fmt.Errorf("deleting database: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("Database", args.DatabaseName))
+	return nil
+}
+
+// DatabaseDBaaSDatabaseList lists all databases in a DBaaS instance.
+func DatabaseDBaaSDatabaseList(ctx context.Context, client aruba.Client, args DatabaseDBaaSDatabaseListArgs) error {
+	list, err := client.FromDatabase().Databases().List(ctx, dbaasRef(args.ProjectID, args.DBaaSID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing databases: %w", apiErrFromV2(err))
 	}
@@ -261,18 +541,15 @@ func runDBaaSDatabaseList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDBaaSDatabaseUpdate(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
-	databaseName := args[1]
+// =============================================================================
+// Run wiring functions
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
+// DatabaseDBaaSDatabaseCreateRun is the Cobra RunE handler for database create.
+func DatabaseDBaaSDatabaseCreateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDatabaseCreateArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	if name == "" {
-		return fmt.Errorf("--name is required")
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -280,41 +557,67 @@ func runDBaaSDatabaseUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing client: %w", err)
 	}
 
-	dbURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + databaseName
-
 	ctx, cancel := newCtx()
 	defer cancel()
-	db, err := client.FromDatabase().Databases().Get(ctx, aruba.URI(dbURI))
-	if err != nil {
-		return fmt.Errorf("getting database: %w", apiErrFromV2(err))
-	}
-	if db == nil || db.Raw() == nil {
-		return fmt.Errorf("database not found")
-	}
 
-	db.Named(name)
-
-	updated, err := client.FromDatabase().Databases().Update(ctx, db)
-	if err != nil {
-		return fmt.Errorf("updating database: %w", apiErrFromV2(err))
-	}
-
-	if updated != nil && updated.Raw() != nil {
-		fmt.Printf("\n%s\n", msgUpdated("Database", databaseName))
-		fmt.Printf("Name:            %s\n", updated.Raw().Name)
-	} else {
-		fmt.Println(msgUpdatedAsync("Database", databaseName))
+	if err := DatabaseDBaaSDatabaseCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }
 
-func runDBaaSDatabaseDelete(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
-	databaseName := args[1]
+// DatabaseDBaaSDatabaseGetRun is the Cobra RunE handler for database get.
+func DatabaseDBaaSDatabaseGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDatabaseGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
 
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete(fmt.Sprintf("database '%s' in DBaaS instance", databaseName), dbaasID)
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSDatabaseGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSDatabaseUpdateRun is the Cobra RunE handler for database update.
+func DatabaseDBaaSDatabaseUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDatabaseUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSDatabaseUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSDatabaseDeleteRun is the Cobra RunE handler for database delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func DatabaseDBaaSDatabaseDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDatabaseDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete(fmt.Sprintf("database '%s' in DBaaS instance", args.DatabaseName), args.DBaaSID)
 		if err != nil {
 			return err
 		}
@@ -323,9 +626,33 @@ func runDBaaSDatabaseDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	projectID, err := GetProjectID(cmd)
+	client, err := GetArubaClient()
 	if err != nil {
-		return err
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromDatabase().Databases().Get(ctx, databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName)); err != nil {
+			return fmt.Errorf("dry-run: database not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("database", args.DatabaseName))
+		return nil
+	}
+
+	if err := DatabaseDBaaSDatabaseDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSDatabaseListRun is the Cobra RunE handler for database list.
+func DatabaseDBaaSDatabaseListRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDatabaseListArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -333,26 +660,11 @@ func runDBaaSDatabaseDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing client: %w", err)
 	}
 
-	dbURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID + "/databases/" + databaseName
-
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromDatabase().Databases().Get(ctx, aruba.URI(dbURI))
-		if err != nil {
-			return fmt.Errorf("dry-run: database not found or inaccessible: %w", err)
-		}
-		fmt.Println(msgDryRun("database", databaseName))
-		return nil
+	if err := DatabaseDBaaSDatabaseList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
-
-	err = client.FromDatabase().Databases().Delete(ctx, aruba.URI(dbURI))
-	if err != nil {
-		return fmt.Errorf("deleting database: %w", apiErrFromV2(err))
-	}
-
-	fmt.Println(msgDeleted("Database", databaseName))
 	return nil
 }
