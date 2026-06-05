@@ -511,7 +511,7 @@ func TestStorageRestoreCreateCmd_WithStatus(t *testing.T) {
 		"storage", "restore", "bkp-001", "vol-001",
 		"--project-id", "proj-123",
 		"--name", "my-restore",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
