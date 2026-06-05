@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -159,7 +161,7 @@ func TestElasticIPCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "ITBG-Bergamo", "--billing-period", "Hour"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "eip-001", "my-eip"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
@@ -174,19 +176,19 @@ func TestElasticIPCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--region", "IT-BG", "--billing-period", "monthly"},
+			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--billing-period", "Hour"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --region",
-			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--billing-period", "monthly"},
+			args:        []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--billing-period", "Hour"},
 			wantErr:     true,
 			errContains: "region",
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "ITBG-Bergamo", "--billing-period", "Hour"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -195,7 +197,7 @@ func TestElasticIPCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG", "--billing-period", "monthly"},
+			args: []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "ITBG-Bergamo", "--billing-period", "Hour"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -378,7 +380,7 @@ func TestElasticIPCreateCmd_WithAddressAndTags(t *testing.T) {
 			Address: &addr,
 		},
 	}))
-	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "IT-BG"})
+	out, err := runCmdCapture(srv.Client(), []string{"network", "elasticip", "create", "--project-id", "proj-123", "--name", "my-eip", "--region", "ITBG-Bergamo"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -537,5 +539,209 @@ func TestElasticIPGetCmd_FullDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "eip-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkElasticIPCreateArgs() NetworkElasticIPCreateArgs {
+	return NetworkElasticIPCreateArgs{
+		ProjectID:     "proj-123",
+		Name:          "my-eip",
+		Region:        aruba.RegionITBGBergamo,
+		BillingPeriod: aruba.BillingPeriodHour,
+	}
+}
+
+func TestNetworkElasticIPCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkElasticIPCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *NetworkElasticIPCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *NetworkElasticIPCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *NetworkElasticIPCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkElasticIPCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *NetworkElasticIPCreateArgs) { a.BillingPeriod = "Weekly" },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkElasticIPCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNetworkElasticIPGetArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkElasticIPGetArgs{ProjectID: "p1", ID: "eip-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty ID", func(t *testing.T) {
+		args := NetworkElasticIPGetArgs{ProjectID: "p1", ID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+}
+
+func TestNetworkElasticIPUpdateArgs_Validate(t *testing.T) {
+	t.Run("happy path with name", func(t *testing.T) {
+		args := NetworkElasticIPUpdateArgs{ProjectID: "p1", ID: "eip-001", Name: "new-name"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("happy path with tags changed", func(t *testing.T) {
+		args := NetworkElasticIPUpdateArgs{ProjectID: "p1", ID: "eip-001", TagsChanged: true}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("no name and no tags", func(t *testing.T) {
+		args := NetworkElasticIPUpdateArgs{ProjectID: "p1", ID: "eip-001"}
+		err := args.Validate()
+		if err == nil {
+			t.Fatal("expected error when no flags provided")
+		}
+		if !strings.Contains(err.Error(), "at least one") {
+			t.Errorf("error %q does not contain 'at least one'", err.Error())
+		}
+	})
+}
+
+func TestNetworkElasticIPDeleteArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkElasticIPDeleteArgs{ProjectID: "p1", ID: "eip-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty ID", func(t *testing.T) {
+		args := NetworkElasticIPDeleteArgs{ProjectID: "p1", ID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkElasticIPCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-new", "my-eip"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkElasticIPCreate(context.Background(), srv.Client(), validNetworkElasticIPCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "eip-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkElasticIPCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := NetworkElasticIPCreate(context.Background(), srv.Client(), validNetworkElasticIPCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating Elastic IP") {
+		t.Errorf("error %q does not contain 'creating Elastic IP'", err.Error())
+	}
+}
+
+func TestNetworkElasticIPList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-001", "my-eip"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{
+		Values: []types.ElasticIPResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkElasticIPList(context.Background(), srv.Client(), NetworkElasticIPListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "eip-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkElasticIPList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPListResponse{}))
+
+	out := captureStdout(func() {
+		err := NetworkElasticIPList(context.Background(), srv.Client(), NetworkElasticIPListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No Elastic IPs found") {
+		t.Errorf("expected empty message, got: %s", out)
 	}
 }
