@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -159,7 +161,7 @@ func TestSubnetCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
+			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sub-001", "my-subnet"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetResponse{
@@ -174,7 +176,7 @@ func TestSubnetCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--region", "IT-BG"},
+			args:        []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "name",
 		},
@@ -186,7 +188,7 @@ func TestSubnetCreateCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
+			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -195,7 +197,7 @@ func TestSubnetCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "IT-BG"},
+			args: []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-subnet", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -498,7 +500,7 @@ func TestSubnetCreateCmd_AdvancedType(t *testing.T) {
 		"network", "subnet", "create", "vpc-001",
 		"--project-id", "proj-123",
 		"--name", "my-subnet",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--cidr", "10.0.1.0/24",
 		"--dhcp-enabled",
 		"--dhcp-dns", "8.8.8.8,8.8.4.4",
@@ -627,5 +629,109 @@ func TestSubnetUpdateCmd_WithDHCP(t *testing.T) {
 	}
 	if !strings.Contains(out, "sub-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkSubnetCreateArgs() NetworkSubnetCreateArgs {
+	return NetworkSubnetCreateArgs{
+		ProjectID: "proj-123",
+		VPCID:     "vpc-001",
+		Name:      "my-subnet",
+		Region:    aruba.RegionITBGBergamo,
+	}
+}
+
+func TestNetworkSubnetCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkSubnetCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkSubnetCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *NetworkSubnetCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:        "CIDR without dhcp-enabled",
+			mutate:      func(a *NetworkSubnetCreateArgs) { a.CIDR = "10.0.1.0/24"; a.DHCPEnabled = false },
+			wantErr:     true,
+			errContains: "--dhcp-enabled is required",
+		},
+		{
+			name:    "CIDR with dhcp-enabled is valid",
+			mutate:  func(a *NetworkSubnetCreateArgs) { a.CIDR = "10.0.1.0/24"; a.DHCPEnabled = true },
+			wantErr: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkSubnetCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkSubnetCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sub-new", "my-subnet"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkSubnetCreate(context.Background(), srv.Client(), validNetworkSubnetCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "sub-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkSubnetCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := NetworkSubnetCreate(context.Background(), srv.Client(), validNetworkSubnetCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating subnet") {
+		t.Errorf("error %q does not contain 'creating subnet'", err.Error())
 	}
 }
