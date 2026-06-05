@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -29,6 +31,7 @@ func init() {
 	dbaasCreateCmd.Flags().String("subnet-id", "", "Subnet ID (required when project has a VPC)")
 	dbaasCreateCmd.Flags().String("security-group-id", "", "Security group ID (required when project has a VPC)")
 	dbaasCreateCmd.Flags().String("elastic-ip-id", "", "Elastic IP ID (optional)")
+	dbaasCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	dbaasCreateCmd.MarkFlagRequired("name")
 	dbaasCreateCmd.MarkFlagRequired("region")
 	dbaasCreateCmd.MarkFlagRequired("zone")
@@ -53,6 +56,12 @@ func init() {
 	dbaasGetCmd.ValidArgsFunction = completeDBaaSID
 	dbaasUpdateCmd.ValidArgsFunction = completeDBaaSID
 	dbaasDeleteCmd.ValidArgsFunction = completeDBaaSID
+}
+
+// dbaasRef builds the URI for a specific DBaaS instance.
+func dbaasRef(projectID, dbaasID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID +
+		"/providers/Aruba.Database/dbaas/" + dbaasID)
 }
 
 func completeDBaaSID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -102,89 +111,377 @@ Use --flavor to select the compute profile (CPU/RAM).
 After creation, add databases with 'acloud database dbaas database create'
 and users with 'acloud database dbaas user create'.`,
 	Example: `  acloud database dbaas create \
-    --name my-db --region IT-BG \
+    --name my-db --region ITBG-Bergamo \
     --engine-id <engine-id> \
     --flavor <flavor-id>`,
 	Args: cobra.NoArgs,
-	RunE: runDBaaSCreate,
+	RunE: DatabaseDBaaSCreateRun,
 }
 
 var dbaasGetCmd = &cobra.Command{
 	Use:   "get [dbaas-id]",
 	Short: "Get DBaaS instance details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDBaaSGet,
+	RunE:  DatabaseDBaaSGetRun,
 }
 
 var dbaasListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all DBaaS instances",
 	Args:  cobra.NoArgs,
-	RunE:  runDBaaSList,
+	RunE:  DatabaseDBaaSListRun,
 }
 
 var dbaasUpdateCmd = &cobra.Command{
 	Use:   "update [dbaas-id]",
 	Short: "Update a DBaaS instance",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDBaaSUpdate,
+	RunE:  DatabaseDBaaSUpdateRun,
 }
 
 var dbaasDeleteCmd = &cobra.Command{
 	Use:   "delete [dbaas-id]",
 	Short: "Delete a DBaaS instance",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDBaaSDelete,
+	RunE:  DatabaseDBaaSDeleteRun,
 }
 
-func runDBaaSCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// DatabaseDBaaSCreateArgs holds the typed arguments for creating a DBaaS instance.
+type DatabaseDBaaSCreateArgs struct {
+	ProjectID     string
+	Name          string
+	Region        aruba.Region
+	Zone          string
+	Engine        string
+	Flavor        string
+	SizeGB        int
+	BillingPeriod aruba.BillingPeriod
+	VPCID         string
+	SubnetID      string
+	SGID          string
+	ElasticIPID   string
+	Tags          []string
+}
+
+// DatabaseDBaaSGetArgs holds the typed arguments for getting a DBaaS instance.
+type DatabaseDBaaSGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// DatabaseDBaaSUpdateArgs holds the typed arguments for updating a DBaaS instance.
+type DatabaseDBaaSUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// DatabaseDBaaSDeleteArgs holds the typed arguments for deleting a DBaaS instance.
+type DatabaseDBaaSDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// DatabaseDBaaSListArgs holds the typed arguments for listing DBaaS instances.
+type DatabaseDBaaSListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewDatabaseDBaaSCreateArgsFromCobraCommand parses and validates args for create.
+func NewDatabaseDBaaSCreateArgsFromCobraCommand(cmd *cobra.Command) (*DatabaseDBaaSCreateArgs, error) {
+	args := &DatabaseDBaaSCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSGetArgsFromCobraCommand parses and validates args for get.
+func NewDatabaseDBaaSGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSGetArgs, error) {
+	args := &DatabaseDBaaSGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSUpdateArgsFromCobraCommand parses and validates args for update.
+func NewDatabaseDBaaSUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSUpdateArgs, error) {
+	args := &DatabaseDBaaSUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewDatabaseDBaaSDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSDeleteArgs, error) {
+	args := &DatabaseDBaaSDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSListArgsFromCobraCommand parses and validates args for list.
+func NewDatabaseDBaaSListArgsFromCobraCommand(cmd *cobra.Command) (*DatabaseDBaaSListArgs, error) {
+	args := &DatabaseDBaaSListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *DatabaseDBaaSCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Zone, err = cmd.Flags().GetString("zone"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Engine, err = cmd.Flags().GetString("engine-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Flavor, err = cmd.Flags().GetString("flavor"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SizeGB, err = cmd.Flags().GetInt("storage-size"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.VPCID, err = cmd.Flags().GetString("vpc-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SubnetID, err = cmd.Flags().GetString("subnet-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SGID, err = cmd.Flags().GetString("security-group-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.ElasticIPID, err = cmd.Flags().GetString("elastic-ip-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	zone, _ := cmd.Flags().GetString("zone")
-	engineID, _ := cmd.Flags().GetString("engine-id")
-	flavor, _ := cmd.Flags().GetString("flavor")
-	storageSize, _ := cmd.Flags().GetInt("storage-size")
-	vpcID, _ := cmd.Flags().GetString("vpc-id")
-	subnetID, _ := cmd.Flags().GetString("subnet-id")
-	sgID, _ := cmd.Flags().GetString("security-group-id")
-	elasticIPID, _ := cmd.Flags().GetString("elastic-ip-id")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *DatabaseDBaaSGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *DatabaseDBaaSUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *DatabaseDBaaSDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *DatabaseDBaaSListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *DatabaseDBaaSCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	if a.Engine == "" {
+		errs = append(errs, errors.New("--engine-id is required"))
+	}
+	if a.Flavor == "" {
+		errs = append(errs, errors.New("--flavor is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *DatabaseDBaaSGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("DBaaS ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *DatabaseDBaaSUpdateArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("DBaaS ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one of --name or --tags must be provided"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *DatabaseDBaaSDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("DBaaS ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *DatabaseDBaaSListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// DatabaseDBaaSCreate creates a new DBaaS instance.
+func DatabaseDBaaSCreate(ctx context.Context, client aruba.Client, args DatabaseDBaaSCreateArgs) error {
 	dbaas := aruba.NewDBaaS().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		InZone(aruba.Zone(zone)).
-		OfEngine(aruba.DatabaseEngine(engineID)).
-		OfFlavor(aruba.DBaaSFlavor(flavor)).
-		SizedGB(storageSize).
-		RetaggedAs(tags...)
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		InZone(aruba.Zone(args.Zone)).
+		OfEngine(aruba.DatabaseEngine(args.Engine)).
+		OfFlavor(aruba.DBaaSFlavor(args.Flavor)).
+		SizedGB(args.SizeGB).
+		RetaggedAs(args.Tags...)
 
-	if vpcID != "" {
-		dbaas.WithVPC(aruba.VPCRef(projectID, vpcID))
+	if args.VPCID != "" {
+		dbaas.WithVPC(aruba.VPCRef(args.ProjectID, args.VPCID))
 	}
-	if subnetID != "" {
-		dbaas.WithSubnet(aruba.SubnetRef(projectID, vpcID, subnetID))
+	if args.SubnetID != "" {
+		dbaas.WithSubnet(aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID))
 	}
-	if sgID != "" {
-		dbaas.WithSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, sgID))
+	if args.SGID != "" {
+		dbaas.WithSecurityGroup(aruba.SecurityGroupRef(args.ProjectID, args.VPCID, args.SGID))
 	}
-	if elasticIPID != "" {
-		dbaas.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
+	if args.ElasticIPID != "" {
+		dbaas.WithElasticIP(aruba.ElasticIPRef(args.ProjectID, args.ElasticIPID))
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromDatabase().DBaaS().Create(ctx, dbaas)
 	if err != nil {
 		return fmt.Errorf("creating DBaaS instance: %w", apiErrFromV2(err))
@@ -226,27 +523,14 @@ func runDBaaSCreate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, engine, version, flavorVal, regionVal}})
 	} else {
-		fmt.Println(msgCreatedAsync("DBaaS instance", name))
+		fmt.Println(msgCreatedAsync("DBaaS instance", args.Name))
 	}
 	return nil
 }
 
-func runDBaaSGet(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	dbaas, err := client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
+// DatabaseDBaaSGet retrieves and displays a DBaaS instance's details.
+func DatabaseDBaaSGet(ctx context.Context, client aruba.Client, args DatabaseDBaaSGetArgs) error {
+	dbaas, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
 	}
@@ -309,20 +593,59 @@ func runDBaaSGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDBaaSList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
+// DatabaseDBaaSUpdate updates a DBaaS instance's name and/or tags.
+func DatabaseDBaaSUpdate(ctx context.Context, client aruba.Client, args DatabaseDBaaSUpdateArgs) error {
+	dbaas, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(args.ProjectID, args.ID))
 	if err != nil {
-		return err
+		return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
+	}
+	if dbaas == nil || dbaas.Raw() == nil {
+		return fmt.Errorf("DBaaS instance not found")
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	if args.Name != "" {
+		dbaas.Named(args.Name)
+	}
+	if args.TagsChanged {
+		dbaas.RetaggedAs(args.Tags...)
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromDatabase().DBaaS().List(ctx, aruba.URI("/projects/"+projectID))
+	updated, err := client.FromDatabase().DBaaS().Update(ctx, dbaas)
+	if err != nil {
+		return fmt.Errorf("updating DBaaS instance: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		fmt.Printf("\n%s\n", msgUpdated("DBaaS instance", args.ID))
+		if raw.Metadata.ID != nil {
+			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		}
+		if raw.Metadata.Name != nil {
+			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		}
+		if len(raw.Metadata.Tags) > 0 {
+			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+	} else {
+		fmt.Println(msgUpdatedAsync("DBaaS instance", args.ID))
+	}
+	return nil
+}
+
+// DatabaseDBaaSDelete deletes a DBaaS instance.
+func DatabaseDBaaSDelete(ctx context.Context, client aruba.Client, args DatabaseDBaaSDeleteArgs) error {
+	err := client.FromDatabase().DBaaS().Delete(ctx, dbaasRef(args.ProjectID, args.ID))
+	if err != nil {
+		return fmt.Errorf("deleting DBaaS instance: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("DBaaS instance", args.ID))
+	return nil
+}
+
+// DatabaseDBaaSList lists all DBaaS instances in a project.
+func DatabaseDBaaSList(ctx context.Context, client aruba.Client, args DatabaseDBaaSListArgs) error {
+	list, err := client.FromDatabase().DBaaS().List(ctx, aruba.URI("/projects/"+args.ProjectID))
 	if err != nil {
 		return fmt.Errorf("listing DBaaS instances: %w", apiErrFromV2(err))
 	}
@@ -381,19 +704,15 @@ func runDBaaSList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDBaaSUpdate(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
+// =============================================================================
+// Run wiring functions
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
+// DatabaseDBaaSCreateRun is the Cobra RunE handler for DBaaS create.
+func DatabaseDBaaSCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewDatabaseDBaaSCreateArgsFromCobraCommand(cmd)
 	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -403,50 +722,65 @@ func runDBaaSUpdate(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := newCtx()
 	defer cancel()
-	dbaas, err := client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
-	if err != nil {
-		return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
-	}
-	if dbaas == nil || dbaas.Raw() == nil {
-		return fmt.Errorf("DBaaS instance not found")
-	}
 
-	if name != "" {
-		dbaas.Named(name)
-	}
-	if cmd.Flags().Changed("tags") {
-		dbaas.RetaggedAs(tags...)
-	}
-
-	updated, err := client.FromDatabase().DBaaS().Update(ctx, dbaas)
-	if err != nil {
-		return fmt.Errorf("updating DBaaS instance: %w", apiErrFromV2(err))
-	}
-
-	if updated != nil && updated.Raw() != nil {
-		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("DBaaS instance", dbaasID))
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		}
-	} else {
-		fmt.Println(msgUpdatedAsync("DBaaS instance", dbaasID))
+	if err := DatabaseDBaaSCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }
 
-func runDBaaSDelete(cmd *cobra.Command, args []string) error {
-	dbaasID := args[0]
+// DatabaseDBaaSGetRun is the Cobra RunE handler for DBaaS get.
+func DatabaseDBaaSGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
 
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete("DBaaS instance", dbaasID)
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSUpdateRun is the Cobra RunE handler for DBaaS update.
+func DatabaseDBaaSUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSDeleteRun is the Cobra RunE handler for DBaaS delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func DatabaseDBaaSDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("DBaaS instance", args.ID)
 		if err != nil {
 			return err
 		}
@@ -455,9 +789,33 @@ func runDBaaSDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	projectID, err := GetProjectID(cmd)
+	client, err := GetArubaClient()
 	if err != nil {
-		return err
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(args.ProjectID, args.ID)); err != nil {
+			return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", err)
+		}
+		fmt.Println(msgDryRun("DBaaS instance", args.ID))
+		return nil
+	}
+
+	if err := DatabaseDBaaSDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSListRun is the Cobra RunE handler for DBaaS list.
+func DatabaseDBaaSListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewDatabaseDBaaSListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -468,21 +826,8 @@ func runDBaaSDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromDatabase().DBaaS().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
-		if err != nil {
-			return fmt.Errorf("dry-run: DBaaS instance not found or inaccessible: %w", err)
-		}
-		fmt.Println(msgDryRun("DBaaS instance", dbaasID))
-		return nil
+	if err := DatabaseDBaaSList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
-
-	err = client.FromDatabase().DBaaS().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/dbaas/"+dbaasID))
-	if err != nil {
-		return fmt.Errorf("deleting DBaaS instance: %w", apiErrFromV2(err))
-	}
-
-	fmt.Println(msgDeleted("DBaaS instance", dbaasID))
 	return nil
 }
