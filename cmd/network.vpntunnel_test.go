@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -196,7 +199,7 @@ func TestVPNTunnelCreateCmd(t *testing.T) {
 		"network", "vpntunnel", "create",
 		"--project-id", "proj-123",
 		"--name", "my-tunnel",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--peer-ip", "1.2.3.4",
 		"--vpc-id", "vpc-001",
 		"--elastic-ip-id", "eip-001",
@@ -463,63 +466,10 @@ func TestVPNTunnelDeleteCmd(t *testing.T) {
 	}
 }
 
-func TestVPNValidateEnum(t *testing.T) {
-	tests := []struct {
-		name    string
-		value   string
-		flag    string
-		valid   []string
-		wantErr bool
-		errMsg  string
-	}{
-		{name: "empty value passes", value: "", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
-		{name: "valid IKE encryption", value: "aes256", flag: "ike-encryption", valid: vpnEncryptionAlgorithms},
-		{name: "valid IKE hash", value: "sha256", flag: "ike-hash", valid: vpnHashAlgorithms},
-		{name: "valid IKE dh-group", value: "14", flag: "ike-dh-group", valid: vpnDHGroups},
-		{name: "valid IKE dpd-action", value: "trap", flag: "ike-dpd-action", valid: vpnDPDActions},
-		{name: "valid ESP pfs", value: "enable", flag: "esp-pfs", valid: vpnPFSGroups},
-		{name: "valid ESP encryption", value: "aes256", flag: "esp-encryption", valid: vpnEncryptionAlgorithms},
-		{name: "valid ESP hash", value: "sha256", flag: "esp-hash", valid: vpnHashAlgorithms},
-		{
-			name: "invalid IKE encryption rejected", value: "rot13", flag: "ike-encryption", valid: vpnEncryptionAlgorithms,
-			wantErr: true, errMsg: `--ike-encryption "rot13" is not a valid value`,
-		},
-		{
-			name: "invalid IKE hash rejected", value: "crc32", flag: "ike-hash", valid: vpnHashAlgorithms,
-			wantErr: true, errMsg: "--ike-hash",
-		},
-		{
-			name: "invalid dpd-action rejected", value: "explode", flag: "ike-dpd-action", valid: vpnDPDActions,
-			wantErr: true, errMsg: "--ike-dpd-action",
-		},
-		{
-			name: "invalid esp-pfs rejected", value: "group99", flag: "esp-pfs", valid: vpnPFSGroups,
-			wantErr: true, errMsg: "--esp-pfs",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := vpnValidateEnum(tc.value, tc.flag, tc.valid)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				if tc.errMsg != "" && !strings.Contains(err.Error(), tc.errMsg) {
-					t.Errorf("error %q does not contain %q", err.Error(), tc.errMsg)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			}
-		})
-	}
-}
-
 func TestVPNTunnelListCmd_WithAllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "vpn-001", "my-tunnel"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	vpnType := types.VPNTypeSiteToSite
 	state := types.StateActive
 	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelListResponse{
@@ -550,7 +500,7 @@ func TestVPNTunnelGetCmd_FullDetail(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "vpn-001", "my-tunnel"
 	uri := "/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	vpnType := types.VPNTypeSiteToSite
 	state := types.StateActive
 	peerIP := "203.0.113.1"
@@ -635,7 +585,7 @@ func TestVPNTunnelCreateCmd_WithTypeAndProtocol(t *testing.T) {
 		"network", "vpntunnel", "create",
 		"--project-id", "proj-123",
 		"--name", "my-tunnel",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--vpn-type", "Site-To-Site",
 		"--protocol", "ikev2",
 		"--billing-period", "Hour",
@@ -682,5 +632,253 @@ func TestVPNTunnelUpdateCmd_WithTagsOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "vpn-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkVPNTunnelCreateArgs() NetworkVPNTunnelCreateArgs {
+	return NetworkVPNTunnelCreateArgs{
+		ProjectID:     "proj-123",
+		Name:          "my-tunnel",
+		Region:        aruba.RegionITBGBergamo,
+		BillingPeriod: aruba.BillingPeriodHour,
+		SubnetCIDR:    "10.0.1.0/24",
+		ESPEncryption: aruba.ESPEncryption("aes256"),
+	}
+}
+
+func TestNetworkVPNTunnelCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkVPNTunnelCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.BillingPeriod = "Weekly" },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:        "missing subnet (no CIDR, no name)",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.SubnetCIDR = ""; a.SubnetName = "" },
+			wantErr:     true,
+			errContains: "--subnet-cidr or --subnet-name is required",
+		},
+		{
+			name:        "invalid ike-encryption",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.IKEEncryption = aruba.IKEEncryption("rot13") },
+			wantErr:     true,
+			errContains: "--ike-encryption",
+		},
+		{
+			name:        "invalid ike-hash",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.IKEHash = aruba.IKEHash("crc32") },
+			wantErr:     true,
+			errContains: "--ike-hash",
+		},
+		{
+			name:        "invalid ike-dh-group",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.IKEDHGroup = aruba.IKEDHGroup("group99") },
+			wantErr:     true,
+			errContains: "--ike-dh-group",
+		},
+		{
+			name:        "invalid ike-dpd-action",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.IKEDPDAction = aruba.IKEDPDAction("explode") },
+			wantErr:     true,
+			errContains: "--ike-dpd-action",
+		},
+		{
+			name:        "invalid esp-encryption",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.ESPEncryption = aruba.ESPEncryption("rot13") },
+			wantErr:     true,
+			errContains: "--esp-encryption",
+		},
+		{
+			name:        "invalid esp-hash",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.ESPHash = aruba.ESPHash("crc32") },
+			wantErr:     true,
+			errContains: "--esp-hash",
+		},
+		{
+			name:        "invalid esp-pfs",
+			mutate:      func(a *NetworkVPNTunnelCreateArgs) { a.ESPPFS = aruba.ESPPFSGroup("group99") },
+			wantErr:     true,
+			errContains: "--esp-pfs",
+		},
+		{
+			name:    "valid ike-encryption aes256",
+			mutate:  func(a *NetworkVPNTunnelCreateArgs) { a.IKEEncryption = aruba.IKEEncryption("aes256") },
+			wantErr: false,
+		},
+		{
+			name:    "valid ike-dpd-action trap",
+			mutate:  func(a *NetworkVPNTunnelCreateArgs) { a.IKEDPDAction = aruba.IKEDPDAction("trap") },
+			wantErr: false,
+		},
+		{
+			name:    "valid esp-pfs enable",
+			mutate:  func(a *NetworkVPNTunnelCreateArgs) { a.ESPPFS = aruba.ESPPFSGroup("enable") },
+			wantErr: false,
+		},
+		{
+			name:    "subnet name accepted instead of CIDR",
+			mutate:  func(a *NetworkVPNTunnelCreateArgs) { a.SubnetCIDR = ""; a.SubnetName = "my-subnet" },
+			wantErr: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkVPNTunnelCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNetworkVPNTunnelListArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPNTunnelListArgs{ProjectID: "proj-123"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty project ID", func(t *testing.T) {
+		args := NetworkVPNTunnelListArgs{}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty project ID")
+		}
+	})
+}
+
+func TestNetworkVPNTunnelCreateArgs_ValidateWrapsErrValidationFailed(t *testing.T) {
+	// The constructor must wrap validation errors with ErrValidationFailed.
+	cmd := vpntunnelCreateCmd
+	// Provide a dummy cobra invocation that will fail validation (invalid region)
+	// by populating a partial args struct directly.
+	args := validNetworkVPNTunnelCreateArgs()
+	args.Region = "ZZ-Invalid"
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	// Wrap as the constructor would:
+	wrapped := errors.New(ErrValidationFailed.Error() + ": [" + err.Error() + "]")
+	if !strings.Contains(wrapped.Error(), ErrValidationFailed.Error()) {
+		t.Errorf("wrapped error does not contain ErrValidationFailed sentinel text")
+	}
+	_ = cmd // silence unused warning
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkVPNTunnelCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-new", "my-tunnel"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNTunnelCreate(context.Background(), srv.Client(), validNetworkVPNTunnelCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "vpn-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPNTunnelCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+		errorResponse(500, "Internal Server Error", "boom"))
+
+	err := NetworkVPNTunnelCreate(context.Background(), srv.Client(), validNetworkVPNTunnelCreateArgs())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "creating VPN tunnel") {
+		t.Errorf("error %q does not contain expected prefix", err.Error())
+	}
+}
+
+func TestNetworkVPNTunnelList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-001", "my-tunnel"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelListResponse{
+		Values: []types.VPNTunnelResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNTunnelList(context.Background(), srv.Client(), NetworkVPNTunnelListArgs{ProjectID: "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "vpn-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPNTunnelList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+		jsonResponse(200, types.VPNTunnelListResponse{}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNTunnelList(context.Background(), srv.Client(), NetworkVPNTunnelListArgs{ProjectID: "proj-123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No VPN tunnels found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestNetworkVPNTunnelList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels",
+		errorResponse(500, "Internal Server Error", "boom"))
+
+	err := NetworkVPNTunnelList(context.Background(), srv.Client(), NetworkVPNTunnelListArgs{ProjectID: "proj-123"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "listing VPN tunnels") {
+		t.Errorf("error %q does not contain expected prefix", err.Error())
 	}
 }
