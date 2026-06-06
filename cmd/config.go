@@ -4,6 +4,8 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,7 +39,7 @@ var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set configuration values",
 	Long:  `Set configuration values for acloud, such as clientId and clientSecret.`,
-	RunE:  runConfigSet,
+	RunE:  ConfigSetRun,
 }
 
 // configShowCmd represents the config show command
@@ -45,7 +47,7 @@ var configShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show current configuration",
 	Long:  `Display the current acloud configuration.`,
-	RunE:  runConfigShow,
+	RunE:  ConfigShowRun,
 }
 
 func init() {
@@ -136,85 +138,142 @@ func SaveConfig(config *Config) error {
 	return os.WriteFile(configPath, data, FilePermConfig)
 }
 
-func runConfigSet(cmd *cobra.Command, args []string) error {
-	clientID, err := cmd.Flags().GetString("client-id")
-	if err != nil {
-		return err
-	}
-	clientSecret, err := cmd.Flags().GetString("client-secret")
-	if err != nil {
-		return err
-	}
-	baseURL, err := cmd.Flags().GetString("base-url")
-	if err != nil {
-		return err
-	}
-	tokenIssuerURL, err := cmd.Flags().GetString("token-issuer-url")
-	if err != nil {
-		return err
-	}
+// ─── Config Set ───────────────────────────────────────────────────────────────
 
-	// Load existing config or create new one
+// ConfigSetArgs holds the parsed and validated arguments for the config set command.
+type ConfigSetArgs struct {
+	ClientID       string
+	ClientSecret   string
+	BaseURL        string
+	TokenIssuerURL string
+}
+
+// NewConfigSetArgsFromCobraCommand parses flags and validates them.
+func NewConfigSetArgsFromCobraCommand(cmd *cobra.Command) (*ConfigSetArgs, error) {
+	args := &ConfigSetArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// ParseFromCobraCommand reads flag values into the args struct.
+func (a *ConfigSetArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+	if a.ClientID, err = cmd.Flags().GetString("client-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.ClientSecret, err = cmd.Flags().GetString("client-secret"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.BaseURL, err = cmd.Flags().GetString("base-url"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.TokenIssuerURL, err = cmd.Flags().GetString("token-issuer-url"); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// Validate performs pure validation on the parsed args.
+// Note: client-id and client-secret emptiness is validated against the
+// existing config inside ConfigSet, because an existing config may supply them.
+func (a *ConfigSetArgs) Validate() error {
+	return nil
+}
+
+// ConfigSet saves new configuration values, merging with any existing config.
+func ConfigSet(_ context.Context, args ConfigSetArgs) error {
+	// Load existing config or start fresh.
 	config, err := LoadConfig()
 	if err != nil {
-		// If config doesn't exist, create a new one
 		config = &Config{}
 	}
 
-	// Validate required fields
-	if config.ClientID == "" && clientID == "" {
+	// If no client-id is available from either the existing config or the flag, fail.
+	if config.ClientID == "" && args.ClientID == "" {
 		return fmt.Errorf("--client-id is required")
 	}
-	// If --client-secret was not provided and there is no existing secret, prompt interactively
-	if config.ClientSecret == "" && clientSecret == "" {
+	// If no client-secret is available, prompt interactively.
+	if config.ClientSecret == "" && args.ClientSecret == "" {
 		prompted, err := readSecret("Enter client secret: ")
 		if err != nil {
 			return fmt.Errorf("--client-secret is required: %w", err)
 		}
-		clientSecret = prompted
+		args.ClientSecret = prompted
 	}
 
-	// Update only provided values
-	if clientID != "" {
-		config.ClientID = clientID
+	// Apply provided values on top of existing config.
+	if args.ClientID != "" {
+		config.ClientID = args.ClientID
 	}
-	if clientSecret != "" {
-		config.ClientSecret = clientSecret
+	if args.ClientSecret != "" {
+		config.ClientSecret = args.ClientSecret
 	}
-	if baseURL != "" {
-		config.BaseURL = baseURL
+	if args.BaseURL != "" {
+		config.BaseURL = args.BaseURL
 	}
-	if tokenIssuerURL != "" {
-		config.TokenIssuerURL = tokenIssuerURL
+	if args.TokenIssuerURL != "" {
+		config.TokenIssuerURL = args.TokenIssuerURL
 	}
 
-	// Final validation: both clientID and clientSecret must be set
+	// Final check: both fields must be non-empty after merging.
 	if config.ClientID == "" || config.ClientSecret == "" {
 		return fmt.Errorf("both client-id and client-secret are required")
 	}
 
-	// Save config
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
 	}
 
 	fmt.Println("Configuration updated successfully")
-	if clientID != "" {
-		fmt.Printf("  Client ID: %s\n", clientID)
+	if args.ClientID != "" {
+		fmt.Printf("  Client ID: %s\n", args.ClientID)
 	}
-	if clientSecret != "" {
+	if args.ClientSecret != "" {
 		fmt.Println("  Client Secret: ********")
 	}
-	if baseURL != "" {
-		fmt.Printf("  Base URL: %s\n", baseURL)
+	if args.BaseURL != "" {
+		fmt.Printf("  Base URL: %s\n", args.BaseURL)
 	}
-	if tokenIssuerURL != "" {
-		fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
+	if args.TokenIssuerURL != "" {
+		fmt.Printf("  Token Issuer URL: %s\n", args.TokenIssuerURL)
 	}
 	return nil
 }
 
-func runConfigShow(cmd *cobra.Command, args []string) error {
+// ConfigSetRun is the RunE wiring for the config set command.
+func ConfigSetRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewConfigSetArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ConfigSet(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ─── Config Show ──────────────────────────────────────────────────────────────
+
+// ConfigShowArgs holds the (empty) arguments for the config show command.
+type ConfigShowArgs struct{}
+
+// NewConfigShowArgsFromCobraCommand parses and validates args for config show.
+func NewConfigShowArgsFromCobraCommand(_ *cobra.Command) (*ConfigShowArgs, error) {
+	return &ConfigShowArgs{}, nil
+}
+
+// ConfigShow prints the current configuration.
+func ConfigShow(_ context.Context, _ ConfigShowArgs) error {
 	config, err := LoadConfig()
 	if err != nil {
 		fmt.Println("No configuration found. Please run 'acloud config set' to create one.")
@@ -238,5 +297,21 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		tokenIssuerURL = DefaultTokenIssuerURL + " (default)"
 	}
 	fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
+	return nil
+}
+
+// ConfigShowRun is the RunE wiring for the config show command.
+func ConfigShowRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewConfigShowArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ConfigShow(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }
