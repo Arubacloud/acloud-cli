@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -384,6 +385,34 @@ func TestSnapshotUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+func TestStorageSnapshotCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--volume-id", "vol-001"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestStorageSnapshotListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "snapshot", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

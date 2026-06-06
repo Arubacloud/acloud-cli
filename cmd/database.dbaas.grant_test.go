@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -619,6 +620,23 @@ func TestDatabaseDBaaSGrantDelete_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "deleting grant") {
 		t.Errorf("error %q does not contain 'deleting grant'", err.Error())
+	}
+}
+
+func TestDatabaseDBaaSGrantListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -725,5 +726,40 @@ func TestNetworkVPNRouteList_Empty(t *testing.T) {
 	})
 	if !strings.Contains(out, "No VPN routes found") {
 		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"network", "vpnroute", "create", "tunnel-001",
+		"--project-id", "proj-123",
+		"--name", "x",
+		"--region", "ITBG-Bergamo",
+		"--cloud-subnet", "10.0.0.0/24",
+		"--onprem-subnet", "10.1.0.0/24",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkVPNRouteListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "vpnroute", "list", "tunnel-001"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

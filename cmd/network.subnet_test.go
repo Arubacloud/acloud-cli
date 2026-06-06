@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -733,5 +734,33 @@ func TestNetworkSubnetCreate_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "creating subnet") {
 		t.Errorf("error %q does not contain 'creating subnet'", err.Error())
+	}
+}
+
+func TestNetworkSubnetCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "subnet", "create", "vpc-001", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkSubnetListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "subnet", "list", "vpc-001"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

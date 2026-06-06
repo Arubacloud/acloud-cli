@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -880,5 +881,42 @@ func TestNetworkVPNTunnelList_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "listing VPN tunnels") {
 		t.Errorf("error %q does not contain expected prefix", err.Error())
+	}
+}
+
+func TestNetworkVPNTunnelCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"network", "vpntunnel", "create",
+		"--project-id", "proj-123",
+		"--name", "my-tunnel",
+		"--region", "INVALID",
+		"--peer-ip", "1.2.3.4",
+		"--vpc-id", "vpc-001",
+		"--elastic-ip-id", "eip-001",
+		"--subnet-cidr", "10.0.1.0/24",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkVPNTunnelListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "vpntunnel", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

@@ -466,6 +466,18 @@ func TestProjectListCmd_WithProjectData(t *testing.T) {
 	}
 }
 
+func TestManagementProjectCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed via RunE
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"management", "project", "create", "--name", "x"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
 // =============================================================================
 // Layer 1 — Args struct unit tests (pure, no HTTP)
 // =============================================================================
@@ -659,5 +671,122 @@ func TestManagementProjectList_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "listing projects") {
 		t.Errorf("error %q does not contain 'listing projects'", err.Error())
+	}
+}
+
+func TestManagementProjectCreate_VerboseAndOptions(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-new", "my-project"
+	srv.OnPost("/projects", jsonResponse(200, types.ProjectResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectCreate(context.Background(), srv.Client(), ManagementProjectCreateArgs{
+			Name:        "my-project",
+			Description: "Test description",
+			SetDefault:  true,
+			Verbose:     true,
+			Tags:        []string{"env=test"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "Creating project") {
+		t.Errorf("expected verbose output, got: %s", out)
+	}
+}
+
+func TestManagementProjectCreate_DefaultProject(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-def", "default-project"
+	isDefault := true
+	srv.OnPost("/projects", jsonResponse(200, types.ProjectResponse{
+		Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.ProjectPropertiesResponse{Default: isDefault},
+	}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectCreate(context.Background(), srv.Client(), ManagementProjectCreateArgs{
+			Name:       "default-project",
+			SetDefault: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "proj-def") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestManagementProjectUpdate_NilProjectError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-nil", errorResponse(404, "Not Found", "not found"))
+
+	err := ManagementProjectUpdate(context.Background(), srv.Client(), ManagementProjectUpdateArgs{
+		ID:          "proj-nil",
+		Description: "new desc",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "fetching current project") {
+		t.Errorf("error %q does not contain 'fetching current project'", err.Error())
+	}
+}
+
+func TestManagementProjectUpdate_AsyncMessage(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "proj-upd", "my-project"
+	srv.OnGet("/projects/proj-upd", jsonResponse(200, types.ProjectResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	srv.OnPut("/projects/proj-upd", jsonResponse(202, types.ProjectResponse{}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectUpdate(context.Background(), srv.Client(), ManagementProjectUpdateArgs{
+			ID:          "proj-upd",
+			Description: "new desc",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "proj-upd") {
+		t.Errorf("expected project ID in async message, got: %s", out)
+	}
+}
+
+func TestManagementProjectDelete_DryRunError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-del", errorResponse(404, "Not Found", "not found"))
+
+	err := ManagementProjectDelete(context.Background(), srv.Client(), ManagementProjectDeleteArgs{
+		ID:     "proj-del",
+		DryRun: true,
+	})
+	if err == nil {
+		t.Fatal("expected error from dry-run Get")
+	}
+	if !strings.Contains(err.Error(), "dry-run") {
+		t.Errorf("error %q does not contain 'dry-run'", err.Error())
+	}
+}
+
+func TestManagementProjectGet_NotFound(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// Return empty project (ID will be empty) to trigger "not found" branch.
+	srv.OnGet("/projects/proj-empty", jsonResponse(200, types.ProjectResponse{}))
+
+	out := captureStdout(func() {
+		err := ManagementProjectGet(context.Background(), srv.Client(), ManagementProjectGetArgs{ID: "proj-empty"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "not found") {
+		t.Errorf("expected 'not found' in output, got: %s", out)
 	}
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -305,6 +306,35 @@ func TestStorageBackupUpdateCmd(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported") {
 		t.Errorf("error %q does not contain 'not supported'", err.Error())
+	}
+}
+
+func TestStorageBackupCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "backup", "vol-001", "--project-id", "proj-123", "--name", "x"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestStorageBackupListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "backup", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

@@ -973,12 +973,7 @@ func ContainerKaaSConnect(ctx context.Context, client aruba.Client, args Contain
 	kubectlCmd := exec.Command("kubectl", "cluster-info")
 	output, err := kubectlCmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("Error: kubectl cluster-info failed\n")
-		fmt.Printf("Error details: %v\n", err)
-		if len(output) > 0 {
-			fmt.Printf("kubectl output: %s\n", string(output))
-		}
-		os.Exit(1)
+		return fmt.Errorf("kubectl cluster-info failed: %w\nOutput: %s", err, string(output))
 	}
 
 	fmt.Println(msgAction("KaaS cluster", args.ID, "connected"))

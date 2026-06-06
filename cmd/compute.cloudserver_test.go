@@ -1405,6 +1405,77 @@ func TestCloudServerConnectCmd_Success(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Coverage-gap tests: ErrValidationFailed and ErrParsingFailed branches
+// =============================================================================
+
+func TestComputeCloudServerCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"compute", "cloudserver", "create",
+		"--project-id", "proj-123", "--name", "x", // "x" is too short → Validate fails
+		"--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--flavor", "CSO4A8",
+		"--boot-disk-id", "vol-001", "--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001", "--security-group-id", "sg-001",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args' in error, got: %v", err)
+	}
+}
+
+func TestComputeCloudServerListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"compute", "cloudserver", "list"})
+	if err == nil {
+		t.Fatal("expected error (no project-id, no context)")
+	}
+}
+
+func TestComputeCloudServerGetRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"compute", "cloudserver", "get", "cs-001"})
+	if err == nil {
+		t.Fatal("expected error (no project-id, no context)")
+	}
+}
+
+func TestComputeCloudServerConnectRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"compute", "cloudserver", "connect", "cs-001",
+		"--project-id", "proj-123", "--user", "",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args' in error, got: %v", err)
+	}
+}
+
 func TestCloudServerUpdateCmd_Success(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "cs-001", "my-server"

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -463,6 +464,34 @@ func TestBlockStorageUpdateCmd_NoFlagsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "at least one") {
 		t.Errorf("expected 'at least one' in error, got: %v", err)
+	}
+}
+
+func TestStorageBlockStorageCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "blockstorage", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--size", "10"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestStorageBlockStorageListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "blockstorage", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

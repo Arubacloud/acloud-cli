@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -317,6 +318,23 @@ func TestNetworkLoadBalancerGet_NotFound(t *testing.T) {
 		ProjectID: "proj-123",
 		ID:        "lb-999",
 	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestNetworkLoadBalancerListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "loadbalancer", "list"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

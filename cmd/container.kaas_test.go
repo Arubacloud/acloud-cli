@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1115,4 +1117,276 @@ func TestContainerKaaSConnect_Operation(t *testing.T) {
 			t.Errorf("expected downloading error, got: %v", err)
 		}
 	})
+}
+
+// =============================================================================
+// Coverage-gap tests: ErrValidationFailed and ErrParsingFailed branches
+// =============================================================================
+
+func TestContainerKaaSCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"container", "kaas", "create",
+		"--project-id", "proj-123", "--name", "x", // "x" is too short → Validate fails
+		"--region", "ITBG-Bergamo",
+		"--vpc-id", "vpc-001", "--subnet-id", "sub-001",
+		"--node-cidr-address", "10.0.0.0/16", "--node-cidr-name", "my-cidr",
+		"--security-group-name", "my-sg", "--kubernetes-version", "1.32.3",
+		"--node-pool-name", "workers", "--node-pool-nodes", "1",
+		"--node-pool-instance", "K1A2", "--node-pool-zone", "itbg1-a",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args' in error, got: %v", err)
+	}
+}
+
+func TestContainerKaaSListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"container", "kaas", "list"})
+	if err == nil {
+		t.Fatal("expected error (no project-id, no context)")
+	}
+}
+
+func TestContainerKaaSConnect_GetServerError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", errorResponse(404, "Not Found", "not found"))
+	err := ContainerKaaSConnect(context.Background(), srv.Client(), ContainerKaaSConnectArgs{
+		ProjectID:  "proj-123",
+		ID:         "kaas-001",
+		OutputFile: t.TempDir() + "/kube.yaml",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "getting KaaS cluster") {
+		t.Errorf("expected 'getting KaaS cluster' in error, got: %v", err)
+	}
+}
+
+func TestContainerKaaSConnect_DownloadError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-001", "my-cluster"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-001/download", errorResponse(500, "Internal Server Error", "unauthorized"))
+	err := ContainerKaaSConnect(context.Background(), srv.Client(), ContainerKaaSConnectArgs{
+		ProjectID:  "proj-123",
+		ID:         "kaas-001",
+		OutputFile: t.TempDir() + "/kube.yaml",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "downloading kubeconfig") {
+		t.Errorf("expected 'downloading kubeconfig' in error, got: %v", err)
+	}
+}
+
+func TestContainerKaaSConnect_NoOutputFile_WritesKubeDir(t *testing.T) {
+	rawKubeconfig := []byte("apiVersion: v1\nkind: Config\n")
+	encoded := base64.StdEncoding.EncodeToString(rawKubeconfig)
+
+	srv := newArubaTestServer(t)
+	id, name := "kaas-conn", "conn-cluster"
+	srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn/download", jsonResponse(200, types.KaaSKubeconfigResponse{
+		Content: encoded,
+	}))
+
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	// OutputFile intentionally empty → takes the "write to .kube" path.
+	// The function writes files then runs kubectl; we accept either success or kubectl error.
+	_ = ContainerKaaSConnect(ctx, srv.Client(), ContainerKaaSConnectArgs{
+		ProjectID: "p1",
+		ID:        "kaas-conn",
+	})
+
+	// Verify that the .kube directory was created and files were written.
+	kubeDir := tmp + "/.kube"
+	if _, err := os.Stat(kubeDir); err != nil {
+		t.Errorf("expected .kube directory to be created at %s, got: %v", kubeDir, err)
+	}
+}
+
+func TestContainerKaaSUpdate_Operation_AllBranches(t *testing.T) {
+	t.Run("with kubernetes version and HA and storage and billing and node pool", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-upd", "upd-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-upd", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		srv.OnPut("/projects/p1/providers/Aruba.Container/kaas/kaas-upd", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSUpdate(ctx, srv.Client(), ContainerKaaSUpdateArgs{
+				ProjectID:           "p1",
+				ID:                  "kaas-upd",
+				Name:                "new-name",
+				KubernetesVersion:   aruba.KubernetesVersion("1.33.0"),
+				HAChanged:           true,
+				HA:                  true,
+				StorageMaxSize:      100,
+				BillingPeriod:       aruba.BillingPeriodMonth,
+				NodePoolName:        "workers",
+				NodePoolNodes:       3,
+				NodePoolInstance:    aruba.NodePoolInstanceK4A8,
+				NodePoolZone:        aruba.Zone("ITBG-1"),
+				NodePoolAutoscaling: true,
+				NodePoolMinCount:    2,
+				NodePoolMaxCount:    5,
+			})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-upd") {
+			t.Errorf("expected cluster ID in output, got: %s", out)
+		}
+	})
+
+	t.Run("async message when updated returns empty ID", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-upd", "upd-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-upd", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		srv.OnPut("/projects/p1/providers/Aruba.Container/kaas/kaas-upd", jsonResponse(202, types.KaaSResponse{}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSUpdate(ctx, srv.Client(), ContainerKaaSUpdateArgs{
+				ProjectID: "p1",
+				ID:        "kaas-upd",
+				Name:      "new-name",
+			})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-upd") {
+			t.Errorf("expected ID in async message, got: %s", out)
+		}
+	})
+
+	t.Run("nil cluster error", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-nil", errorResponse(404, "Not Found", "not found"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSUpdate(ctx, srv.Client(), ContainerKaaSUpdateArgs{
+			ProjectID: "p1",
+			ID:        "kaas-nil",
+			Name:      "new-name",
+		})
+		if err == nil || !strings.Contains(err.Error(), "getting KaaS cluster") {
+			t.Errorf("expected getting error, got: %v", err)
+		}
+	})
+}
+
+func TestContainerKaaSCreate_Operation_WithOptionals(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-op", "op-cluster"
+	srv.OnPost("/projects/p1/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := ContainerKaaSCreate(ctx, srv.Client(), ContainerKaaSCreateArgs{
+			ProjectID:                     "p1",
+			Name:                          "op-cluster",
+			Region:                        aruba.RegionITBGBergamo,
+			VPCID:                         "vpc-001",
+			SubnetID:                      "sub-001",
+			NodeCIDRAddress:               "10.0.0.0/16",
+			NodeCIDRName:                  "my-cidr",
+			SecurityGroupName:             "my-sg",
+			KubernetesVersion:             aruba.KubernetesVersion("1.32.3"),
+			NodePoolName:                  "workers",
+			NodePoolNodes:                 1,
+			NodePoolInstance:              aruba.NodePoolInstanceK4A8,
+			NodePoolZone:                  aruba.Zone("ITBG-1"),
+			HA:                            true,
+			PodCIDR:                       "192.168.0.0/16",
+			BillingPeriod:                 aruba.BillingPeriodMonth,
+			NodePoolAutoscaling:           true,
+			NodePoolMinCount:              1,
+			NodePoolMaxCount:              5,
+			APIServerEnablePrivateCluster: true,
+			APIServerAuthorizedIPRanges:   []string{"10.0.0.0/8"},
+		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kaas-op") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestContainerKaaSCreate_Operation_APIServerIPRangesOnly(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-api", "api-cluster"
+	srv.OnPost("/projects/p1/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := ContainerKaaSCreate(ctx, srv.Client(), ContainerKaaSCreateArgs{
+			ProjectID:                   "p1",
+			Name:                        "api-cluster",
+			Region:                      aruba.RegionITBGBergamo,
+			VPCID:                       "vpc-001",
+			SubnetID:                    "sub-001",
+			NodeCIDRAddress:             "10.0.0.0/16",
+			NodeCIDRName:                "my-cidr",
+			SecurityGroupName:           "my-sg",
+			KubernetesVersion:           aruba.KubernetesVersion("1.32.3"),
+			NodePoolName:                "workers",
+			NodePoolNodes:               1,
+			NodePoolInstance:            aruba.NodePoolInstanceK4A8,
+			NodePoolZone:                aruba.Zone("ITBG-1"),
+			APIServerAuthorizedIPRanges: []string{"10.0.0.0/8", "192.168.0.0/16"},
+		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kaas-api") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
 }

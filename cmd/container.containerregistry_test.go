@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -816,5 +817,45 @@ func TestContainerContainerRegistryList_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "listing container registries") {
 		t.Errorf("error %q does not contain 'listing container registries'", err.Error())
+	}
+}
+
+// =============================================================================
+// Coverage-gap tests: ErrValidationFailed and ErrParsingFailed branches
+// =============================================================================
+
+func TestContainerContainerRegistryCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"container", "containerregistry", "create",
+		"--project-id", "proj-123", "--name", "x", // "x" is too short → Validate fails
+		"--region", "ITBG-Bergamo",
+		"--public-ip-id", "eip-001", "--vpc-id", "vpc-001",
+		"--subnet-id", "sub-001", "--security-group-id", "sg-001",
+		"--block-storage-id", "vol-001",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args' in error, got: %v", err)
+	}
+}
+
+func TestContainerContainerRegistryListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"container", "containerregistry", "list"})
+	if err == nil {
+		t.Fatal("expected error (no project-id, no context)")
 	}
 }

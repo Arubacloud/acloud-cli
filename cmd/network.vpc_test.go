@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -745,5 +746,33 @@ func TestNetworkVPCList_Empty(t *testing.T) {
 	})
 	if !strings.Contains(out, "No VPCs found") {
 		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestNetworkVPCCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "vpc", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkVPCListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "vpc", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
