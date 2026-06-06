@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -153,7 +156,7 @@ func TestKaaSCreateCmd(t *testing.T) {
 		"container", "kaas", "create",
 		"--project-id", "proj-123",
 		"--name", "my-cluster",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--vpc-id", "vpc-001",
 		"--subnet-id", "sub-001",
 		"--node-cidr-address", "10.0.0.0/16",
@@ -162,7 +165,7 @@ func TestKaaSCreateCmd(t *testing.T) {
 		"--kubernetes-version", "1.32.3",
 		"--node-pool-name", "default-pool",
 		"--node-pool-nodes", "1",
-		"--node-pool-instance", "n1.standard",
+		"--node-pool-instance", "K1A2",
 		"--node-pool-zone", "itbg1-a",
 	}
 	tests := []struct {
@@ -510,7 +513,7 @@ func TestKaaSCreateCmd_WithHAAndPodCIDR(t *testing.T) {
 		"container", "kaas", "create",
 		"--project-id", "proj-123",
 		"--name", "my-cluster",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--vpc-id", "vpc-001",
 		"--subnet-id", "sub-001",
 		"--node-cidr-address", "10.0.0.0/24",
@@ -554,7 +557,7 @@ func TestKaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"container", "kaas", "create",
 		"--project-id", "proj-123",
 		"--name", "my-cluster",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--vpc-id", "vpc-001",
 		"--subnet-id", "sub-001",
 		"--node-cidr-address", "10.0.0.0/24",
@@ -596,4 +599,520 @@ func TestKaaSUpdateCmd_WithTagsOutput(t *testing.T) {
 	if !strings.Contains(out, "kaas-001") {
 		t.Errorf("expected ID in output, got: %s", out)
 	}
+}
+
+// =============================================================================
+// Layer-1: Validate tests (pure Go, no SDK)
+// =============================================================================
+
+func TestContainerKaaSCreateArgs_Validate(t *testing.T) {
+	validBase := ContainerKaaSCreateArgs{
+		ProjectID:         "proj-123",
+		Name:              "my-cluster",
+		Region:            aruba.RegionITBGBergamo,
+		VPCID:             "vpc-001",
+		SubnetID:          "sub-001",
+		NodeCIDRAddress:   "10.0.0.0/16",
+		NodeCIDRName:      "my-cidr",
+		SecurityGroupName: "my-sg",
+		KubernetesVersion: aruba.KubernetesVersion("1.32.3"),
+		NodePoolName:      "workers",
+		NodePoolNodes:     3,
+		NodePoolInstance:  aruba.NodePoolInstanceK4A8,
+		NodePoolZone:      aruba.Zone("ITBG-1"),
+	}
+
+	tests := []struct {
+		name        string
+		mutate      func(*ContainerKaaSCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid args",
+			mutate:  func(_ *ContainerKaaSCreateArgs) {},
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.Region = aruba.Region("IT-BG") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "empty kubernetes version",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.KubernetesVersion = aruba.KubernetesVersion("") },
+			wantErr:     true,
+			errContains: "--kubernetes-version is required",
+		},
+		{
+			name:        "empty vpc-id",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.VPCID = "" },
+			wantErr:     true,
+			errContains: "--vpc-id is required",
+		},
+		{
+			name:        "empty subnet-id",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.SubnetID = "" },
+			wantErr:     true,
+			errContains: "--subnet-id is required",
+		},
+		{
+			name:        "node pool nodes zero",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.NodePoolNodes = 0 },
+			wantErr:     true,
+			errContains: "--node-pool-nodes must be greater than 0",
+		},
+		{
+			name:        "invalid node pool instance",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.NodePoolInstance = aruba.NodePoolInstance("n1.standard") },
+			wantErr:     true,
+			errContains: "--node-pool-instance",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *ContainerKaaSCreateArgs) { a.BillingPeriod = aruba.BillingPeriod("Weekly") },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:    "valid optional billing period",
+			mutate:  func(a *ContainerKaaSCreateArgs) { a.BillingPeriod = aruba.BillingPeriodMonth },
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validBase
+			tc.mutate(&args)
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, got: %v", tc.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestContainerKaaSCreateArgs_Validate_WrapsErrValidationFailed(t *testing.T) {
+	// Verify the constructor wraps Validate errors with ErrValidationFailed.
+	// We use an invalid region to trigger a validation failure.
+	args := ContainerKaaSCreateArgs{
+		ProjectID:         "proj-123",
+		Name:              "my-cluster",
+		Region:            aruba.Region("bad-region"),
+		VPCID:             "vpc-001",
+		SubnetID:          "sub-001",
+		NodeCIDRAddress:   "10.0.0.0/16",
+		NodeCIDRName:      "my-cidr",
+		SecurityGroupName: "my-sg",
+		KubernetesVersion: aruba.KubernetesVersion("1.32.3"),
+		NodePoolName:      "workers",
+		NodePoolNodes:     1,
+		NodePoolInstance:  aruba.NodePoolInstanceK4A8,
+		NodePoolZone:      aruba.Zone("ITBG-1"),
+	}
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	// Wrap as the constructor would.
+	wrapped := errors.Join(ErrValidationFailed, err)
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected wrapped error to be ErrValidationFailed")
+	}
+}
+
+func TestContainerKaaSGetArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    ContainerKaaSGetArgs
+		wantErr bool
+	}{
+		{name: "valid", args: ContainerKaaSGetArgs{ProjectID: "p1", ID: "kaas-001"}, wantErr: false},
+		{name: "missing ID", args: ContainerKaaSGetArgs{ProjectID: "p1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestContainerKaaSListArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    ContainerKaaSListArgs
+		wantErr bool
+	}{
+		{name: "valid", args: ContainerKaaSListArgs{ProjectID: "p1"}, wantErr: false},
+		{name: "missing project", args: ContainerKaaSListArgs{}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestContainerKaaSUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        ContainerKaaSUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid",
+			args:    ContainerKaaSUpdateArgs{ProjectID: "p1", ID: "kaas-001", Name: "new-name"},
+			wantErr: false,
+		},
+		{
+			name:        "missing ID",
+			args:        ContainerKaaSUpdateArgs{ProjectID: "p1", Name: "new-name"},
+			wantErr:     true,
+			errContains: "KaaS cluster ID is required",
+		},
+		{
+			name:        "invalid billing period",
+			args:        ContainerKaaSUpdateArgs{ProjectID: "p1", ID: "kaas-001", BillingPeriod: aruba.BillingPeriod("Daily")},
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:        "invalid node pool instance",
+			args:        ContainerKaaSUpdateArgs{ProjectID: "p1", ID: "kaas-001", NodePoolInstance: aruba.NodePoolInstance("bad")},
+			wantErr:     true,
+			errContains: "--node-pool-instance",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, got: %v", tc.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestContainerKaaSDeleteArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    ContainerKaaSDeleteArgs
+		wantErr bool
+	}{
+		{name: "valid", args: ContainerKaaSDeleteArgs{ProjectID: "p1", ID: "kaas-001"}, wantErr: false},
+		{name: "missing ID", args: ContainerKaaSDeleteArgs{ProjectID: "p1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestContainerKaaSConnectArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    ContainerKaaSConnectArgs
+		wantErr bool
+	}{
+		{name: "valid", args: ContainerKaaSConnectArgs{ProjectID: "p1", ID: "kaas-001"}, wantErr: false},
+		{name: "missing ID", args: ContainerKaaSConnectArgs{ProjectID: "p1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer-2: Operation function tests
+// =============================================================================
+
+func TestContainerKaaSList_Operation(t *testing.T) {
+	t.Run("returns clusters in table", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-op-001", "op-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{
+			Values: []types.KaaSResponse{
+				{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+			},
+		}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSList(ctx, srv.Client(), ContainerKaaSListArgs{ProjectID: "p1"})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-op-001") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+	})
+
+	t.Run("empty list prints message", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSListResponse{}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSList(ctx, srv.Client(), ContainerKaaSListArgs{ProjectID: "p1"})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "No KaaS clusters found") {
+			t.Errorf("expected empty message, got: %s", out)
+		}
+	})
+
+	t.Run("server error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas", errorResponse(500, "Internal Server Error", "boom"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSList(ctx, srv.Client(), ContainerKaaSListArgs{ProjectID: "p1"})
+		if err == nil || !strings.Contains(err.Error(), "listing") {
+			t.Errorf("expected listing error, got: %v", err)
+		}
+	})
+}
+
+func TestContainerKaaSGet_Operation(t *testing.T) {
+	t.Run("success renders details", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-op-get", "op-get-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-op-get", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSGet(ctx, srv.Client(), ContainerKaaSGetArgs{ProjectID: "p1", ID: "kaas-op-get"})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-op-get") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+	})
+
+	t.Run("API error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/missing", errorResponse(404, "Not Found", "not found"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSGet(ctx, srv.Client(), ContainerKaaSGetArgs{ProjectID: "p1", ID: "missing"})
+		if err == nil || !strings.Contains(err.Error(), "getting") {
+			t.Errorf("expected getting error, got: %v", err)
+		}
+	})
+}
+
+func TestContainerKaaSCreate_Operation(t *testing.T) {
+	t.Run("success renders row", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-op-create", "op-cluster"
+		srv.OnPost("/projects/p1/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSCreate(ctx, srv.Client(), ContainerKaaSCreateArgs{
+				ProjectID:         "p1",
+				Name:              "op-cluster",
+				Region:            aruba.RegionITBGBergamo,
+				VPCID:             "vpc-001",
+				SubnetID:          "sub-001",
+				NodeCIDRAddress:   "10.0.0.0/16",
+				NodeCIDRName:      "my-cidr",
+				SecurityGroupName: "my-sg",
+				KubernetesVersion: aruba.KubernetesVersion("1.32.3"),
+				NodePoolName:      "workers",
+				NodePoolNodes:     1,
+				NodePoolInstance:  aruba.NodePoolInstanceK4A8,
+				NodePoolZone:      aruba.Zone("ITBG-1"),
+			})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-op-create") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+	})
+
+	t.Run("API error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnPost("/projects/p1/providers/Aruba.Container/kaas", errorResponse(500, "Internal Server Error", "quota"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSCreate(ctx, srv.Client(), ContainerKaaSCreateArgs{
+			ProjectID:         "p1",
+			Name:              "op-cluster",
+			Region:            aruba.RegionITBGBergamo,
+			VPCID:             "vpc-001",
+			SubnetID:          "sub-001",
+			NodeCIDRAddress:   "10.0.0.0/16",
+			NodeCIDRName:      "my-cidr",
+			SecurityGroupName: "my-sg",
+			KubernetesVersion: aruba.KubernetesVersion("1.32.3"),
+			NodePoolName:      "workers",
+			NodePoolNodes:     1,
+			NodePoolInstance:  aruba.NodePoolInstanceK4A8,
+			NodePoolZone:      aruba.Zone("ITBG-1"),
+		})
+		if err == nil || !strings.Contains(err.Error(), "creating") {
+			t.Errorf("expected creating error, got: %v", err)
+		}
+	})
+}
+
+func TestContainerKaaSDelete_Operation(t *testing.T) {
+	t.Run("success prints deleted message", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnDelete("/projects/p1/providers/Aruba.Container/kaas/kaas-del", jsonResponse(200, nil))
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSDelete(ctx, srv.Client(), ContainerKaaSDeleteArgs{
+				ProjectID: "p1", ID: "kaas-del", SkipConfirm: true,
+			})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "kaas-del") {
+			t.Errorf("expected ID in output, got: %s", out)
+		}
+	})
+
+	t.Run("API error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnDelete("/projects/p1/providers/Aruba.Container/kaas/kaas-del", errorResponse(500, "Internal Server Error", "in use"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSDelete(ctx, srv.Client(), ContainerKaaSDeleteArgs{
+			ProjectID: "p1", ID: "kaas-del", SkipConfirm: true,
+		})
+		if err == nil || !strings.Contains(err.Error(), "deleting") {
+			t.Errorf("expected deleting error, got: %v", err)
+		}
+	})
+}
+
+func TestContainerKaaSConnect_Operation(t *testing.T) {
+	// base64-encode a minimal kubeconfig so DownloadKubeconfig returns valid content
+	rawKubeconfig := []byte("apiVersion: v1\nkind: Config\n")
+	encoded := base64.StdEncoding.EncodeToString(rawKubeconfig)
+
+	t.Run("success writes kubeconfig to output-file", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-conn", "conn-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn/download", jsonResponse(200, types.KaaSKubeconfigResponse{
+			Content: encoded,
+		}))
+
+		outFile := t.TempDir() + "/kubeconfig"
+		ctx, cancel := newCtx()
+		defer cancel()
+		out := captureStdout(func() {
+			err := ContainerKaaSConnect(ctx, srv.Client(), ContainerKaaSConnectArgs{
+				ProjectID:  "p1",
+				ID:         "kaas-conn",
+				OutputFile: outFile,
+			})
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+		if !strings.Contains(out, "connected") {
+			t.Errorf("expected connected message, got: %s", out)
+		}
+	})
+
+	t.Run("get error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn", errorResponse(500, "Internal Server Error", "boom"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSConnect(ctx, srv.Client(), ContainerKaaSConnectArgs{
+			ProjectID:  "p1",
+			ID:         "kaas-conn",
+			OutputFile: t.TempDir() + "/kubeconfig",
+		})
+		if err == nil || !strings.Contains(err.Error(), "getting KaaS cluster") {
+			t.Errorf("expected getting error, got: %v", err)
+		}
+	})
+
+	t.Run("download error propagates", func(t *testing.T) {
+		srv := newArubaTestServer(t)
+		id, name := "kaas-conn", "conn-cluster"
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn", jsonResponse(200, types.KaaSResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+		srv.OnGet("/projects/p1/providers/Aruba.Container/kaas/kaas-conn/download", errorResponse(403, "Forbidden", "unauthorized"))
+		ctx, cancel := newCtx()
+		defer cancel()
+		err := ContainerKaaSConnect(ctx, srv.Client(), ContainerKaaSConnectArgs{
+			ProjectID:  "p1",
+			ID:         "kaas-conn",
+			OutputFile: t.TempDir() + "/kubeconfig",
+		})
+		if err == nil || !strings.Contains(err.Error(), "downloading kubeconfig") {
+			t.Errorf("expected downloading error, got: %v", err)
+		}
+	})
 }
