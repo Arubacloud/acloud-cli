@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestLoadContext(t *testing.T) {
@@ -491,5 +495,289 @@ func TestContextCurrentCmd(t *testing.T) {
 	}
 	if !strings.Contains(out, "proj-abc") {
 		t.Errorf("expected project ID, got: %s", out)
+	}
+}
+
+// ─── Layer-1: Validate ────────────────────────────────────────────────────────
+
+func TestContextSetArgs_Validate(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    ContextSetArgs
+		wantErr bool
+	}{
+		{"project-id set", ContextSetArgs{Name: "ctx", ProjectID: "pid"}, false},
+		{"project-id empty", ContextSetArgs{Name: "ctx", ProjectID: ""}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr && err == nil {
+				t.Error("Validate() = nil, want error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestNewContextSetArgsFromCobraCommand_ValidationError(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	// cobra.ExactArgs(1) is already enforced by the command, but we test the
+	// constructor directly — pass a valid positional arg and omit --project-id.
+	cmd := &cobra.Command{}
+	cmd.Flags().String("project-id", "", "")
+	// Do not set project-id, so it remains empty.
+	_, err := NewContextSetArgsFromCobraCommand(cmd, []string{"myctx"})
+	if err == nil {
+		t.Fatal("expected ErrValidationFailed, got nil")
+	}
+	if !errors.Is(err, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed, got: %v", err)
+	}
+}
+
+func TestContextUseArgs_Validate(t *testing.T) {
+	// Validate is a no-op for ContextUseArgs; verify it never returns an error.
+	if err := (&ContextUseArgs{Name: "any"}).Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil", err)
+	}
+}
+
+func TestContextDeleteArgs_Validate(t *testing.T) {
+	// Validate is a no-op for ContextDeleteArgs; verify it never returns an error.
+	if err := (&ContextDeleteArgs{Name: "any"}).Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil", err)
+	}
+}
+
+// ─── Layer-2: Operation ───────────────────────────────────────────────────────
+
+func TestContextSet_Operation(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	out := captureStdout(func() {
+		err := ContextSet(context.Background(), ContextSetArgs{Name: "op-ctx", ProjectID: "op-pid"})
+		if err != nil {
+			t.Errorf("ContextSet() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "op-ctx") {
+		t.Errorf("expected context name in output, got: %s", out)
+	}
+	if !strings.Contains(out, "op-pid") {
+		t.Errorf("expected project ID in output, got: %s", out)
+	}
+
+	// Verify the context was persisted.
+	loaded, err := LoadContext()
+	if err != nil {
+		t.Fatalf("LoadContext: %v", err)
+	}
+	if info, ok := loaded.Contexts["op-ctx"]; !ok || info.ProjectID != "op-pid" {
+		t.Errorf("context not persisted correctly: %+v", loaded.Contexts)
+	}
+}
+
+func TestContextUse_Operation_NotFound(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		Contexts: map[string]CtxInfo{"existing": {ProjectID: "p1"}},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	err := ContextUse(context.Background(), ContextUseArgs{Name: "missing"})
+	if err == nil {
+		t.Fatal("expected error for missing context")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got: %v", err)
+	}
+}
+
+func TestContextUse_Operation_SwitchesContext(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		CurrentContext: "first",
+		Contexts: map[string]CtxInfo{
+			"first":  {ProjectID: "p1"},
+			"second": {ProjectID: "p2"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ContextUse(context.Background(), ContextUseArgs{Name: "second"})
+		if err != nil {
+			t.Errorf("ContextUse() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "second") {
+		t.Errorf("expected 'second' in output, got: %s", out)
+	}
+
+	loaded, err := LoadContext()
+	if err != nil {
+		t.Fatalf("LoadContext: %v", err)
+	}
+	if loaded.CurrentContext != "second" {
+		t.Errorf("CurrentContext = %q, want second", loaded.CurrentContext)
+	}
+}
+
+func TestContextList_Operation_Empty(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	out := captureStdout(func() {
+		err := ContextList(context.Background(), ContextListArgs{})
+		if err != nil {
+			t.Errorf("ContextList() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "No contexts found") {
+		t.Errorf("expected 'No contexts found', got: %s", out)
+	}
+}
+
+func TestContextList_Operation_WithContexts(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		CurrentContext: "alpha",
+		Contexts: map[string]CtxInfo{
+			"alpha": {ProjectID: "pa"},
+			"beta":  {ProjectID: "pb"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ContextList(context.Background(), ContextListArgs{})
+		if err != nil {
+			t.Errorf("ContextList() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("expected 'alpha' in output, got: %s", out)
+	}
+	if !strings.Contains(out, "beta") {
+		t.Errorf("expected 'beta' in output, got: %s", out)
+	}
+	// Active context should be marked with *.
+	if !strings.Contains(out, "*") {
+		t.Errorf("expected '*' marker for current context, got: %s", out)
+	}
+}
+
+func TestContextCurrent_Operation_NoContext(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	out := captureStdout(func() {
+		err := ContextCurrent(context.Background(), ContextCurrentArgs{})
+		if err != nil {
+			t.Errorf("ContextCurrent() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "No current context") {
+		t.Errorf("expected 'No current context', got: %s", out)
+	}
+}
+
+func TestContextCurrent_Operation_WithContext(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		CurrentContext: "myctx",
+		Contexts:       map[string]CtxInfo{"myctx": {ProjectID: "mypid"}},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ContextCurrent(context.Background(), ContextCurrentArgs{})
+		if err != nil {
+			t.Errorf("ContextCurrent() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "myctx") {
+		t.Errorf("expected context name, got: %s", out)
+	}
+	if !strings.Contains(out, "mypid") {
+		t.Errorf("expected project ID, got: %s", out)
+	}
+}
+
+func TestContextDelete_Operation_Success(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		CurrentContext: "del-ctx",
+		Contexts:       map[string]CtxInfo{"del-ctx": {ProjectID: "dp"}},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ContextDelete(context.Background(), ContextDeleteArgs{Name: "del-ctx"})
+		if err != nil {
+			t.Errorf("ContextDelete() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "del-ctx") {
+		t.Errorf("expected deleted context name in output, got: %s", out)
+	}
+
+	loaded, err := LoadContext()
+	if err != nil {
+		t.Fatalf("LoadContext: %v", err)
+	}
+	if _, exists := loaded.Contexts["del-ctx"]; exists {
+		t.Error("context was not removed from file")
+	}
+	// Deleting the active context must clear CurrentContext.
+	if loaded.CurrentContext != "" {
+		t.Errorf("CurrentContext = %q, want empty after deleting active context", loaded.CurrentContext)
+	}
+}
+
+func TestContextDelete_Operation_NotFound(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	if err := SaveContext(&Context{
+		Contexts: map[string]CtxInfo{"other": {ProjectID: "p"}},
+	}); err != nil {
+		t.Fatalf("SaveContext: %v", err)
+	}
+
+	err := ContextDelete(context.Background(), ContextDeleteArgs{Name: "missing"})
+	if err == nil {
+		t.Fatal("expected error for missing context")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not-found error, got: %v", err)
 	}
 }
