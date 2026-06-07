@@ -656,19 +656,22 @@ func TestDatabaseDBaaSCreate_APIError(t *testing.T) {
 	}
 }
 
-func TestDatabaseDBaaSGet_NotFound(t *testing.T) {
+func TestDatabaseDBaaSGet_HappyPath(t *testing.T) {
 	srv := newArubaTestServer(t)
-	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas/d-notfound", jsonResponse(200, types.DBaaSResponse{}))
+	id, name := "dbaas-1", "my-dbaas"
+	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas/dbaas-1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
 	ctx, cancel := newCtx()
 	defer cancel()
 	out := captureStdout(func() {
-		err := DatabaseDBaaSGet(ctx, srv.Client(), DatabaseDBaaSGetArgs{ProjectID: "p1", ID: "d-notfound"})
+		err := DatabaseDBaaSGet(ctx, srv.Client(), DatabaseDBaaSGetArgs{ProjectID: "p1", ID: "dbaas-1"})
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "not found") {
-		t.Errorf("expected 'not found' in output, got: %s", out)
+	if !strings.Contains(out, "dbaas-1") {
+		t.Errorf("expected ID in output, got: %s", out)
 	}
 }
 

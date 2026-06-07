@@ -135,10 +135,19 @@ func strPtr(s string) *string { return &s }
 // flag and the global rootCmd is shared across test cases: without this reset,
 // a flag set in test N remains "seen" in test N+1, causing MarkFlagRequired
 // validation to pass even when the flag is absent.
+//
+// StringSlice/StringArray flags use pflag.SliceValue.Replace to reset because
+// their Set() method appends rather than replaces — calling Set(DefValue)
+// repeatedly would accumulate stale entries and eventually overflow the pipe
+// buffer in runCmdCapture, causing a deadlock.
 func resetCmdFlags(cmd *cobra.Command) {
 	resetFlagSet := func(f *pflag.Flag) {
 		f.Changed = false
-		_ = f.Value.Set(f.DefValue) //nolint:errcheck
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace([]string{}) //nolint:errcheck
+		} else {
+			_ = f.Value.Set(f.DefValue) //nolint:errcheck
+		}
 	}
 	cmd.Flags().VisitAll(resetFlagSet)
 	cmd.PersistentFlags().VisitAll(resetFlagSet)
