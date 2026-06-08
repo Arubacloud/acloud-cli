@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -1179,6 +1181,46 @@ func TestComputeCloudServerUpdate_HappyPath(t *testing.T) {
 	})
 	if !strings.Contains(out, "cs-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestComputeCloudServerUpdate_SecurityGroupsReinjected(t *testing.T) {
+	// Verifies that security group URIs from linkedResources[] on the GET
+	// response are forwarded in the PUT body.  Without the fix the PUT body
+	// omits securityGroups and the API returns 400.
+	srv := newArubaTestServer(t)
+	id, name := "cs-001", "my-server"
+	sgURI := "/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.CloudServerPropertiesResponse{
+			LinkedResources: []types.LinkedResourceCommon{{URI: sgURI}},
+		},
+	}))
+
+	var capturedBody []byte
+	newName := "updated-server"
+	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
+		func(w http.ResponseWriter, r *http.Request) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			jsonResponse(200, types.CloudServerResponse{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &newName},
+			})(w, r)
+		})
+
+	captureStdout(func() {
+		err := ComputeCloudServerUpdate(context.Background(), srv.Client(), ComputeCloudServerUpdateArgs{
+			ProjectID: "proj-123",
+			ID:        "cs-001",
+			Name:      "updated-server",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(string(capturedBody), sgURI) {
+		t.Errorf("PUT body missing security group URI %q; body: %s", sgURI, capturedBody)
 	}
 }
 
