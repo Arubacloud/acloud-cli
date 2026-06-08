@@ -111,20 +111,15 @@ error rather than silently emitting an invalid payload.
 
 ---
 
-### TD-033 · `container.kaas.go` residual `pkg/types` import
+### ~~TD-033~~ · RESOLVED
 
-One residual `types.*` usage remains in production code after the v1.0.0 migration:
+~~`container.kaas.go` and `management.project.go` residual `pkg/types` and `.Raw()`~~
 
-1. **`cmd/container.kaas.go`** — `types.KaaSAPIServerAccessProfilePropertiesRequest` must be
-   referenced directly because sdk-go v1.0.2 provides no `aruba`-level constructor for
-   API server access profile settings. Remove the `pkg/types` import once sdk-go exposes
-   `aruba.NewAPIServerAccessProfile()` or an equivalent fluent setter.
+Fully resolved across two sdk-go releases:
+- **v1.0.2**: `responseMetadataMixin` gained `CreatedBy()`/`UpdatedBy()`/`CreatedUser()`/`UpdatedUser()` — removed `.Raw().Metadata.CreatedBy` calls in `management.project.go` and `container.kaas.go`.
+- **v1.0.3**: `KaaS` gained `WithPrivateCluster()` and `WithAuthorizedIPRanges(ranges ...string)` fluent setters — removed `types.KaaSAPIServerAccessProfilePropertiesRequest` and the `pkg/types` import from `container.kaas.go`.
 
-~~2. `cmd/management.project.go` and `cmd/container.kaas.go` — `.Raw().Metadata.CreatedBy` /
-   `.UpdatedBy` calls~~ Resolved in sdk-go v1.0.2: `responseMetadataMixin` now exposes
-   `CreatedBy()`, `UpdatedBy()`, `CreatedUser()`, `UpdatedUser()` on all Family-A wrappers.
-
-**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/131
+**Closed:** https://github.com/Arubacloud/acloud-cli/issues/131
 
 ---
 
