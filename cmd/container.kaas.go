@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
-	"github.com/Arubacloud/sdk-go/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -719,18 +718,11 @@ func ContainerKaaSCreate(ctx context.Context, client aruba.Client, args Containe
 	if args.BillingPeriod != "" {
 		kaas.BilledBy(args.BillingPeriod)
 	}
-	if len(args.APIServerAuthorizedIPRanges) > 0 || args.APIServerEnablePrivateCluster {
-		// TECH_DEBT: TD-033 (#131) — types.KaaSAPIServerAccessProfilePropertiesRequest must be
-		// referenced directly because the SDK provides no aruba-level constructor for
-		// this type yet. Remove the types import from this file once sdk-go exposes
-		// aruba.NewAPIServerAccessProfile() or an equivalent fluent setter.
-		profile := &types.KaaSAPIServerAccessProfilePropertiesRequest{
-			EnablePrivateCluster: args.APIServerEnablePrivateCluster,
-		}
-		if len(args.APIServerAuthorizedIPRanges) > 0 {
-			profile.AuthorizedIPRanges = &args.APIServerAuthorizedIPRanges
-		}
-		kaas.WithAPIServerAccessProfile(profile)
+	if args.APIServerEnablePrivateCluster {
+		kaas.WithPrivateCluster()
+	}
+	if len(args.APIServerAuthorizedIPRanges) > 0 {
+		kaas.WithAuthorizedIPRanges(args.APIServerAuthorizedIPRanges...)
 	}
 
 	created, err := client.FromContainer().KaaS().Create(ctx, kaas)
@@ -790,9 +782,8 @@ func ContainerKaaSGet(ctx context.Context, client aruba.Client, args ContainerKa
 		if !kaas.CreatedAt().IsZero() {
 			fmt.Printf("Creation Date:   %s\n", kaas.CreatedAt().Format(DateLayout))
 		}
-		// CreatedBy has no wrapper accessor in sdk-go v1.0.0 — TECH_DEBT: TD-033
-		if raw := kaas.Raw(); raw != nil && raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		if v := kaas.CreatedBy(); v != "" {
+			fmt.Printf("Created By:      %s\n", v)
 		}
 		if tags := kaas.Tags(); len(tags) > 0 {
 			fmt.Printf("Tags:            %v\n", tags)
