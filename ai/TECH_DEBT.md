@@ -34,6 +34,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-036 | sdk-go bumped from v0.3.0 → v1.0.0 (GA, released 2026-05-29) on branch `upgrade-sdk-v1`. Breaking changes in `pkg/types`: strict role-suffix naming (`*PropertiesResult`→`*PropertiesResponse`, bare `*List`→`*ListResponse`, `*Common`-suffixed nested types). Production code impact: 7 compile-error fixes in `container.containerregistry.go`, `container.kaas.go`, `management.project.go`, `network.elasticip.go`, `network.subnet.go`, `network.vpcpeeringroute.go`, `network.vpntunnel.go`. Test files: ~46 type-rename substitutions across 28 `_test.go` files. Completion functions migrated to wrapper accessors (`.ID()`, `.Name()`) in 14 cmd files, eliminating ~50 `.Raw().Metadata.ID/Name` reads. |
 | TD-034 | VPN tunnel update handler manual IKE/ESP/PSK reattach block removed from `cmd/network.vpntunnel.go`. sdk-go v1.0.0 `fromResponse` now fully rehydrates IKE/ESP/PSK into the `*VPNIKE`/`*VPNESP`/`*VPNPSK` wrapper fields exposed via `IKE()`/`ESP()`/`PSK()` accessors; `toRequest()` builds the PUT body from those fields. Closed #132. Residual: `redactVPNTunnelSecrets` still mutates `t.response.Properties.VPNClientSettingsCommon.PSK.Secret` directly because `RawJSON()` serializes `t.response`; upstream `RedactPSK()` mutator still needed (tracked in #132 comment). |
 | TD-035 | Subnet update DHCP preservation block migrated to wrapper accessors in `cmd/network.subnet.go`. `subnet.Type()` replaces `subnet.Raw().Properties.Type`; `subnet.DHCP()` replaces `.Raw().Properties.DHCP` with full `IsEnabled()`/`Routes()`/`DNS()` read access on `*SubnetDHCPCommon`. Zero `.Raw()` calls remain for this code path. Closed #133. |
+| TD-030 | sdk-go v1.0.4 added `cidr` JSON field handling to `SubnetCIDROrRef.UnmarshalJSON`, fixing the field-path mismatch that caused `vpnroute get/list` to always show a blank Cloud Subnet. CLI migrated all four output blocks from `raw.Properties.CloudSubnet.CIDR` to `route.CloudSubnet()` and from `raw.Properties.OnPremSubnet` to `route.OnPremSubnet()`. Closed #135 / #130. |
 | TD-038 | All 137 Cobra `RunE` handlers decomposed into `<Family><Resource><Action>Args` struct + `ParseFromCobraCommand` + `Validate()` + pure `<Action>` operation function + thin `<Action>Run` wiring. `Validate()` methods cover typed-enum value-sets via `slices.Contains`. `ErrParsingFailed` / `ErrValidationFailed` sentinels added to `cmd/args.go`; cross-resource valid-value slices in `cmd/enums.go`. Closes the testability gap left by PR #138. |
 
 ---
@@ -76,27 +77,6 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 **Diagnosis:** Run `acloud --debug compute cloudserver update <id> --tags foo` and inspect `[DEBUG] response body:` to confirm which field(s) the API rejects.
 
 **Fix:** Map `networkInterfaces[].subnet` → `subnetRefs` and identify security-group URIs in `linkedResources[]` in the CLI update handler (or upstream in SDK `fromResponse`). Re-inject before calling `Update`. See #125.
-
----
-
-### TD-030 · VPN route Cloud Subnet always blank on `get` / `list`
-
-`acloud network vpnroute get` prints an empty `Cloud Subnet:` row even when the route
-was created with `--cloud-subnet 10.0.0.0/24`. The CLI reads
-`raw.Properties.CloudSubnet.CIDR`, but the GET response places the value under a
-different field path (likely `raw.Properties.CloudSubnet.Value` or a flat string).
-Confirmed blank in the network e2e run on 2026-06-03.
-
-**Root cause:** Structural mismatch between `types.VPNRoutePropertiesResponse` and the
-actual API response body — an sdk-go issue.
-
-**Fix (blocked on sdk-go):** Once the SDK aligns the type definition with the API
-contract, update the field read in `cmd/network.vpnroute.go` (both `get` and `list`
-output blocks).
-
-**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/135
-
-**Upstream tracking:** https://github.com/Arubacloud/sdk-go/issues/327
 
 ---
 
