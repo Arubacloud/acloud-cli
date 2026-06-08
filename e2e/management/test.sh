@@ -208,19 +208,18 @@ test_project() {
     echo "$UPDATE_OUTPUT"
     echo ""
 
-    # DELETE inline — cleanup trap is the safety net
+    # DELETE
     echo -e "${GREEN}[DELETE]${NC} Deleting project..."
     DELETE_OUTPUT=$($ACLOUD_CMD management project delete "$crud_project_id" --yes 2>&1)
-    if [ $? -eq 0 ]; then
-        echo "$DELETE_OUTPUT"
+    DELETE_EXIT=$?
+    echo "$DELETE_OUTPUT"
+    if [ $DELETE_EXIT -eq 0 ]; then
         CREATED_PROJECTS=("${CREATED_PROJECTS[@]/$crud_project_id}")
+        echo -e "${GREEN}✓ Project CRUD test completed successfully!${NC}\n"
     else
-        echo -e "${YELLOW}DELETE may need a retry — cleanup trap will handle it:${NC}"
-        echo "$DELETE_OUTPUT"
+        fail "DELETE project $crud_project_id failed (exit $DELETE_EXIT)"
+        echo -e "${RED}✗ Project CRUD test completed with failures${NC}\n"
     fi
-    echo ""
-
-    echo -e "${GREEN}✓ Project CRUD test completed successfully!${NC}\n"
 }
 
 # Run tests
