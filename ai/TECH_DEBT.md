@@ -52,6 +52,8 @@ Issues are grouped by severity. Address Critical items before new features ship;
 
 **Fix:** Confirm with the API team whether `ipConfigurations.subnet` is a reference or a creation spec. If it is a lookup, surface a clearer error when the subnet is missing. If it is a creation field, update the CLI `Long`, flag descriptions, and `docs/website/docs/resources/network/vpntunnel.md` accordingly, and remove the pre-create step from the e2e test.
 
+**Upstream tracking:** https://github.com/Arubacloud/sdk-go/issues/328
+
 ---
 
 ### TD-026 · VPC Peering Route lifecycle ends in `Failed` due to API ACL
@@ -93,6 +95,8 @@ contract, update the field read in `cmd/network.vpnroute.go` (both `get` and `li
 output blocks).
 
 **Filed as:** https://github.com/Arubacloud/acloud-cli/issues/135
+
+**Upstream tracking:** https://github.com/Arubacloud/sdk-go/issues/327
 
 ---
 
