@@ -895,6 +895,16 @@ func ComputeCloudServerUpdate(ctx context.Context, client aruba.Client, args Com
 		return fmt.Errorf("cloud server not found")
 	}
 
+	// The SDK's fromResponse hydrates subnetRefs from NetworkInterfaces[].Subnet but
+	// cannot extract securityGroupRefs because the API surfaces them only inside
+	// linkedResources[] without a distinguishable type field. Re-inject them here so
+	// the PUT body keeps them; without them the API strips all SGs and returns 400.
+	for _, lr := range server.Raw().Properties.LinkedResources {
+		if strings.Contains(lr.URI, "/securityGroups/") {
+			server.WithSecurityGroups(aruba.URI(lr.URI))
+		}
+	}
+
 	if args.Name != "" {
 		server.Named(args.Name)
 	}
