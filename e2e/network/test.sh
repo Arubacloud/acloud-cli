@@ -284,11 +284,16 @@ cleanup() {
             if [ -z "$subnet_id" ] || [ "$subnet_id" = "$VPC_ID" ] || ! is_valid_id "$subnet_id"; then
                 continue
             fi
-            # Subnets created near the end of the test may still be InCreation;
-            # wait for Active so the delete doesn't fail and block VPC deletion.
+            # Subnets created near the end of the test may still be InCreation or still
+            # referenced by a recently-deleted VPN route; retry for up to 90s.
             wait_for_status "$ACLOUD_CMD network subnet get $VPC_ID $subnet_id" '^(Active|Ready)$' 90 2>/dev/null || true
             echo "Deleting subnet: $subnet_id"
-            $ACLOUD_CMD network subnet delete "$VPC_ID" "$subnet_id" --yes 2>&1 || true
+            local sn_elapsed=0
+            while [ "$sn_elapsed" -lt 90 ]; do
+                $ACLOUD_CMD network subnet delete "$VPC_ID" "$subnet_id" --yes 2>&1 && break
+                sleep 15
+                sn_elapsed=$((sn_elapsed + 15))
+            done
         done
     fi
     
@@ -1102,14 +1107,26 @@ test_vpn_route() {
     echo -e "${GREEN}[DELETE]${NC} Deleting VPN Route..."
     if $ACLOUD_CMD network vpnroute delete "$VPN_TUNNEL_ID" "$vpn_route_id" --yes 2>&1; then
         CREATED_VPN_ROUTES=("${CREATED_VPN_ROUTES[@]/$vpn_route_id}")
-        # Give the platform a moment to release the cloud-subnet reference
-        # before we attempt to delete it inline.
-        sleep 5
     fi
     echo ""
 
-    echo "Deleting VPN route cloud subnet..."
-    $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1 || true
+    # Poll until the platform releases the cloud-subnet reference after route deletion.
+    # The API keeps the subnet marked in-use for a short window after the route is gone.
+    echo "Waiting for cloud subnet to be released by the deleted VPN route..."
+    local subnet_del_elapsed=0
+    while [ "$subnet_del_elapsed" -lt 120 ]; do
+        if $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1; then
+            CREATED_SUBNETS=("${CREATED_SUBNETS[@]/$route_subnet_id}")
+            echo "  → Cloud subnet $route_subnet_id deleted"
+            break
+        fi
+        echo "  → Subnet still referenced, retrying in 15s... (${subnet_del_elapsed}s elapsed)"
+        sleep 15
+        subnet_del_elapsed=$((subnet_del_elapsed + 15))
+    done
+    if [ "$subnet_del_elapsed" -ge 120 ]; then
+        echo -e "${YELLOW}  ⚠ Cloud subnet could not be deleted after 120s — leaving for cleanup${NC}"
+    fi
     echo ""
 
     echo -e "${GREEN}VPN Route test completed successfully${NC}\n"
