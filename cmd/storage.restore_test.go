@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -491,6 +492,35 @@ func TestStorageRestoreListCmd_AllOptionalFields(t *testing.T) {
 	}
 }
 
+func TestStorageRestoreCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "restore", "bkp-001", "vol-001", "--project-id", "proj-123", "--name", "x"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestStorageRestoreListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "restore", "list", "bkp-001"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestStorageRestoreCreateCmd_WithStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	backupURI := "/projects/proj-123/providers/Aruba.Storage/backups/bkp-001"
@@ -511,7 +541,7 @@ func TestStorageRestoreCreateCmd_WithStatus(t *testing.T) {
 		"storage", "restore", "bkp-001", "vol-001",
 		"--project-id", "proj-123",
 		"--name", "my-restore",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,30 +74,119 @@ var loadbalancerListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all Load Balancers",
 	Args:  cobra.NoArgs,
-	RunE:  runLoadBalancerList,
+	RunE:  NetworkLoadBalancerListRun,
 }
 
 var loadbalancerGetCmd = &cobra.Command{
 	Use:   "get <loadbalancer-id>",
 	Short: "Get Load Balancer details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runLoadBalancerGet,
+	RunE:  NetworkLoadBalancerGetRun,
 }
 
-func runLoadBalancerList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// NetworkLoadBalancerListArgs holds the typed arguments for listing Load Balancers.
+type NetworkLoadBalancerListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// NetworkLoadBalancerGetArgs holds the typed arguments for getting a Load Balancer.
+type NetworkLoadBalancerGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkLoadBalancerListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkLoadBalancerListArgsFromCobraCommand(cmd *cobra.Command) (*NetworkLoadBalancerListArgs, error) {
+	args := &NetworkLoadBalancerListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkLoadBalancerGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkLoadBalancerGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkLoadBalancerGetArgs, error) {
+	args := &NetworkLoadBalancerGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *NetworkLoadBalancerListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkLoadBalancerGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
+	return errors.Join(errs...)
+}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().LoadBalancers().List(ctx, aruba.URI("/projects/"+projectID))
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the list args for correctness.
+func (a *NetworkLoadBalancerListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the get args for correctness.
+func (a *NetworkLoadBalancerGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("Load Balancer ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkLoadBalancerList lists all Load Balancers in a project.
+func NetworkLoadBalancerList(ctx context.Context, client aruba.Client, args NetworkLoadBalancerListArgs) error {
+	list, err := client.FromNetwork().LoadBalancers().List(ctx, projectRef(args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing Load Balancers: %w", apiErrFromV2(err))
 	}
@@ -146,22 +236,9 @@ func runLoadBalancerList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runLoadBalancerGet(cmd *cobra.Command, args []string) error {
-	lbID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	lb, err := client.FromNetwork().LoadBalancers().Get(ctx, aruba.LoadBalancerRef(projectID, lbID))
+// NetworkLoadBalancerGet retrieves and displays a Load Balancer's details.
+func NetworkLoadBalancerGet(ctx context.Context, client aruba.Client, args NetworkLoadBalancerGetArgs) error {
+	lb, err := client.FromNetwork().LoadBalancers().Get(ctx, aruba.LoadBalancerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting Load Balancer details: %w", apiErrFromV2(err))
 	}
@@ -206,6 +283,52 @@ func runLoadBalancerGet(cmd *cobra.Command, args []string) error {
 		if raw.Status.State != nil {
 			fmt.Printf("Status:          %s\n", *raw.Status.State)
 		}
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// NetworkLoadBalancerListRun is the Cobra RunE handler for Load Balancer list.
+func NetworkLoadBalancerListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewNetworkLoadBalancerListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkLoadBalancerList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkLoadBalancerGetRun is the Cobra RunE handler for Load Balancer get.
+func NetworkLoadBalancerGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkLoadBalancerGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkLoadBalancerGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }

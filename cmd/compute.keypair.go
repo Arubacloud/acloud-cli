@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -101,60 +102,304 @@ The public key must be an OpenSSH-formatted RSA, ECDSA, or Ed25519 public key
 (the content of your ~/.ssh/id_rsa.pub or similar file).`,
 	Example: `  acloud compute keypair create --name my-key --public-key "$(cat ~/.ssh/id_rsa.pub)"`,
 	Args:    cobra.NoArgs,
-	RunE:    runKeypairCreate,
+	RunE:    ComputeKeyPairCreateRun,
 }
 
 var keypairGetCmd = &cobra.Command{
 	Use:   "get [keypair-id]",
 	Short: "Get keypair details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKeypairGet,
+	RunE:  ComputeKeyPairGetRun,
 }
 
 var keypairUpdateCmd = &cobra.Command{
 	Use:   "update [keypair-name]",
 	Short: "Update a keypair (not supported - delete and recreate instead)",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKeypairUpdate,
+	RunE:  ComputeKeyPairUpdateRun,
 }
 
 var keypairDeleteCmd = &cobra.Command{
 	Use:   "delete [keypair-id]",
 	Short: "Delete a keypair",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runKeypairDelete,
+	RunE:  ComputeKeyPairDeleteRun,
 }
 
 var keypairListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all keypairs",
 	Args:  cobra.NoArgs,
-	RunE:  runKeypairList,
+	RunE:  ComputeKeyPairListRun,
 }
 
-func runKeypairCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// ComputeKeyPairCreateArgs holds the typed arguments for creating a keypair.
+type ComputeKeyPairCreateArgs struct {
+	ProjectID string
+	Name      string
+	Region    aruba.Region
+	PublicKey string
+}
+
+// ComputeKeyPairGetArgs holds the typed arguments for getting a keypair.
+type ComputeKeyPairGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// ComputeKeyPairUpdateArgs holds the typed arguments for the update stub.
+type ComputeKeyPairUpdateArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// ComputeKeyPairDeleteArgs holds the typed arguments for deleting a keypair.
+type ComputeKeyPairDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// ComputeKeyPairListArgs holds the typed arguments for listing keypairs.
+type ComputeKeyPairListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewComputeKeyPairCreateArgsFromCobraCommand parses and validates args for create.
+func NewComputeKeyPairCreateArgsFromCobraCommand(cmd *cobra.Command) (*ComputeKeyPairCreateArgs, error) {
+	args := &ComputeKeyPairCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeKeyPairGetArgsFromCobraCommand parses and validates args for get.
+func NewComputeKeyPairGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeKeyPairGetArgs, error) {
+	args := &ComputeKeyPairGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeKeyPairUpdateArgsFromCobraCommand parses and validates args for the update stub.
+func NewComputeKeyPairUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeKeyPairUpdateArgs, error) {
+	args := &ComputeKeyPairUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeKeyPairDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewComputeKeyPairDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeKeyPairDeleteArgs, error) {
+	args := &ComputeKeyPairDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeKeyPairListArgsFromCobraCommand parses and validates args for list.
+func NewComputeKeyPairListArgsFromCobraCommand(cmd *cobra.Command) (*ComputeKeyPairListArgs, error) {
+	args := &ComputeKeyPairListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *ComputeKeyPairCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.PublicKey, err = cmd.Flags().GetString("public-key"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	publicKey, _ := cmd.Flags().GetString("public-key")
-	region, _ := cmd.Flags().GetString("region")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *ComputeKeyPairGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update stub args struct.
+func (a *ComputeKeyPairUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *ComputeKeyPairDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *ComputeKeyPairListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *ComputeKeyPairCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.PublicKey == "" {
+		errs = append(errs, errors.New("--public-key is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *ComputeKeyPairGetArgs) Validate() error {
+	var errs []error
+
+	if a.ID == "" {
+		errs = append(errs, errors.New("keypair ID is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the update stub args for correctness.
+func (a *ComputeKeyPairUpdateArgs) Validate() error {
+	var errs []error
+
+	if a.ID == "" {
+		errs = append(errs, errors.New("keypair ID is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *ComputeKeyPairDeleteArgs) Validate() error {
+	var errs []error
+
+	if a.ID == "" {
+		errs = append(errs, errors.New("keypair ID is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the list args for correctness.
+func (a *ComputeKeyPairListArgs) Validate() error {
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// ComputeKeyPairCreate creates a new keypair.
+func ComputeKeyPairCreate(ctx context.Context, client aruba.Client, args ComputeKeyPairCreateArgs) error {
 	kp := aruba.NewKeyPair().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		WithPublicKey(publicKey)
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		WithPublicKey(args.PublicKey)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	resp, err := client.FromCompute().KeyPairs().Create(ctx, kp)
 	if err != nil {
 		return fmt.Errorf("creating keypair: %w", apiErrFromV2(err))
@@ -183,30 +428,16 @@ func runKeypairCreate(cmd *cobra.Command, args []string) error {
 		if raw.Metadata.ID != nil {
 			id = *raw.Metadata.ID
 		}
-		row := []string{nameVal, id, publicKeyValue, "Active"}
-		PrintOutput(resp, headers, [][]string{row})
+		PrintOutput(resp, headers, [][]string{{nameVal, id, publicKeyValue, "Active"}})
 	} else {
-		fmt.Println(msgCreatedAsync("Keypair", name))
+		fmt.Println(msgCreatedAsync("Keypair", args.Name))
 	}
 	return nil
 }
 
-func runKeypairGet(cmd *cobra.Command, args []string) error {
-	keypairName := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	kp, err := client.FromCompute().KeyPairs().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/keyPairs/"+keypairName))
+// ComputeKeyPairGet retrieves keypair details.
+func ComputeKeyPairGet(ctx context.Context, client aruba.Client, args ComputeKeyPairGetArgs) error {
+	kp, err := client.FromCompute().KeyPairs().Get(ctx, keypairRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting keypair: %w", apiErrFromV2(err))
 	}
@@ -232,23 +463,12 @@ func runKeypairGet(cmd *cobra.Command, args []string) error {
 		if raw.Properties.Value != "" {
 			fmt.Printf("Public Key:      %s\n", raw.Properties.Value)
 		}
-		// Show status as 'Active' for consistency
 		fmt.Printf("Status:          Active\n")
-
 		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
 			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 		}
 		if raw.Metadata.CreatedBy != nil {
 			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-
-		// Show JSON output if verbose
-		verbose, _ := cmd.Flags().GetBool("verbose")
-		if verbose {
-			jsonData, _ := json.MarshalIndent(raw, "", "  ")
-			fmt.Println("\nFull JSON Response:")
-			fmt.Println("==================")
-			fmt.Println(string(jsonData))
 		}
 	} else {
 		fmt.Println("Keypair not found or no data returned.")
@@ -256,79 +476,30 @@ func runKeypairGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runKeypairUpdate(cmd *cobra.Command, args []string) error {
+// ComputeKeyPairUpdate prints a "not supported" message (the API does not support keypair updates).
+func ComputeKeyPairUpdate(_ context.Context, _ aruba.Client, args ComputeKeyPairUpdateArgs) error {
 	fmt.Println("Error: Keypair update is not supported by the API.")
 	fmt.Println("To change a keypair's public key, delete it and create a new one with the same name.")
 	fmt.Println("")
 	fmt.Println("Example:")
-	fmt.Printf("  acloud compute keypair delete %s --yes\n", args[0])
-	fmt.Printf("  acloud compute keypair create --name %s --public-key \"<new-key>\"\n", args[0])
+	fmt.Printf("  acloud compute keypair delete %s --yes\n", args.ID)
+	fmt.Printf("  acloud compute keypair create --name %s --public-key \"<new-key>\"\n", args.ID)
 	return nil
 }
 
-func runKeypairDelete(cmd *cobra.Command, args []string) error {
-	keypairName := args[0]
-
-	// Confirmation prompt
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	if !skipConfirm {
-		ok, err := confirmDelete("keypair", keypairName)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	keypairRef := aruba.URI("/projects/" + projectID + "/providers/Aruba.Compute/keyPairs/" + keypairName)
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromCompute().KeyPairs().Get(ctx, keypairRef)
-		if err != nil {
-			return fmt.Errorf("dry-run: keypair not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("keypair", keypairName))
-		return nil
-	}
-
-	err = client.FromCompute().KeyPairs().Delete(ctx, keypairRef)
+// ComputeKeyPairDelete deletes a keypair.
+func ComputeKeyPairDelete(ctx context.Context, client aruba.Client, args ComputeKeyPairDeleteArgs) error {
+	err := client.FromCompute().KeyPairs().Delete(ctx, keypairRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("deleting keypair: %w", apiErrFromV2(err))
 	}
-
-	fmt.Println(msgDeleted("Keypair", keypairName))
+	fmt.Println(msgDeleted("Keypair", args.ID))
 	return nil
 }
 
-func runKeypairList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromCompute().KeyPairs().List(ctx, aruba.URI("/projects/"+projectID))
+// ComputeKeyPairList lists all keypairs in a project.
+func ComputeKeyPairList(ctx context.Context, client aruba.Client, args ComputeKeyPairListArgs) error {
+	list, err := client.FromCompute().KeyPairs().List(ctx, projectRef(args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing keypairs: %w", apiErrFromV2(err))
 	}
@@ -365,8 +536,7 @@ func runKeypairList(cmd *cobra.Command, args []string) error {
 					publicKey = publicKey[:50] + "..."
 				}
 			}
-			status := "Active"
-			rows = append(rows, []string{name, id, publicKey, status})
+			rows = append(rows, []string{name, id, publicKey, "Active"})
 		}
 
 		if len(rows) == 0 {
@@ -376,6 +546,124 @@ func runKeypairList(cmd *cobra.Command, args []string) error {
 		PrintOutput(list, headers, rows)
 	} else {
 		fmt.Println("No keypairs found")
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// ComputeKeyPairCreateRun is the RunE wiring for keypair create.
+func ComputeKeyPairCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewComputeKeyPairCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeKeyPairCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeKeyPairGetRun is the RunE wiring for keypair get.
+func ComputeKeyPairGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeKeyPairGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeKeyPairGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeKeyPairUpdateRun is the RunE wiring for the keypair update stub.
+func ComputeKeyPairUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeKeyPairUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	// Update is a stub — no client needed.
+	return ComputeKeyPairUpdate(context.Background(), nil, *args)
+}
+
+// ComputeKeyPairDeleteRun is the RunE wiring for keypair delete.
+func ComputeKeyPairDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	a, err := NewComputeKeyPairDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !a.SkipConfirm {
+		ok, err := confirmDelete("keypair", a.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if a.DryRun {
+		_, err = client.FromCompute().KeyPairs().Get(ctx, keypairRef(a.ProjectID, a.ID))
+		if err != nil {
+			return fmt.Errorf("dry-run: keypair not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("keypair", a.ID))
+		return nil
+	}
+
+	if err := ComputeKeyPairDelete(ctx, client, *a); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeKeyPairListRun is the RunE wiring for keypair list.
+func ComputeKeyPairListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewComputeKeyPairListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeKeyPairList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }

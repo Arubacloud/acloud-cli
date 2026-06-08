@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -92,77 +93,295 @@ Use 'acloud context set-project' to switch the active project at any time.`,
 	Example: `  acloud management project create --name my-project --description "Production workloads"
   acloud management project create --name dev-project --default`,
 	Args: cobra.NoArgs,
-	RunE: runProjectCreate,
+	RunE: ManagementProjectCreateRun,
 }
 
 var projectGetCmd = &cobra.Command{
 	Use:   "get [project-id]",
 	Short: "Get project details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runProjectGet,
+	RunE:  ManagementProjectGetRun,
 }
 
 var projectUpdateCmd = &cobra.Command{
 	Use:   "update [project-id]",
 	Short: "Update a project (description and/or tags only)",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runProjectUpdate,
+	RunE:  ManagementProjectUpdateRun,
 }
 
 var projectDeleteCmd = &cobra.Command{
 	Use:   "delete [project-id]",
 	Short: "Delete a project",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runProjectDelete,
+	RunE:  ManagementProjectDeleteRun,
 }
 
 var projectListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all projects",
 	Args:  cobra.NoArgs,
-	RunE:  runProjectList,
+	RunE:  ManagementProjectListRun,
 }
 
-func runProjectCreate(cmd *cobra.Command, args []string) error {
-	// Get flags
-	name, _ := cmd.Flags().GetString("name")
-	description, _ := cmd.Flags().GetString("description")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	setDefault, _ := cmd.Flags().GetBool("default")
-	verbose, _ := cmd.Flags().GetBool("verbose")
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	// Get SDK client
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ManagementProjectCreateArgs holds the typed arguments for creating a project.
+type ManagementProjectCreateArgs struct {
+	Name        string
+	Description string
+	Tags        []string
+	SetDefault  bool
+	Verbose     bool
+}
+
+// ManagementProjectGetArgs holds the typed arguments for getting a project.
+type ManagementProjectGetArgs struct {
+	ID string
+}
+
+// ManagementProjectUpdateArgs holds the typed arguments for updating a project.
+type ManagementProjectUpdateArgs struct {
+	ID          string
+	Name        string
+	Description string
+	Tags        []string
+	TagsChanged bool
+}
+
+// ManagementProjectDeleteArgs holds the typed arguments for deleting a project.
+type ManagementProjectDeleteArgs struct {
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// ManagementProjectListArgs holds the typed arguments for listing projects.
+type ManagementProjectListArgs struct {
+	CallOpts []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewManagementProjectCreateArgsFromCobraCommand parses and validates args for create.
+func NewManagementProjectCreateArgsFromCobraCommand(cmd *cobra.Command) (*ManagementProjectCreateArgs, error) {
+	args := &ManagementProjectCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewManagementProjectGetArgsFromCobraCommand parses and validates args for get.
+func NewManagementProjectGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ManagementProjectGetArgs, error) {
+	args := &ManagementProjectGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewManagementProjectUpdateArgsFromCobraCommand parses and validates args for update.
+func NewManagementProjectUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ManagementProjectUpdateArgs, error) {
+	args := &ManagementProjectUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewManagementProjectDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewManagementProjectDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ManagementProjectDeleteArgs, error) {
+	args := &ManagementProjectDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewManagementProjectListArgsFromCobraCommand parses and validates args for list.
+func NewManagementProjectListArgsFromCobraCommand(cmd *cobra.Command) (*ManagementProjectListArgs, error) {
+	args := &ManagementProjectListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *ManagementProjectCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Description, err = cmd.Flags().GetString("description"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SetDefault, err = cmd.Flags().GetBool("default"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		errs = append(errs, err)
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra positional args into the get args struct.
+func (a *ManagementProjectGetArgs) ParseFromCobraCommand(_ *cobra.Command, cobraArgs []string) error {
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	return nil
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *ManagementProjectUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Description, err = cmd.Flags().GetString("description"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *ManagementProjectDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *ManagementProjectListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	a.CallOpts = listOpts(cmd)
+	return nil
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *ManagementProjectCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *ManagementProjectGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *ManagementProjectUpdateArgs) Validate() error {
+	if a.Description == "" && !a.TagsChanged {
+		return errors.New("at least one of --description or --tags must be provided")
+	}
+	return nil
+}
+
+// Validate checks the delete args for correctness.
+func (a *ManagementProjectDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *ManagementProjectListArgs) Validate() error {
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// ManagementProjectCreate creates a new project.
+func ManagementProjectCreate(ctx context.Context, client aruba.Client, args ManagementProjectCreateArgs) error {
 	// Build the create request
-	proj := aruba.NewProject().Named(name).RetaggedAs(tags...)
-	if description != "" {
-		proj.DescribedAs(description)
+	proj := aruba.NewProject().Named(args.Name).RetaggedAs(args.Tags...)
+	if args.Description != "" {
+		proj.DescribedAs(args.Description)
 	}
-	if setDefault {
+	if args.SetDefault {
 		proj.AsDefault()
 	}
 
 	// Debug output if verbose
-	if verbose {
+	if args.Verbose {
 		fmt.Println("Creating project with the following parameters:")
-		fmt.Printf("  Name:        %s\n", name)
-		if description != "" {
-			fmt.Printf("  Description: %s\n", description)
+		fmt.Printf("  Name:        %s\n", args.Name)
+		if args.Description != "" {
+			fmt.Printf("  Description: %s\n", args.Description)
 		}
-		fmt.Printf("  Default:     %t\n", setDefault)
-		if len(tags) > 0 {
-			fmt.Printf("  Tags:        %v\n", tags)
+		fmt.Printf("  Default:     %t\n", args.SetDefault)
+		if len(args.Tags) > 0 {
+			fmt.Printf("  Tags:        %v\n", args.Tags)
 		}
 		fmt.Println()
 	}
 
-	// Create the project using the SDK
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromProject().Create(ctx, proj)
 	if err != nil {
 		return fmt.Errorf("creating project: %w", apiErrFromV2(err))
@@ -181,24 +400,14 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 		row := []string{created.ID(), created.Name(), defaultVal}
 		PrintOutput(created, headers, [][]string{row})
 	} else {
-		fmt.Println(msgCreatedAsync("Project", name))
+		fmt.Println(msgCreatedAsync("Project", args.Name))
 	}
 	return nil
 }
 
-func runProjectGet(cmd *cobra.Command, args []string) error {
-	projectID := args[0]
-
-	// Get SDK client
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	// Get project details using the SDK
-	ctx, cancel := newCtx()
-	defer cancel()
-	p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
+// ManagementProjectGet retrieves project details.
+func ManagementProjectGet(ctx context.Context, client aruba.Client, args ManagementProjectGetArgs) error {
+	p, err := client.FromProject().Get(ctx, projectRef(args.ID))
 	if err != nil {
 		return fmt.Errorf("getting project: %w", apiErrFromV2(err))
 	}
@@ -254,29 +463,10 @@ func runProjectGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runProjectUpdate(cmd *cobra.Command, args []string) error {
-	projectID := args[0]
-
-	// Get flags
-	description, _ := cmd.Flags().GetString("description")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	// At least one field must be provided
-	if description == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --description or --tags must be provided")
-	}
-
-	// Get SDK client
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
+// ManagementProjectUpdate updates a project's description and/or tags.
+func ManagementProjectUpdate(ctx context.Context, client aruba.Client, args ManagementProjectUpdateArgs) error {
 	// First, get the current project details to preserve existing values.
-	// projectWrapper calls Get and normalises any API error via apiErrFromV2.
-	ctx, cancel := newCtx()
-	defer cancel()
-	p, err := client.FromProject().Get(ctx, aruba.URI("/projects/"+projectID))
+	p, err := client.FromProject().Get(ctx, projectRef(args.ID))
 	if err != nil {
 		return fmt.Errorf("fetching current project: %w", apiErrFromV2(err))
 	}
@@ -286,14 +476,13 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply updates
-	if description != "" {
-		p.DescribedAs(description)
+	if args.Description != "" {
+		p.DescribedAs(args.Description)
 	}
-	if cmd.Flags().Changed("tags") {
-		p.RetaggedAs(tags...)
+	if args.TagsChanged {
+		p.RetaggedAs(args.Tags...)
 	}
 
-	// Update the project using the SDK
 	updated, err := client.FromProject().Update(ctx, p)
 	if err != nil {
 		return fmt.Errorf("updating project: %w", apiErrFromV2(err))
@@ -312,51 +501,23 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 		row := []string{updated.ID(), updated.Name(), defaultVal}
 		PrintOutput(updated, headers, [][]string{row})
 	} else {
-		fmt.Println(msgUpdatedAsync("Project", projectID))
+		fmt.Println(msgUpdatedAsync("Project", args.ID))
 	}
 	return nil
 }
 
-func runProjectDelete(cmd *cobra.Command, args []string) error {
-	projectID := args[0]
-
-	// Get confirmation flag
-	confirm, _ := cmd.Flags().GetBool("yes")
-
-	// If not confirmed, ask for confirmation
-	if !confirm {
-		ok, err := confirmDelete("project", projectID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	// Get SDK client
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	projectRef := aruba.URI("/projects/" + projectID)
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromProject().Get(ctx, projectRef)
+// ManagementProjectDelete deletes a project.
+func ManagementProjectDelete(ctx context.Context, client aruba.Client, args ManagementProjectDeleteArgs) error {
+	if args.DryRun {
+		_, err := client.FromProject().Get(ctx, projectRef(args.ID))
 		if err != nil {
 			return fmt.Errorf("dry-run: project not found or inaccessible: %w", err)
 		}
-		fmt.Println(msgDryRun("project", projectID))
+		fmt.Println(msgDryRun("project", args.ID))
 		return nil
 	}
 
-	// Delete the project using the SDK
-	err = client.FromProject().Delete(ctx, projectRef)
+	err := client.FromProject().Delete(ctx, projectRef(args.ID))
 	if err != nil {
 		return fmt.Errorf("deleting project: %w", apiErrFromV2(err))
 	}
@@ -369,22 +530,14 @@ func runProjectDelete(cmd *cobra.Command, args []string) error {
 	result := struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
-	}{projectID, status}
-	PrintOutput(result, headers, [][]string{{projectID, status}})
+	}{args.ID, status}
+	PrintOutput(result, headers, [][]string{{args.ID, status}})
 	return nil
 }
 
-func runProjectList(cmd *cobra.Command, args []string) error {
-	// Get SDK client
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	// List projects using the SDK
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromProject().List(ctx)
+// ManagementProjectList lists all projects.
+func ManagementProjectList(ctx context.Context, client aruba.Client, args ManagementProjectListArgs) error {
+	list, err := client.FromProject().List(ctx, args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
 	}
@@ -416,6 +569,125 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 		PrintOutput(list, headers, rows)
 	} else {
 		fmt.Println("No projects found")
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// ManagementProjectCreateRun is the RunE wiring for project create.
+func ManagementProjectCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewManagementProjectCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ManagementProjectCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ManagementProjectGetRun is the RunE wiring for project get.
+func ManagementProjectGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewManagementProjectGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ManagementProjectGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ManagementProjectUpdateRun is the RunE wiring for project update.
+func ManagementProjectUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewManagementProjectUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ManagementProjectUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ManagementProjectDeleteRun is the RunE wiring for project delete.
+func ManagementProjectDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	a, err := NewManagementProjectDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !a.SkipConfirm {
+		ok, err := confirmDelete("project", a.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ManagementProjectDelete(ctx, client, *a); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ManagementProjectListRun is the RunE wiring for project list.
+func ManagementProjectListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewManagementProjectListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ManagementProjectList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }

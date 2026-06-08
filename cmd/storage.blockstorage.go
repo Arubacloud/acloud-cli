@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -11,10 +13,6 @@ import (
 
 func volumeRef(projectID, volumeID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID)
-}
-
-func snapshotRef(projectID, snapshotID string) aruba.Ref {
-	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/snapshots/" + snapshotID)
 }
 
 func init() {
@@ -106,94 +104,356 @@ image with --image. Pass --set-bootable to mark the volume as a boot disk.
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  # Create an empty 50 GB Standard volume
-  acloud storage blockstorage create --name my-volume --size 50 --region IT-BG
+  acloud storage blockstorage create --name my-volume --size 50 --region ITBG-Bergamo
 
   # Create a Performance volume from a snapshot
-  acloud storage blockstorage create --name fast-vol --size 100 --region IT-BG \
+  acloud storage blockstorage create --name fast-vol --size 100 --region ITBG-Bergamo \
     --type Performance \
     --snapshot-id <snap-id>`,
 	Args: cobra.NoArgs,
-	RunE: runBlockStorageCreate,
+	RunE: StorageBlockStorageCreateRun,
 }
 
 var blockstorageGetCmd = &cobra.Command{
 	Use:   "get [volume-id]",
 	Short: "Get block storage details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlockStorageGet,
+	RunE:  StorageBlockStorageGetRun,
 }
 
 var blockstorageUpdateCmd = &cobra.Command{
 	Use:   "update [volume-id]",
 	Short: "Update block storage (name and/or tags)",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlockStorageUpdate,
+	RunE:  StorageBlockStorageUpdateRun,
 }
 
 var blockstorageDeleteCmd = &cobra.Command{
 	Use:   "delete [volume-id]",
 	Short: "Delete block storage",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlockStorageDelete,
+	RunE:  StorageBlockStorageDeleteRun,
 }
 
 var blockstorageListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all block storage",
 	Args:  cobra.NoArgs,
-	RunE:  runBlockStorageList,
+	RunE:  StorageBlockStorageListRun,
 }
 
-func runBlockStorageCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// StorageBlockStorageCreateArgs holds the typed arguments for creating a block storage.
+type StorageBlockStorageCreateArgs struct {
+	ProjectID     string
+	Name          string
+	Region        aruba.Region
+	Zone          aruba.Zone
+	SizeGB        int
+	VolumeType    aruba.BlockStorageType
+	BillingPeriod aruba.BillingPeriod
+	Tags          []string
+	SnapshotID    string
+	SetBootable   bool
+	Image         string
+}
+
+// StorageBlockStorageGetArgs holds the typed arguments for getting a block storage.
+type StorageBlockStorageGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// StorageBlockStorageUpdateArgs holds the typed arguments for updating a block storage.
+type StorageBlockStorageUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// StorageBlockStorageDeleteArgs holds the typed arguments for deleting a block storage.
+type StorageBlockStorageDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// StorageBlockStorageListArgs holds the typed arguments for listing block storage.
+type StorageBlockStorageListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewStorageBlockStorageCreateArgsFromCobraCommand parses and validates args for create.
+func NewStorageBlockStorageCreateArgsFromCobraCommand(cmd *cobra.Command) (*StorageBlockStorageCreateArgs, error) {
+	args := &StorageBlockStorageCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageBlockStorageGetArgsFromCobraCommand parses and validates args for get.
+func NewStorageBlockStorageGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageBlockStorageGetArgs, error) {
+	args := &StorageBlockStorageGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageBlockStorageUpdateArgsFromCobraCommand parses and validates args for update.
+func NewStorageBlockStorageUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageBlockStorageUpdateArgs, error) {
+	args := &StorageBlockStorageUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageBlockStorageDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewStorageBlockStorageDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageBlockStorageDeleteArgs, error) {
+	args := &StorageBlockStorageDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageBlockStorageListArgsFromCobraCommand parses and validates args for list.
+func NewStorageBlockStorageListArgsFromCobraCommand(cmd *cobra.Command) (*StorageBlockStorageListArgs, error) {
+	args := &StorageBlockStorageListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *StorageBlockStorageCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("zone"); err == nil {
+		a.Zone = aruba.Zone(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.SizeGB, err = cmd.Flags().GetInt("size"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("type"); err == nil {
+		a.VolumeType = aruba.BlockStorageType(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SnapshotID, err = cmd.Flags().GetString("snapshot-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SetBootable, err = cmd.Flags().GetBool("set-bootable"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Image, err = cmd.Flags().GetString("image"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	zone, _ := cmd.Flags().GetString("zone")
-	size, _ := cmd.Flags().GetInt("size")
-	volumeType, _ := cmd.Flags().GetString("type")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	snapshotID, _ := cmd.Flags().GetString("snapshot-id")
-	setBootable, _ := cmd.Flags().GetBool("set-bootable")
-	image, _ := cmd.Flags().GetString("image")
+	return errors.Join(errs...)
+}
 
-	if size <= 0 {
-		return fmt.Errorf("--size must be greater than 0")
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *StorageBlockStorageGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *StorageBlockStorageUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *StorageBlockStorageDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *StorageBlockStorageListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for semantic validity.
+func (a *StorageBlockStorageCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.SizeGB <= 0 {
+		errs = append(errs, errors.New("--size must be greater than 0"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for semantic validity.
+func (a *StorageBlockStorageGetArgs) Validate() error {
+	return nil
+}
+
+// Validate checks the update args for semantic validity.
+func (a *StorageBlockStorageUpdateArgs) Validate() error {
+	if a.Name == "" && !a.TagsChanged {
+		return errors.New("at least one of --name or --tags must be provided")
+	}
+	return nil
+}
+
+// Validate checks the delete args for semantic validity.
+func (a *StorageBlockStorageDeleteArgs) Validate() error {
+	return nil
+}
+
+// Validate checks the list args for semantic validity.
+func (a *StorageBlockStorageListArgs) Validate() error {
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// StorageBlockStorageCreate creates a new block storage volume.
+func StorageBlockStorageCreate(ctx context.Context, client aruba.Client, args StorageBlockStorageCreateArgs) error {
 	vol := aruba.NewBlockStorage().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		SizedGB(size).
-		OfType(aruba.BlockStorageType(volumeType)).
-		BilledBy(aruba.BillingPeriod(billingPeriod)).
-		RetaggedAs(tags...)
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		SizedGB(args.SizeGB).
+		OfType(args.VolumeType).
+		BilledBy(args.BillingPeriod).
+		RetaggedAs(args.Tags...)
 
-	if zone != "" {
-		vol.InZone(aruba.Zone(zone))
+	if args.Zone != "" {
+		vol.InZone(args.Zone)
 	}
-	if snapshotID != "" {
-		vol.FromSnapshot(snapshotRef(projectID, snapshotID))
+	if args.SnapshotID != "" {
+		vol.FromSnapshot(snapshotRef(args.ProjectID, args.SnapshotID))
 	}
-	if setBootable {
+	if args.SetBootable {
 		vol.AsBootable()
 	}
-	if image != "" {
-		vol.FromImage(image)
+	if args.Image != "" {
+		vol.FromImage(args.Image)
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromStorage().Volumes().Create(ctx, vol)
 	if err != nil {
 		return fmt.Errorf("creating block storage: %w", apiErrFromV2(err))
@@ -224,27 +484,14 @@ func runBlockStorageCreate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, sizeVal, typeVal, statusVal}})
 	} else {
-		fmt.Println(msgCreatedAsync("Block storage", name))
+		fmt.Println(msgCreatedAsync("Block storage", args.Name))
 	}
 	return nil
 }
 
-func runBlockStorageGet(cmd *cobra.Command, args []string) error {
-	volumeID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+// StorageBlockStorageGet fetches and displays a block storage volume.
+func StorageBlockStorageGet(ctx context.Context, client aruba.Client, args StorageBlockStorageGetArgs) error {
+	vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 	}
@@ -299,29 +546,9 @@ func runBlockStorageGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runBlockStorageUpdate(cmd *cobra.Command, args []string) error {
-	volumeID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vol, err := client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+// StorageBlockStorageUpdate mutates and persists a block storage volume.
+func StorageBlockStorageUpdate(ctx context.Context, client aruba.Client, args StorageBlockStorageUpdateArgs) error {
+	vol, err := client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 	}
@@ -329,11 +556,11 @@ func runBlockStorageUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("block storage not found")
 	}
 
-	if name != "" {
-		vol.Named(name)
+	if args.Name != "" {
+		vol.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		vol.RetaggedAs(tags...)
+	if args.TagsChanged {
+		vol.RetaggedAs(args.Tags...)
 	}
 
 	updated, err := client.FromStorage().Volumes().Update(ctx, vol)
@@ -343,7 +570,7 @@ func runBlockStorageUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("Block storage", volumeID))
+		fmt.Printf("\n%s\n", msgUpdated("Block storage", args.ID))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 		}
@@ -356,71 +583,25 @@ func runBlockStorageUpdate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
 		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
 	} else {
-		fmt.Println(msgUpdatedAsync("Block storage", volumeID))
+		fmt.Println(msgUpdatedAsync("Block storage", args.ID))
 	}
 	return nil
 }
 
-func runBlockStorageDelete(cmd *cobra.Command, args []string) error {
-	volumeID := args[0]
-
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete("block storage", volumeID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
-		if err != nil {
-			return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("block storage", volumeID))
-		return nil
-	}
-
-	err = client.FromStorage().Volumes().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/blockStorages/"+volumeID))
+// StorageBlockStorageDelete removes a block storage volume.
+func StorageBlockStorageDelete(ctx context.Context, client aruba.Client, args StorageBlockStorageDeleteArgs) error {
+	err := client.FromStorage().Volumes().Delete(ctx, volumeRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("deleting block storage: %w", apiErrFromV2(err))
 	}
 
-	fmt.Println(msgDeleted("Block storage", volumeID))
+	fmt.Println(msgDeleted("Block storage", args.ID))
 	return nil
 }
 
-func runBlockStorageList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromStorage().Volumes().List(ctx, aruba.URI("/projects/"+projectID))
+// StorageBlockStorageList lists all block storage volumes in a project.
+func StorageBlockStorageList(ctx context.Context, client aruba.Client, args StorageBlockStorageListArgs) error {
+	list, err := client.FromStorage().Volumes().List(ctx, aruba.URI("/projects/"+args.ProjectID))
 	if err != nil {
 		return fmt.Errorf("listing block storage: %w", apiErrFromV2(err))
 	}
@@ -467,6 +648,134 @@ func runBlockStorageList(cmd *cobra.Command, args []string) error {
 		PrintOutput(list, headers, rows)
 	} else {
 		fmt.Println("No block storage found")
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// StorageBlockStorageCreateRun is the RunE wiring for blockstorage create.
+func StorageBlockStorageCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewStorageBlockStorageCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageBlockStorageCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageBlockStorageGetRun is the RunE wiring for blockstorage get.
+func StorageBlockStorageGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageBlockStorageGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageBlockStorageGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageBlockStorageUpdateRun is the RunE wiring for blockstorage update.
+func StorageBlockStorageUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageBlockStorageUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageBlockStorageUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageBlockStorageDeleteRun is the RunE wiring for blockstorage delete.
+func StorageBlockStorageDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageBlockStorageDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("block storage", args.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		_, err = client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, args.ID))
+		if err != nil {
+			return fmt.Errorf("dry-run: block storage not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("block storage", args.ID))
+		return nil
+	}
+
+	if err := StorageBlockStorageDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageBlockStorageListRun is the RunE wiring for blockstorage list.
+func StorageBlockStorageListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewStorageBlockStorageListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageBlockStorageList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }

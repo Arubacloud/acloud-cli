@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -20,9 +22,10 @@ func init() {
 	storageRestoreCmd.AddCommand(storageRestoreUpdateCmd)
 	storageRestoreCmd.AddCommand(storageRestoreDeleteCmd)
 
+	// Create flags live on the parent (storageRestoreCmd is the create command).
 	storageRestoreCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	storageRestoreCmd.Flags().String("name", "", "Name for the restore operation (required)")
-	storageRestoreCmd.Flags().String("region", "ITBG-Bergamo", "Region code")
+	storageRestoreCmd.Flags().String("region", string(aruba.RegionITBGBergamo), "Region code (default: ITBG-Bergamo)")
 	storageRestoreCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	storageRestoreCmd.MarkFlagRequired("name")
 
@@ -66,7 +69,7 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 	}
 
 	ctx := context.Background()
-	list, err := client.FromStorage().Restores().List(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
+	list, err := client.FromStorage().Restores().List(ctx, backupRef(projectID, backupID))
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -89,84 +92,360 @@ var storageRestoreCmd = &cobra.Command{
 	Short: "Restore a block storage volume from a backup",
 	Long: `Create a restore operation to copy backup data back to a block storage volume.
 
-Both the backup and the target volume must already exist. The restore writes
-backup data into the specified volume; ensure the volume is detached or otherwise
-idle before starting a restore to avoid data corruption.`,
-	Example: `  acloud storage restore <backup-id> <volume-id> --name my-restore`,
+Both the backup and the target volume must already exist.`,
+	Example: `  acloud storage restore <backup-id> <volume-id> --name my-restore --region ITBG-Bergamo`,
 	Args:    cobra.ExactArgs(2),
-	RunE:    runStorageRestore,
+	RunE:    StorageRestoreCreateRun,
 }
 
 var storageRestoreListCmd = &cobra.Command{
 	Use:   "list [backup-id]",
 	Short: "List restore operations for a backup",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runStorageRestoreList,
+	RunE:  StorageRestoreListRun,
 }
 
 var storageRestoreGetCmd = &cobra.Command{
 	Use:   "get [backup-id] [restore-id]",
 	Short: "Get restore operation details",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runStorageRestoreGet,
+	RunE:  StorageRestoreGetRun,
 }
 
 var storageRestoreUpdateCmd = &cobra.Command{
 	Use:   "update [backup-id] [restore-id]",
 	Short: "Update a restore operation (name and/or tags)",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runStorageRestoreUpdate,
+	RunE:  StorageRestoreUpdateRun,
 }
 
 var storageRestoreDeleteCmd = &cobra.Command{
 	Use:   "delete [backup-id] [restore-id]",
 	Short: "Delete a restore operation",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runStorageRestoreDelete,
+	RunE:  StorageRestoreDeleteRun,
 }
 
-func runStorageRestore(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-	volumeID := args[1]
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// StorageRestoreCreateArgs holds the typed arguments for creating a restore operation.
+type StorageRestoreCreateArgs struct {
+	ProjectID string
+	Name      string
+	Region    aruba.Region
+	BackupID  string
+	VolumeID  string
+	Tags      []string
+}
+
+// StorageRestoreGetArgs holds the typed arguments for getting a restore operation.
+type StorageRestoreGetArgs struct {
+	ProjectID string
+	BackupID  string
+	ID        string
+}
+
+// StorageRestoreUpdateArgs holds the typed arguments for updating a restore operation.
+type StorageRestoreUpdateArgs struct {
+	ProjectID   string
+	BackupID    string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// StorageRestoreDeleteArgs holds the typed arguments for deleting a restore operation.
+type StorageRestoreDeleteArgs struct {
+	ProjectID   string
+	BackupID    string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// StorageRestoreListArgs holds the typed arguments for listing restore operations.
+type StorageRestoreListArgs struct {
+	ProjectID string
+	BackupID  string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewStorageRestoreCreateArgsFromCobraCommand parses and validates args for create.
+func NewStorageRestoreCreateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageRestoreCreateArgs, error) {
+	args := &StorageRestoreCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageRestoreGetArgsFromCobraCommand parses and validates args for get.
+func NewStorageRestoreGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageRestoreGetArgs, error) {
+	args := &StorageRestoreGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageRestoreUpdateArgsFromCobraCommand parses and validates args for update.
+func NewStorageRestoreUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageRestoreUpdateArgs, error) {
+	args := &StorageRestoreUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageRestoreDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewStorageRestoreDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageRestoreDeleteArgs, error) {
+	args := &StorageRestoreDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewStorageRestoreListArgsFromCobraCommand parses and validates args for list.
+func NewStorageRestoreListArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*StorageRestoreListArgs, error) {
+	args := &StorageRestoreListArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the create args struct.
+// cobraArgs[0] = backupID, cobraArgs[1] = volumeID (positional, matching original CLI surface).
+func (a *StorageRestoreCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.VolumeID = cobraArgs[1]
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *StorageRestoreGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.ID = cobraArgs[1]
 	}
 
-	backupURI := "/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID
-	volumeURI := "/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID
+	return errors.Join(errs...)
+}
 
-	ctx, cancel := newCtx()
-	defer cancel()
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *StorageRestoreUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
 
-	_, err = client.FromStorage().Backups().Get(ctx, aruba.URI(backupURI))
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.ID = cobraArgs[1]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *StorageRestoreDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.ID = cobraArgs[1]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *StorageRestoreListArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *StorageRestoreCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.BackupID == "" {
+		errs = append(errs, errors.New("--backup-id is required"))
+	}
+	if a.VolumeID == "" {
+		errs = append(errs, errors.New("--volume-id is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *StorageRestoreGetArgs) Validate() error {
+	var errs []error
+	if a.BackupID == "" {
+		errs = append(errs, errors.New("backup ID is required"))
+	}
+	if a.ID == "" {
+		errs = append(errs, errors.New("restore ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the update args for correctness.
+func (a *StorageRestoreUpdateArgs) Validate() error {
+	if a.Name == "" && !a.TagsChanged {
+		return errors.New("at least one of --name or --tags must be provided")
+	}
+	return nil
+}
+
+// Validate checks the delete args for correctness.
+func (a *StorageRestoreDeleteArgs) Validate() error {
+	var errs []error
+	if a.BackupID == "" {
+		errs = append(errs, errors.New("backup ID is required"))
+	}
+	if a.ID == "" {
+		errs = append(errs, errors.New("restore ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the list args for correctness.
+func (a *StorageRestoreListArgs) Validate() error {
+	if a.BackupID == "" {
+		return errors.New("--backup-id is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// StorageRestoreCreate creates a restore operation.
+// It performs dual cross-family pre-validation: fetches the backup and volume first.
+func StorageRestoreCreate(ctx context.Context, client aruba.Client, args StorageRestoreCreateArgs) error {
+	bk, err := client.FromStorage().Backups().Get(ctx, backupRef(args.ProjectID, args.BackupID))
 	if err != nil {
 		return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 	}
 
-	_, err = client.FromStorage().Volumes().Get(ctx, aruba.URI(volumeURI))
+	target, err := client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, args.VolumeID))
 	if err != nil {
 		return fmt.Errorf("getting volume: %w", apiErrFromV2(err))
 	}
 
-	restore := aruba.NewStorageRestore().
-		FromBackup(aruba.URI(backupURI)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		ToVolume(aruba.URI(volumeURI)).
-		RetaggedAs(tags...)
+	rs := aruba.NewStorageRestore().
+		FromBackup(bk).
+		Named(args.Name).
+		InRegion(args.Region).
+		ToVolume(target).
+		RetaggedAs(args.Tags...)
 
-	created, err := client.FromStorage().Restores().Create(ctx, restore)
+	created, err := client.FromStorage().Restores().Create(ctx, rs)
 	if err != nil {
 		return fmt.Errorf("creating restore: %w", apiErrFromV2(err))
 	}
@@ -192,83 +471,14 @@ func runStorageRestore(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, statusVal}})
 	} else {
-		fmt.Println(msgCreatedAsync("Restore operation", name))
+		fmt.Println(msgCreatedAsync("Restore operation", args.Name))
 	}
 	return nil
 }
 
-func runStorageRestoreList(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromStorage().Restores().List(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID))
-	if err != nil {
-		return fmt.Errorf("listing restores: %w", apiErrFromV2(err))
-	}
-
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, r := range list.Items() {
-			raw := r.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
-		fmt.Println("No restores found for this backup")
-	}
-	return nil
-}
-
-func runStorageRestoreGet(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-	restoreID := args[1]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
+// StorageRestoreGet retrieves restore operation details.
+func StorageRestoreGet(ctx context.Context, client aruba.Client, args StorageRestoreGetArgs) error {
+	restore, err := client.FromStorage().Restores().Get(ctx, restoreRef(args.ProjectID, args.BackupID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting restore: %w", apiErrFromV2(err))
 	}
@@ -320,30 +530,9 @@ func runStorageRestoreGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runStorageRestoreUpdate(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-	restoreID := args[1]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	restore, err := client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
+// StorageRestoreUpdate updates a restore operation's name and/or tags.
+func StorageRestoreUpdate(ctx context.Context, client aruba.Client, args StorageRestoreUpdateArgs) error {
+	restore, err := client.FromStorage().Restores().Get(ctx, restoreRef(args.ProjectID, args.BackupID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting restore: %w", apiErrFromV2(err))
 	}
@@ -351,11 +540,11 @@ func runStorageRestoreUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("restore operation not found")
 	}
 
-	if name != "" {
-		restore.Named(name)
+	if args.Name != "" {
+		restore.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		restore.RetaggedAs(tags...)
+	if args.TagsChanged {
+		restore.RetaggedAs(args.Tags...)
 	}
 
 	updated, err := client.FromStorage().Restores().Update(ctx, restore)
@@ -365,7 +554,7 @@ func runStorageRestoreUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("Restore operation", restoreID))
+		fmt.Printf("\n%s\n", msgUpdated("Restore operation", args.ID))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
 		}
@@ -376,29 +565,81 @@ func runStorageRestoreUpdate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgUpdatedAsync("Restore operation", restoreID))
+		fmt.Println(msgUpdatedAsync("Restore operation", args.ID))
 	}
 	return nil
 }
 
-func runStorageRestoreDelete(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-	restoreID := args[1]
-
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete("restore operation", restoreID)
+// StorageRestoreDelete deletes a restore operation.
+func StorageRestoreDelete(ctx context.Context, client aruba.Client, args StorageRestoreDeleteArgs) error {
+	if args.DryRun {
+		_, err := client.FromStorage().Restores().Get(ctx, restoreRef(args.ProjectID, args.BackupID, args.ID))
 		if err != nil {
-			return err
+			return fmt.Errorf("dry-run: restore operation not found or inaccessible: %w", apiErrFromV2(err))
 		}
-		if !ok {
-			return nil
-		}
+		fmt.Println(msgDryRun("restore operation", args.ID))
+		return nil
 	}
 
-	projectID, err := GetProjectID(cmd)
+	if err := client.FromStorage().Restores().Delete(ctx, restoreRef(args.ProjectID, args.BackupID, args.ID)); err != nil {
+		return fmt.Errorf("deleting restore: %w", apiErrFromV2(err))
+	}
+
+	fmt.Println(msgDeleted("Restore operation", args.ID))
+	return nil
+}
+
+// StorageRestoreList lists restore operations scoped to a specific backup.
+func StorageRestoreList(ctx context.Context, client aruba.Client, args StorageRestoreListArgs) error {
+	list, err := client.FromStorage().Restores().List(ctx, backupRef(args.ProjectID, args.BackupID), args.CallOpts...)
 	if err != nil {
-		return err
+		return fmt.Errorf("listing restores: %w", apiErrFromV2(err))
+	}
+
+	if list != nil && len(list.Items()) > 0 {
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "STATUS", Width: 15},
+		}
+
+		var rows [][]string
+		for _, r := range list.Items() {
+			raw := r.Raw()
+			if raw == nil {
+				continue
+			}
+			name := ""
+			if raw.Metadata.Name != nil {
+				name = *raw.Metadata.Name
+			}
+			id := ""
+			if raw.Metadata.ID != nil {
+				id = *raw.Metadata.ID
+			}
+			status := ""
+			if raw.Status.State != nil {
+				status = string(*raw.Status.State)
+			}
+			rows = append(rows, []string{name, id, status})
+		}
+
+		PrintOutput(list, headers, rows)
+	} else {
+		fmt.Println("No restores found for this backup")
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// StorageRestoreCreateRun is the RunE wiring for restore create.
+func StorageRestoreCreateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageRestoreCreateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -409,21 +650,102 @@ func runStorageRestoreDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromStorage().Restores().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
-		if err != nil {
-			return fmt.Errorf("dry-run: restore operation not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("restore operation", restoreID))
-		return nil
+	if err := StorageRestoreCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
+	return nil
+}
 
-	err = client.FromStorage().Restores().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Storage/backups/"+backupID+"/restores/"+restoreID))
+// StorageRestoreGetRun is the RunE wiring for restore get.
+func StorageRestoreGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageRestoreGetArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return fmt.Errorf("deleting restore: %w", apiErrFromV2(err))
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	fmt.Println(msgDeleted("Restore operation", restoreID))
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageRestoreGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageRestoreUpdateRun is the RunE wiring for restore update.
+func StorageRestoreUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageRestoreUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageRestoreUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageRestoreDeleteRun is the RunE wiring for restore delete.
+func StorageRestoreDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	a, err := NewStorageRestoreDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !a.SkipConfirm {
+		ok, err := confirmDelete("restore operation", a.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageRestoreDelete(ctx, client, *a); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// StorageRestoreListRun is the RunE wiring for restore list.
+func StorageRestoreListRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewStorageRestoreListArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := StorageRestoreList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -73,80 +76,402 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
   acloud network subnet create <vpc-id> --name my-subnet --region IT-BG \
     --cidr 10.0.1.0/24 --dhcp-enabled \
     --dhcp-dns 8.8.8.8,8.8.4.4`,
-	RunE: runSubnetCreate,
+	RunE: NetworkSubnetCreateRun,
 }
 
 var subnetGetCmd = &cobra.Command{
 	Use:   "get [vpc-id] [subnet-id]",
 	Short: "Get subnet details",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runSubnetGet,
+	RunE:  NetworkSubnetGetRun,
 }
 
 var subnetListCmd = &cobra.Command{
 	Use:   "list [vpc-id]",
 	Short: "List subnets for a VPC",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runSubnetList,
+	RunE:  NetworkSubnetListRun,
 }
 
 var subnetUpdateCmd = &cobra.Command{
 	Use:   "update [vpc-id] [subnet-id]",
 	Short: "Update a subnet",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runSubnetUpdate,
+	RunE:  NetworkSubnetUpdateRun,
 }
 
 var subnetDeleteCmd = &cobra.Command{
 	Use:   "delete [vpc-id] [subnet-id]",
 	Short: "Delete a subnet",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runSubnetDelete,
+	RunE:  NetworkSubnetDeleteRun,
 }
 
-func runSubnetCreate(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	name, _ := cmd.Flags().GetString("name")
-	cidr, _ := cmd.Flags().GetString("cidr")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	dhcpEnabled, _ := cmd.Flags().GetBool("dhcp-enabled")
-	dhcpRoutes, _ := cmd.Flags().GetStringSlice("dhcp-routes")
-	dhcpDNS, _ := cmd.Flags().GetStringSlice("dhcp-dns")
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	// Determine SubnetType
+// NetworkSubnetCreateArgs holds the typed arguments for creating a subnet.
+type NetworkSubnetCreateArgs struct {
+	ProjectID      string
+	VPCID          string
+	Name           string
+	Region         aruba.Region
+	CIDR           string
+	Tags           []string
+	DHCPEnabled    bool
+	DHCPRoutes     []string
+	DHCPDNSServers []string
+}
+
+// NetworkSubnetGetArgs holds the typed arguments for getting a subnet.
+type NetworkSubnetGetArgs struct {
+	ProjectID string
+	VPCID     string
+	SubnetID  string
+}
+
+// NetworkSubnetUpdateArgs holds the typed arguments for updating a subnet.
+type NetworkSubnetUpdateArgs struct {
+	ProjectID          string
+	VPCID              string
+	SubnetID           string
+	Name               string
+	CIDR               string
+	Tags               []string
+	TagsChanged        bool
+	DHCPEnabled        bool
+	DHCPEnabledChanged bool
+	DHCPRoutes         []string
+	DHCPRoutesChanged  bool
+	DHCPDNSServers     []string
+	DHCPDNSChanged     bool
+}
+
+// NetworkSubnetDeleteArgs holds the typed arguments for deleting a subnet.
+type NetworkSubnetDeleteArgs struct {
+	ProjectID   string
+	VPCID       string
+	SubnetID    string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// NetworkSubnetListArgs holds the typed arguments for listing subnets.
+type NetworkSubnetListArgs struct {
+	ProjectID string
+	VPCID     string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkSubnetCreateArgsFromCobraCommand parses and validates args for create.
+func NewNetworkSubnetCreateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSubnetCreateArgs, error) {
+	args := &NetworkSubnetCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSubnetGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkSubnetGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSubnetGetArgs, error) {
+	args := &NetworkSubnetGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSubnetUpdateArgsFromCobraCommand parses and validates args for update.
+func NewNetworkSubnetUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSubnetUpdateArgs, error) {
+	args := &NetworkSubnetUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSubnetDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewNetworkSubnetDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSubnetDeleteArgs, error) {
+	args := &NetworkSubnetDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSubnetListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkSubnetListArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSubnetListArgs, error) {
+	args := &NetworkSubnetListArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the create args struct.
+func (a *NetworkSubnetCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.CIDR, err = cmd.Flags().GetString("cidr"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.DHCPEnabled, err = cmd.Flags().GetBool("dhcp-enabled"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.DHCPRoutes, err = cmd.Flags().GetStringSlice("dhcp-routes"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.DHCPDNSServers, err = cmd.Flags().GetStringSlice("dhcp-dns"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkSubnetGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SubnetID = cobraArgs[1]
+	}
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *NetworkSubnetUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SubnetID = cobraArgs[1]
+	}
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.CIDR, err = cmd.Flags().GetString("cidr"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.DHCPEnabled, err = cmd.Flags().GetBool("dhcp-enabled"); err != nil {
+		errs = append(errs, err)
+	}
+	a.DHCPEnabledChanged = cmd.Flags().Changed("dhcp-enabled")
+	if a.DHCPRoutes, err = cmd.Flags().GetStringSlice("dhcp-routes"); err != nil {
+		errs = append(errs, err)
+	}
+	a.DHCPRoutesChanged = cmd.Flags().Changed("dhcp-routes")
+	if a.DHCPDNSServers, err = cmd.Flags().GetStringSlice("dhcp-dns"); err != nil {
+		errs = append(errs, err)
+	}
+	a.DHCPDNSChanged = cmd.Flags().Changed("dhcp-dns")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *NetworkSubnetDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SubnetID = cobraArgs[1]
+	}
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the list args struct.
+// VPCID comes from positional cobraArgs[0], not from the --vpc-id flag.
+func (a *NetworkSubnetListArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *NetworkSubnetCreateArgs) Validate() error {
+	var errs []error
+
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.CIDR != "" && !a.DHCPEnabled {
+		errs = append(errs, errors.New("--dhcp-enabled is required when creating an Advanced subnet (CIDR provided)"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *NetworkSubnetGetArgs) Validate() error {
+	var errs []error
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	if a.SubnetID == "" {
+		errs = append(errs, errors.New("subnet ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the update args for correctness.
+func (a *NetworkSubnetUpdateArgs) Validate() error {
+	var errs []error
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	if a.SubnetID == "" {
+		errs = append(errs, errors.New("subnet ID is required"))
+	}
+	if a.Name == "" && a.CIDR == "" && !a.TagsChanged && !a.DHCPEnabledChanged && !a.DHCPRoutesChanged && !a.DHCPDNSChanged {
+		errs = append(errs, errors.New("at least one of --name, --cidr, --tags, --dhcp-enabled, --dhcp-routes, or --dhcp-dns must be provided"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *NetworkSubnetDeleteArgs) Validate() error {
+	var errs []error
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	if a.SubnetID == "" {
+		errs = append(errs, errors.New("subnet ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the list args for correctness.
+func (a *NetworkSubnetListArgs) Validate() error {
+	var errs []error
+	if a.ProjectID == "" {
+		errs = append(errs, errors.New("project ID is required"))
+	}
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkSubnetCreate creates a subnet using the provided args and client.
+func NetworkSubnetCreate(ctx context.Context, client aruba.Client, args NetworkSubnetCreateArgs) error {
 	subnetType := aruba.SubnetTypeBasic
-	if cidr != "" {
+	if args.CIDR != "" {
 		subnetType = aruba.SubnetTypeAdvanced
-		if !dhcpEnabled {
-			return fmt.Errorf("--dhcp-enabled is required when creating an Advanced subnet (CIDR provided)")
-		}
 	}
 
 	subnet := aruba.NewSubnet().
-		InVPC(aruba.VPCRef(projectID, vpcID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
+		InVPC(aruba.VPCRef(args.ProjectID, args.VPCID)).
+		Named(args.Name).
+		InRegion(args.Region).
 		OfType(subnetType).
-		RetaggedAs(tags...)
+		RetaggedAs(args.Tags...)
 
-	if cidr != "" {
-		subnet = subnet.WithCIDR(cidr)
+	if args.CIDR != "" {
+		subnet = subnet.WithCIDR(args.CIDR)
 	}
 
-	if dhcpEnabled {
+	if args.DHCPEnabled {
 		dhcp := aruba.NewSubnetDHCP().Enabled()
-		for _, routeStr := range dhcpRoutes {
+		for _, routeStr := range args.DHCPRoutes {
 			parts := splitRouteString(routeStr)
 			if len(parts) == 2 {
 				dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: parts[0], Gateway: parts[1]})
@@ -154,8 +479,8 @@ func runSubnetCreate(cmd *cobra.Command, args []string) error {
 				fmt.Printf("Warning: Invalid route format '%s', expected 'destination:gateway'. Skipping.\n", routeStr)
 			}
 		}
-		if len(dhcpDNS) > 0 {
-			dhcp = dhcp.WithDNSServers(dhcpDNS...)
+		if len(args.DHCPDNSServers) > 0 {
+			dhcp = dhcp.WithDNSServers(args.DHCPDNSServers...)
 		}
 		subnet = subnet.WithDHCP(dhcp)
 	}
@@ -173,7 +498,7 @@ func runSubnetCreate(cmd *cobra.Command, args []string) error {
 			{Header: "CIDR", Width: 18},
 			{Header: "STATUS", Width: 15},
 		}
-		displayCIDR := cidr
+		displayCIDR := args.CIDR
 		if raw.Properties.Network != nil && raw.Properties.Network.Address != "" {
 			displayCIDR = raw.Properties.Network.Address
 		}
@@ -192,28 +517,16 @@ func runSubnetCreate(cmd *cobra.Command, args []string) error {
 		if raw.Status.State != nil {
 			status = string(*raw.Status.State)
 		}
-		row := []string{name, id, createRegion, displayCIDR, status}
-		PrintOutput(resp, headers, [][]string{row})
+		PrintOutput(resp, headers, [][]string{{args.Name, id, createRegion, displayCIDR, status}})
 	} else {
-		fmt.Println(msgCreatedAsync("Subnet", name))
+		fmt.Println(msgCreatedAsync("Subnet", args.Name))
 	}
 	return nil
 }
 
-func runSubnetGet(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	subnetID := args[1]
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
-	subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+// NetworkSubnetGet retrieves and displays a subnet's details.
+func NetworkSubnetGet(ctx context.Context, client aruba.Client, args NetworkSubnetGetArgs) error {
+	subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID))
 	if err != nil {
 		return fmt.Errorf("getting subnet: %w", apiErrFromV2(err))
 	}
@@ -271,19 +584,9 @@ func runSubnetGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSubnetList(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(projectID, vpcID))
+// NetworkSubnetList lists subnets in the given VPC.
+func NetworkSubnetList(ctx context.Context, client aruba.Client, args NetworkSubnetListArgs) error {
+	list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(args.ProjectID, args.VPCID))
 	if err != nil {
 		return fmt.Errorf("listing subnets: %w", apiErrFromV2(err))
 	}
@@ -330,30 +633,9 @@ func runSubnetList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSubnetUpdate(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	subnetID := args[1]
-	name, _ := cmd.Flags().GetString("name")
-	cidr, _ := cmd.Flags().GetString("cidr")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	dhcpEnabled, _ := cmd.Flags().GetBool("dhcp-enabled")
-	dhcpRoutes, _ := cmd.Flags().GetStringSlice("dhcp-routes")
-	dhcpDNS, _ := cmd.Flags().GetStringSlice("dhcp-dns")
-	if name == "" && cidr == "" && !cmd.Flags().Changed("tags") && !cmd.Flags().Changed("dhcp-enabled") && !cmd.Flags().Changed("dhcp-routes") && !cmd.Flags().Changed("dhcp-dns") {
-		return fmt.Errorf("at least one of --name, --cidr, --tags, --dhcp-enabled, --dhcp-routes, or --dhcp-dns must be provided")
-	}
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+// NetworkSubnetUpdate updates a subnet using the provided args and client.
+func NetworkSubnetUpdate(ctx context.Context, client aruba.Client, args NetworkSubnetUpdateArgs) error {
+	subnet, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID))
 	if err != nil || subnet == nil || subnet.ID() == "" {
 		return fmt.Errorf("fetching current subnet: %w", apiErrFromV2(err))
 	}
@@ -362,29 +644,29 @@ func runSubnetUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot update subnet while it is in 'InCreation' state. Please wait until the subnet is fully created")
 	}
 
-	if name != "" {
-		subnet.Named(name)
+	if args.Name != "" {
+		subnet.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		subnet.RetaggedAs(tags...)
+	if args.TagsChanged {
+		subnet.RetaggedAs(args.Tags...)
 	}
-	if cidr != "" {
-		subnet.WithCIDR(cidr)
+	if args.CIDR != "" {
+		subnet.WithCIDR(args.CIDR)
 	}
 
 	// Update DHCP config for Advanced subnets.
 	// sdk-go v1.0.0 exposes Type() and DHCP() accessors (closes #133 / TD-035).
 	if subnet.Type() == aruba.SubnetTypeAdvanced {
 		currentDHCP := subnet.DHCP()
-		if cmd.Flags().Changed("dhcp-enabled") || len(dhcpRoutes) > 0 || len(dhcpDNS) > 0 {
+		if args.DHCPEnabledChanged || args.DHCPRoutesChanged || args.DHCPDNSChanged {
 			dhcp := aruba.NewSubnetDHCP()
 			// Preserve existing enabled state
-			if (currentDHCP != nil && currentDHCP.IsEnabled()) || dhcpEnabled {
+			if (currentDHCP != nil && currentDHCP.IsEnabled()) || args.DHCPEnabled {
 				dhcp = dhcp.Enabled()
 			}
 			// Preserve existing routes unless new ones provided
-			if len(dhcpRoutes) > 0 {
-				for _, routeStr := range dhcpRoutes {
+			if len(args.DHCPRoutes) > 0 {
+				for _, routeStr := range args.DHCPRoutes {
 					parts := splitRouteString(routeStr)
 					if len(parts) == 2 {
 						dhcp = dhcp.WithRoutes(aruba.SubnetDHCPRouteCommon{Address: parts[0], Gateway: parts[1]})
@@ -398,8 +680,8 @@ func runSubnetUpdate(cmd *cobra.Command, args []string) error {
 				}
 			}
 			// Preserve existing DNS unless new ones provided
-			if len(dhcpDNS) > 0 {
-				dhcp = dhcp.WithDNSServers(dhcpDNS...)
+			if len(args.DHCPDNSServers) > 0 {
+				dhcp = dhcp.WithDNSServers(args.DHCPDNSServers...)
 			} else if currentDHCP != nil && len(currentDHCP.DNS()) > 0 {
 				dhcp = dhcp.WithDNSServers(currentDHCP.DNS()...)
 			}
@@ -437,48 +719,14 @@ func runSubnetUpdate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(updated, headers, [][]string{{nameVal, id, cidrVal, status}})
 	} else {
-		fmt.Println(msgUpdatedAsync("Subnet", subnetID))
+		fmt.Println(msgUpdatedAsync("Subnet", args.SubnetID))
 	}
 	return nil
 }
 
-func runSubnetDelete(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	subnetID := args[1]
-
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	if !skipConfirm {
-		ok, err := confirmDelete("subnet", subnetID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
-		if err != nil {
-			return fmt.Errorf("dry-run: subnet not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("subnet", subnetID))
-		return nil
-	}
-
-	err = client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(projectID, vpcID, subnetID))
+// NetworkSubnetDelete deletes a subnet.
+func NetworkSubnetDelete(ctx context.Context, client aruba.Client, args NetworkSubnetDeleteArgs) error {
+	err := client.FromNetwork().Subnets().Delete(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID))
 	if err != nil {
 		return fmt.Errorf("deleting subnet: %w", apiErrFromV2(err))
 	}
@@ -490,7 +738,136 @@ func runSubnetDelete(cmd *cobra.Command, args []string) error {
 	result := struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
-	}{subnetID, status}
-	PrintOutput(result, headers, [][]string{{subnetID, status}})
+	}{args.SubnetID, status}
+	PrintOutput(result, headers, [][]string{{args.SubnetID, status}})
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// NetworkSubnetCreateRun is the Cobra RunE handler for subnet create.
+func NetworkSubnetCreateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSubnetCreateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSubnetCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSubnetGetRun is the Cobra RunE handler for subnet get.
+func NetworkSubnetGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSubnetGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSubnetGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSubnetListRun is the Cobra RunE handler for subnet list.
+func NetworkSubnetListRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSubnetListArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSubnetList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSubnetUpdateRun is the Cobra RunE handler for subnet update.
+func NetworkSubnetUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSubnetUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSubnetUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSubnetDeleteRun is the Cobra RunE handler for subnet delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func NetworkSubnetDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSubnetDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("subnet", args.SubnetID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		_, err = client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, args.SubnetID))
+		if err != nil {
+			return fmt.Errorf("dry-run: subnet not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("subnet", args.SubnetID))
+		return nil
+	}
+
+	if err := NetworkSubnetDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

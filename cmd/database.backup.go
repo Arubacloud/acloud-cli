@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -21,7 +23,6 @@ func init() {
 	backupCreateCmd.Flags().String("region", "", "Region code (required)")
 	backupCreateCmd.Flags().String("dbaas-id", "", "DBaaS instance ID (required)")
 	backupCreateCmd.Flags().String("database-name", "", "Database name (required)")
-	backupCreateCmd.Flags().String("zone", "", "Availability zone (e.g. ITBG-1); defaults to region if unset")
 	backupCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	backupCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
 	backupCreateCmd.MarkFlagRequired("name")
@@ -41,6 +42,11 @@ func init() {
 
 	backupGetCmd.ValidArgsFunction = completeDatabaseBackupID
 	backupDeleteCmd.ValidArgsFunction = completeDatabaseBackupID
+}
+
+// databaseBackupRef returns a Ref for a specific database backup.
+func databaseBackupRef(projectID, backupID string) aruba.Ref {
+	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Database/backups/" + backupID)
 }
 
 func completeDatabaseBackupID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -89,66 +95,277 @@ The backup will be stored and can be restored later.
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud database backup create \
-    --name my-backup --region IT-BG \
+    --name my-backup --region ITBG-Bergamo \
     --dbaas-id <dbaas-id> \
     --database-name myapp_db`,
 	Args: cobra.NoArgs,
-	RunE: runDatabaseBackupCreate,
+	RunE: DatabaseDBaaSBackupCreateRun,
 }
 
 var backupGetCmd = &cobra.Command{
 	Use:   "get [backup-id]",
 	Short: "Get backup details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDatabaseBackupGet,
+	RunE:  DatabaseDBaaSBackupGetRun,
 }
 
 var backupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all database backups",
 	Args:  cobra.NoArgs,
-	RunE:  runDatabaseBackupList,
+	RunE:  DatabaseDBaaSBackupListRun,
 }
 
 var backupDeleteCmd = &cobra.Command{
 	Use:   "delete [backup-id]",
 	Short: "Delete a backup",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runDatabaseBackupDelete,
+	RunE:  DatabaseDBaaSBackupDeleteRun,
 }
 
-func runDatabaseBackupCreate(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// DatabaseDBaaSBackupCreateArgs holds the typed arguments for creating a database backup.
+type DatabaseDBaaSBackupCreateArgs struct {
+	ProjectID     string
+	Name          string
+	Region        aruba.Region
+	DBaaSID       string
+	DatabaseName  string
+	BillingPeriod aruba.BillingPeriod
+	Tags          []string
+}
+
+// DatabaseDBaaSBackupGetArgs holds the typed arguments for getting a database backup.
+type DatabaseDBaaSBackupGetArgs struct {
+	ProjectID string
+	BackupID  string
+}
+
+// DatabaseDBaaSBackupListArgs holds the typed arguments for listing database backups.
+type DatabaseDBaaSBackupListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// DatabaseDBaaSBackupDeleteArgs holds the typed arguments for deleting a database backup.
+type DatabaseDBaaSBackupDeleteArgs struct {
+	ProjectID   string
+	BackupID    string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewDatabaseDBaaSBackupCreateArgsFromCobraCommand parses and validates args for create.
+func NewDatabaseDBaaSBackupCreateArgsFromCobraCommand(cmd *cobra.Command) (*DatabaseDBaaSBackupCreateArgs, error) {
+	args := &DatabaseDBaaSBackupCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSBackupGetArgsFromCobraCommand parses and validates args for get.
+func NewDatabaseDBaaSBackupGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSBackupGetArgs, error) {
+	args := &DatabaseDBaaSBackupGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSBackupListArgsFromCobraCommand parses and validates args for list.
+func NewDatabaseDBaaSBackupListArgsFromCobraCommand(cmd *cobra.Command) (*DatabaseDBaaSBackupListArgs, error) {
+	args := &DatabaseDBaaSBackupListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewDatabaseDBaaSBackupDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewDatabaseDBaaSBackupDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*DatabaseDBaaSBackupDeleteArgs, error) {
+	args := &DatabaseDBaaSBackupDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *DatabaseDBaaSBackupCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.DBaaSID, err = cmd.Flags().GetString("dbaas-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.DatabaseName, err = cmd.Flags().GetString("database-name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	dbaasID, _ := cmd.Flags().GetString("dbaas-id")
-	databaseName, _ := cmd.Flags().GetString("database-name")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *DatabaseDBaaSBackupGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
 	}
 
-	dbaasURI := "/projects/" + projectID + "/providers/Aruba.Database/dbaas/" + dbaasID
-	databaseURI := dbaasURI + "/databases/" + databaseName
+	return errors.Join(errs...)
+}
 
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *DatabaseDBaaSBackupListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *DatabaseDBaaSBackupDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.BackupID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *DatabaseDBaaSBackupCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	if a.DBaaSID == "" {
+		errs = append(errs, errors.New("--dbaas-id is required"))
+	}
+	if a.DatabaseName == "" {
+		errs = append(errs, errors.New("--database-name is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *DatabaseDBaaSBackupGetArgs) Validate() error {
+	if a.BackupID == "" {
+		return errors.New("backup ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *DatabaseDBaaSBackupListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the delete args for correctness.
+func (a *DatabaseDBaaSBackupDeleteArgs) Validate() error {
+	if a.BackupID == "" {
+		return errors.New("backup ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// DatabaseDBaaSBackupCreate creates a new database backup.
+func DatabaseDBaaSBackupCreate(ctx context.Context, client aruba.Client, args DatabaseDBaaSBackupCreateArgs) error {
 	bkp := aruba.NewDBaaSBackup().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		FromDBaaS(aruba.URI(dbaasURI)).
-		FromDatabase(aruba.URI(databaseURI)).
-		BilledBy(aruba.BillingPeriod(billingPeriod)).
-		RetaggedAs(tags...)
+		InProject(projectRef(args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		FromDBaaS(dbaasRef(args.ProjectID, args.DBaaSID)).
+		FromDatabase(databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName)).
+		BilledBy(args.BillingPeriod).
+		RetaggedAs(args.Tags...)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromDatabase().Backups().Create(ctx, bkp)
 	if err != nil {
 		return fmt.Errorf("creating backup: %w", apiErrFromV2(err))
@@ -180,27 +397,14 @@ func runDatabaseBackupCreate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
 	} else {
-		fmt.Println(msgCreatedAsync("Backup", name))
+		fmt.Println(msgCreatedAsync("Backup", args.Name))
 	}
 	return nil
 }
 
-func runDatabaseBackupGet(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	backup, err := client.FromDatabase().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
+// DatabaseDBaaSBackupGet retrieves and displays a database backup's details.
+func DatabaseDBaaSBackupGet(ctx context.Context, client aruba.Client, args DatabaseDBaaSBackupGetArgs) error {
+	backup, err := client.FromDatabase().Backups().Get(ctx, databaseBackupRef(args.ProjectID, args.BackupID))
 	if err != nil {
 		return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 	}
@@ -249,20 +453,9 @@ func runDatabaseBackupGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDatabaseBackupList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromDatabase().Backups().List(ctx, aruba.URI("/projects/"+projectID))
+// DatabaseDBaaSBackupList lists all database backups in a project.
+func DatabaseDBaaSBackupList(ctx context.Context, client aruba.Client, args DatabaseDBaaSBackupListArgs) error {
+	list, err := client.FromDatabase().Backups().List(ctx, aruba.URI("/projects/"+args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing backups: %w", apiErrFromV2(err))
 	}
@@ -306,23 +499,25 @@ func runDatabaseBackupList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDatabaseBackupDelete(cmd *cobra.Command, args []string) error {
-	backupID := args[0]
-
-	confirm, _ := cmd.Flags().GetBool("yes")
-	if !confirm {
-		ok, err := confirmDelete("backup", backupID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
+// DatabaseDBaaSBackupDelete deletes a database backup.
+func DatabaseDBaaSBackupDelete(ctx context.Context, client aruba.Client, args DatabaseDBaaSBackupDeleteArgs) error {
+	err := client.FromDatabase().Backups().Delete(ctx, databaseBackupRef(args.ProjectID, args.BackupID))
 	if err != nil {
-		return err
+		return fmt.Errorf("deleting backup: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("Backup", args.BackupID))
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// DatabaseDBaaSBackupCreateRun is the Cobra RunE handler for backup create.
+func DatabaseDBaaSBackupCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewDatabaseDBaaSBackupCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -333,21 +528,90 @@ func runDatabaseBackupDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromDatabase().Backups().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
+	if err := DatabaseDBaaSBackupCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSBackupGetRun is the Cobra RunE handler for backup get.
+func DatabaseDBaaSBackupGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSBackupGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSBackupGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSBackupListRun is the Cobra RunE handler for backup list.
+func DatabaseDBaaSBackupListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewDatabaseDBaaSBackupListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := DatabaseDBaaSBackupList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// DatabaseDBaaSBackupDeleteRun is the Cobra RunE handler for backup delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func DatabaseDBaaSBackupDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewDatabaseDBaaSBackupDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("backup", args.BackupID)
 		if err != nil {
-			return fmt.Errorf("dry-run: database backup not found or inaccessible: %w", err)
+			return err
 		}
-		fmt.Println(msgDryRun("database backup", backupID))
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromDatabase().Backups().Get(ctx, databaseBackupRef(args.ProjectID, args.BackupID)); err != nil {
+			return fmt.Errorf("dry-run: database backup not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("database backup", args.BackupID))
 		return nil
 	}
 
-	err = client.FromDatabase().Backups().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Database/backups/"+backupID))
-	if err != nil {
-		return fmt.Errorf("deleting backup: %w", apiErrFromV2(err))
+	if err := DatabaseDBaaSBackupDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
-
-	fmt.Println(msgDeleted("Backup", backupID))
 	return nil
 }

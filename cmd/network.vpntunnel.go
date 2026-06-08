@@ -2,14 +2,17 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
 )
 
-var vpnEncryptionAlgorithms = []string{
+// vpnIKEEncryptionAlgorithms is the set of valid IKE encryption algorithm identifiers.
+var vpnIKEEncryptionAlgorithms = []string{
 	string(aruba.IKEEncryptionAES128), string(aruba.IKEEncryptionAES192), string(aruba.IKEEncryptionAES256),
 	string(aruba.IKEEncryptionAES128CTR), string(aruba.IKEEncryptionAES192CTR), string(aruba.IKEEncryptionAES256CTR),
 	string(aruba.IKEEncryptionAES128CCM64), string(aruba.IKEEncryptionAES128CCM96), string(aruba.IKEEncryptionAES128CCM128),
@@ -31,7 +34,31 @@ var vpnEncryptionAlgorithms = []string{
 	string(aruba.IKEEncryptionCAST128), string(aruba.IKEEncryptionChaCha20Poly1305),
 }
 
-var vpnHashAlgorithms = []string{
+// vpnESPEncryptionAlgorithms is the set of valid ESP encryption algorithm identifiers.
+var vpnESPEncryptionAlgorithms = []string{
+	string(aruba.ESPEncryptionAES128), string(aruba.ESPEncryptionAES192), string(aruba.ESPEncryptionAES256),
+	string(aruba.ESPEncryptionAES128CTR), string(aruba.ESPEncryptionAES192CTR), string(aruba.ESPEncryptionAES256CTR),
+	string(aruba.ESPEncryptionAES128CCM64), string(aruba.ESPEncryptionAES128CCM96), string(aruba.ESPEncryptionAES128CCM128),
+	string(aruba.ESPEncryptionAES192CCM64), string(aruba.ESPEncryptionAES192CCM96), string(aruba.ESPEncryptionAES192CCM128),
+	string(aruba.ESPEncryptionAES256CCM64), string(aruba.ESPEncryptionAES256CCM96), string(aruba.ESPEncryptionAES256CCM128),
+	string(aruba.ESPEncryptionAES128GCM64), string(aruba.ESPEncryptionAES128GCM96), string(aruba.ESPEncryptionAES128GCM128),
+	string(aruba.ESPEncryptionAES192GCM64), string(aruba.ESPEncryptionAES192GCM96), string(aruba.ESPEncryptionAES192GCM128),
+	string(aruba.ESPEncryptionAES256GCM64), string(aruba.ESPEncryptionAES256GCM96), string(aruba.ESPEncryptionAES256GCM128),
+	string(aruba.ESPEncryptionAES128GMAC), string(aruba.ESPEncryptionAES192GMAC), string(aruba.ESPEncryptionAES256GMAC),
+	string(aruba.ESPEncryption3DES),
+	string(aruba.ESPEncryptionBlowfish128), string(aruba.ESPEncryptionBlowfish192), string(aruba.ESPEncryptionBlowfish256),
+	string(aruba.ESPEncryptionCamellia128), string(aruba.ESPEncryptionCamellia192), string(aruba.ESPEncryptionCamellia256),
+	string(aruba.ESPEncryptionCamellia128CTR), string(aruba.ESPEncryptionCamellia192CTR), string(aruba.ESPEncryptionCamellia256CTR),
+	string(aruba.ESPEncryptionCamellia128CCM64), string(aruba.ESPEncryptionCamellia128CCM96), string(aruba.ESPEncryptionCamellia128CCM128),
+	string(aruba.ESPEncryptionCamellia192CCM64), string(aruba.ESPEncryptionCamellia192CCM96), string(aruba.ESPEncryptionCamellia192CCM128),
+	string(aruba.ESPEncryptionCamellia256CCM64), string(aruba.ESPEncryptionCamellia256CCM96), string(aruba.ESPEncryptionCamellia256CCM128),
+	string(aruba.ESPEncryptionSerpent128), string(aruba.ESPEncryptionSerpent192), string(aruba.ESPEncryptionSerpent256),
+	string(aruba.ESPEncryptionTwofish128), string(aruba.ESPEncryptionTwofish192), string(aruba.ESPEncryptionTwofish256),
+	string(aruba.ESPEncryptionCAST128), string(aruba.ESPEncryptionChaCha20Poly1305),
+}
+
+// vpnIKEHashAlgorithms is the set of valid IKE hash/PRF algorithm identifiers.
+var vpnIKEHashAlgorithms = []string{
 	string(aruba.IKEHashMD5), string(aruba.IKEHashMD5128),
 	string(aruba.IKEHashSHA1), string(aruba.IKEHashSHA1160),
 	string(aruba.IKEHashSHA256), string(aruba.IKEHashSHA25696),
@@ -40,7 +67,18 @@ var vpnHashAlgorithms = []string{
 	string(aruba.IKEHashAES128GMAC), string(aruba.IKEHashAES192GMAC), string(aruba.IKEHashAES256GMAC),
 }
 
-var vpnDHGroups = []string{
+// vpnESPHashAlgorithms is the set of valid ESP integrity/authentication algorithm identifiers.
+var vpnESPHashAlgorithms = []string{
+	string(aruba.ESPHashMD5), string(aruba.ESPHashMD5128),
+	string(aruba.ESPHashSHA1), string(aruba.ESPHashSHA1160),
+	string(aruba.ESPHashSHA256), string(aruba.ESPHashSHA25696),
+	string(aruba.ESPHashSHA384), string(aruba.ESPHashSHA512),
+	string(aruba.ESPHashAESXCBC), string(aruba.ESPHashAESCMAC),
+	string(aruba.ESPHashAES128GMAC), string(aruba.ESPHashAES192GMAC), string(aruba.ESPHashAES256GMAC),
+}
+
+// vpnIKEDHGroups is the set of valid IKE Diffie-Hellman group identifiers.
+var vpnIKEDHGroups = []string{
 	string(aruba.IKEDHGroup1), string(aruba.IKEDHGroup2), string(aruba.IKEDHGroup5),
 	string(aruba.IKEDHGroup14), string(aruba.IKEDHGroup15), string(aruba.IKEDHGroup16), string(aruba.IKEDHGroup17), string(aruba.IKEDHGroup18),
 	string(aruba.IKEDHGroup19), string(aruba.IKEDHGroup20), string(aruba.IKEDHGroup21),
@@ -49,9 +87,11 @@ var vpnDHGroups = []string{
 	string(aruba.IKEDHGroup31), string(aruba.IKEDHGroup32),
 }
 
-var vpnDPDActions = []string{string(aruba.IKEDPDActionTrap), string(aruba.IKEDPDActionClear), string(aruba.IKEDPDActionRestart)}
+// vpnIKEDPDActions is the set of valid IKE Dead Peer Detection action identifiers.
+var vpnIKEDPDActions = []string{string(aruba.IKEDPDActionTrap), string(aruba.IKEDPDActionClear), string(aruba.IKEDPDActionRestart)}
 
-var vpnPFSGroups = []string{
+// vpnESPPFSGroups is the set of valid ESP Perfect Forward Secrecy group identifiers.
+var vpnESPPFSGroups = []string{
 	string(aruba.ESPPFSGroupEnable),
 	string(aruba.ESPPFSGroupDHGroup1), string(aruba.ESPPFSGroupDHGroup2), string(aruba.ESPPFSGroupDHGroup5),
 	string(aruba.ESPPFSGroupDHGroup14), string(aruba.ESPPFSGroupDHGroup15), string(aruba.ESPPFSGroupDHGroup16), string(aruba.ESPPFSGroupDHGroup17), string(aruba.ESPPFSGroupDHGroup18),
@@ -62,16 +102,10 @@ var vpnPFSGroups = []string{
 	string(aruba.ESPPFSGroupDisable),
 }
 
-func vpnValidateEnum(value, flag string, valid []string) error {
-	if value == "" {
-		return nil
-	}
-	for _, v := range valid {
-		if value == v {
-			return nil
-		}
-	}
-	return fmt.Errorf("--%s %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", flag, value)
+// vpnTunnelRef builds the combined-URI Ref for a VPN tunnel.
+// Used by network.vpnroute.go for VPNRoute refs that encode the tunnel ancestry.
+func vpnTunnelRef(projectID, tunnelID string) aruba.Ref {
+	return aruba.VPNTunnelRef(projectID, tunnelID)
 }
 
 func init() {
@@ -194,14 +228,14 @@ var vpntunnelListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all VPN tunnels",
 	Args:  cobra.NoArgs,
-	RunE:  runVPNTunnelList,
+	RunE:  NetworkVPNTunnelListRun,
 }
 
 var vpntunnelGetCmd = &cobra.Command{
 	Use:   "get <vpn-tunnel-id>",
 	Short: "Get VPN tunnel details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPNTunnelGet,
+	RunE:  NetworkVPNTunnelGetRun,
 }
 
 var vpntunnelCreateCmd = &cobra.Command{
@@ -217,44 +251,435 @@ Billing period: Hour (default), Month, or Year.
 
 IKE and ESP settings are optional; the platform uses secure defaults when omitted.`,
 	Example: `  acloud network vpntunnel create \
-    --name my-tunnel --region IT-BG \
+    --name my-tunnel --region ITBG-Bergamo \
     --peer-ip 203.0.113.1 \
     --vpc-id <vpc-id> \
     --subnet-cidr 10.0.1.0/24 \
     --elastic-ip-id <eip-id> \
     --psk my-pre-shared-key`,
 	Args: cobra.NoArgs,
-	RunE: runVPNTunnelCreate,
+	RunE: NetworkVPNTunnelCreateRun,
 }
 
 var vpntunnelUpdateCmd = &cobra.Command{
 	Use:   "update <vpn-tunnel-id>",
 	Short: "Update a VPN tunnel",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPNTunnelUpdate,
+	RunE:  NetworkVPNTunnelUpdateRun,
 }
 
 var vpntunnelDeleteCmd = &cobra.Command{
 	Use:   "delete <vpn-tunnel-id>",
 	Short: "Delete a VPN tunnel",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPNTunnelDelete,
+	RunE:  NetworkVPNTunnelDeleteRun,
 }
 
-func runVPNTunnelList(cmd *cobra.Command, args []string) error {
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// NetworkVPNTunnelCreateArgs holds the typed arguments for creating a VPN tunnel.
+type NetworkVPNTunnelCreateArgs struct {
+	ProjectID     string
+	Name          string
+	Region        aruba.Region
+	Tags          []string
+	VPNType       aruba.VPNType
+	Protocol      aruba.VPNClientProtocol
+	PeerIP        string
+	VPCID         string
+	SubnetCIDR    string
+	SubnetName    string
+	ElasticIPID   string
+	BillingPeriod aruba.BillingPeriod
+	// IKE settings
+	IKELifetime    int32
+	IKEEncryption  aruba.IKEEncryption
+	IKEHash        aruba.IKEHash
+	IKEDHGroup     aruba.IKEDHGroup
+	IKEDPDAction   aruba.IKEDPDAction
+	IKEDPDInterval int32
+	IKEDPDTimeout  int32
+	// ESP settings
+	ESPLifetime   int32
+	ESPEncryption aruba.ESPEncryption
+	ESPHash       aruba.ESPHash
+	ESPPFS        aruba.ESPPFSGroup
+	// PSK settings
+	PSK           string
+	PSKCloudSite  string
+	PSKOnpremSite string
+}
+
+// NetworkVPNTunnelGetArgs holds the typed arguments for getting a VPN tunnel.
+type NetworkVPNTunnelGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// NetworkVPNTunnelUpdateArgs holds the typed arguments for updating a VPN tunnel.
+type NetworkVPNTunnelUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// NetworkVPNTunnelDeleteArgs holds the typed arguments for deleting a VPN tunnel.
+type NetworkVPNTunnelDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// NetworkVPNTunnelListArgs holds the typed arguments for listing VPN tunnels.
+type NetworkVPNTunnelListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkVPNTunnelCreateArgsFromCobraCommand parses and validates args for create.
+func NewNetworkVPNTunnelCreateArgsFromCobraCommand(cmd *cobra.Command) (*NetworkVPNTunnelCreateArgs, error) {
+	args := &NetworkVPNTunnelCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNTunnelGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkVPNTunnelGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNTunnelGetArgs, error) {
+	args := &NetworkVPNTunnelGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNTunnelUpdateArgsFromCobraCommand parses and validates args for update.
+func NewNetworkVPNTunnelUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNTunnelUpdateArgs, error) {
+	args := &NetworkVPNTunnelUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNTunnelDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewNetworkVPNTunnelDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNTunnelDeleteArgs, error) {
+	args := &NetworkVPNTunnelDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNTunnelListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkVPNTunnelListArgsFromCobraCommand(cmd *cobra.Command) (*NetworkVPNTunnelListArgs, error) {
+	args := &NetworkVPNTunnelListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *NetworkVPNTunnelCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("vpn-type"); err == nil {
+		a.VPNType = aruba.VPNType(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("protocol"); err == nil {
+		a.Protocol = aruba.VPNClientProtocol(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.PeerIP, err = cmd.Flags().GetString("peer-ip"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.VPCID, err = cmd.Flags().GetString("vpc-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SubnetCIDR, err = cmd.Flags().GetString("subnet-cidr"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SubnetName, err = cmd.Flags().GetString("subnet-name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.ElasticIPID, err = cmd.Flags().GetString("elastic-ip-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	// IKE settings
+	if a.IKELifetime, err = cmd.Flags().GetInt32("ike-lifetime"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("ike-encryption"); err == nil {
+		a.IKEEncryption = aruba.IKEEncryption(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("ike-hash"); err == nil {
+		a.IKEHash = aruba.IKEHash(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("ike-dh-group"); err == nil {
+		a.IKEDHGroup = aruba.IKEDHGroup(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("ike-dpd-action"); err == nil {
+		a.IKEDPDAction = aruba.IKEDPDAction(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.IKEDPDInterval, err = cmd.Flags().GetInt32("ike-dpd-interval"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.IKEDPDTimeout, err = cmd.Flags().GetInt32("ike-dpd-timeout"); err != nil {
+		errs = append(errs, err)
+	}
+	// ESP settings
+	if a.ESPLifetime, err = cmd.Flags().GetInt32("esp-lifetime"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("esp-encryption"); err == nil {
+		if s == "" {
+			s = "aes256"
+		}
+		a.ESPEncryption = aruba.ESPEncryption(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("esp-hash"); err == nil {
+		a.ESPHash = aruba.ESPHash(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("esp-pfs"); err == nil {
+		a.ESPPFS = aruba.ESPPFSGroup(s)
+	} else {
+		errs = append(errs, err)
+	}
+	// PSK settings
+	if a.PSK, err = cmd.Flags().GetString("psk"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.PSKCloudSite, err = cmd.Flags().GetString("psk-cloud-site"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.PSKOnpremSite, err = cmd.Flags().GetString("psk-onprem-site"); err != nil {
+		errs = append(errs, err)
 	}
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkVPNTunnelGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().VPNTunnels().List(ctx, aruba.URI("/projects/"+projectID))
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *NetworkVPNTunnelUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *NetworkVPNTunnelDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *NetworkVPNTunnelListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *NetworkVPNTunnelCreateArgs) Validate() error {
+	var errs []error
+
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	if a.SubnetCIDR == "" && a.SubnetName == "" {
+		errs = append(errs, errors.New("--subnet-cidr or --subnet-name is required"))
+	}
+	if string(a.IKEEncryption) != "" && !slices.Contains(vpnIKEEncryptionAlgorithms, string(a.IKEEncryption)) {
+		errs = append(errs, fmt.Errorf("--ike-encryption %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.IKEEncryption))
+	}
+	if string(a.IKEHash) != "" && !slices.Contains(vpnIKEHashAlgorithms, string(a.IKEHash)) {
+		errs = append(errs, fmt.Errorf("--ike-hash %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.IKEHash))
+	}
+	if string(a.IKEDHGroup) != "" && !slices.Contains(vpnIKEDHGroups, string(a.IKEDHGroup)) {
+		errs = append(errs, fmt.Errorf("--ike-dh-group %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.IKEDHGroup))
+	}
+	if string(a.IKEDPDAction) != "" && !slices.Contains(vpnIKEDPDActions, string(a.IKEDPDAction)) {
+		errs = append(errs, fmt.Errorf("--ike-dpd-action %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.IKEDPDAction))
+	}
+	if string(a.ESPEncryption) != "" && !slices.Contains(vpnESPEncryptionAlgorithms, string(a.ESPEncryption)) {
+		errs = append(errs, fmt.Errorf("--esp-encryption %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.ESPEncryption))
+	}
+	if string(a.ESPHash) != "" && !slices.Contains(vpnESPHashAlgorithms, string(a.ESPHash)) {
+		errs = append(errs, fmt.Errorf("--esp-hash %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.ESPHash))
+	}
+	if string(a.ESPPFS) != "" && !slices.Contains(vpnESPPFSGroups, string(a.ESPPFS)) {
+		errs = append(errs, fmt.Errorf("--esp-pfs %q is not a valid value; see 'acloud network vpntunnel create --help' or the docs for accepted values", a.ESPPFS))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *NetworkVPNTunnelGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("VPN tunnel ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *NetworkVPNTunnelUpdateArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("VPN tunnel ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one of --name or --tags must be provided"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *NetworkVPNTunnelDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("VPN tunnel ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *NetworkVPNTunnelListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkVPNTunnelList lists all VPN tunnels in a project.
+func NetworkVPNTunnelList(ctx context.Context, client aruba.Client, args NetworkVPNTunnelListArgs) error {
+	list, err := client.FromNetwork().VPNTunnels().List(ctx, aruba.URI("/projects/"+args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing VPN tunnels: %w", apiErrFromV2(err))
 	}
@@ -269,6 +694,7 @@ func runVPNTunnelList(cmd *cobra.Command, args []string) error {
 		}
 		var rows [][]string
 		for _, vpn := range list.Items() {
+			redactVPNTunnelSecrets(vpn)
 			raw := vpn.Raw()
 			if raw == nil {
 				continue
@@ -302,22 +728,9 @@ func runVPNTunnelList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVPNTunnelGet(cmd *cobra.Command, args []string) error {
-	vpnID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnID))
+// NetworkVPNTunnelGet retrieves and displays a VPN tunnel's details.
+func NetworkVPNTunnelGet(ctx context.Context, client aruba.Client, args NetworkVPNTunnelGetArgs) error {
+	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
 	}
@@ -385,138 +798,72 @@ func runVPNTunnelGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVPNTunnelCreate(cmd *cobra.Command, args []string) error {
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	vpnType, _ := cmd.Flags().GetString("vpn-type")
-	protocol, _ := cmd.Flags().GetString("protocol")
-	peerIP, _ := cmd.Flags().GetString("peer-ip")
-	vpcID, _ := cmd.Flags().GetString("vpc-id")
-	subnetCIDR, _ := cmd.Flags().GetString("subnet-cidr")
-	subnetName, _ := cmd.Flags().GetString("subnet-name")
-	publicIPID, _ := cmd.Flags().GetString("elastic-ip-id")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	psk, _ := cmd.Flags().GetString("psk")
-
-	// IKE settings
-	ikeLifetime, _ := cmd.Flags().GetInt32("ike-lifetime")
-	ikeEncryption, _ := cmd.Flags().GetString("ike-encryption")
-	ikeHash, _ := cmd.Flags().GetString("ike-hash")
-	ikeDHGroup, _ := cmd.Flags().GetString("ike-dh-group")
-	ikeDPDAction, _ := cmd.Flags().GetString("ike-dpd-action")
-	ikeDPDInterval, _ := cmd.Flags().GetInt32("ike-dpd-interval")
-	ikeDPDTimeout, _ := cmd.Flags().GetInt32("ike-dpd-timeout")
-	// ESP settings
-	espLifetime, _ := cmd.Flags().GetInt32("esp-lifetime")
-	espEncryption, _ := cmd.Flags().GetString("esp-encryption")
-	if espEncryption == "" {
-		espEncryption = "aes256"
-	}
-	espHash, _ := cmd.Flags().GetString("esp-hash")
-	espPFS, _ := cmd.Flags().GetString("esp-pfs")
-	// PSK settings
-	pskCloudSite, _ := cmd.Flags().GetString("psk-cloud-site")
-	pskOnpremSite, _ := cmd.Flags().GetString("psk-onprem-site")
-
-	if subnetCIDR == "" && subnetName == "" {
-		return fmt.Errorf("--subnet-cidr or --subnet-name is required")
-	}
-
-	for _, check := range []struct {
-		val   string
-		flag  string
-		valid []string
-	}{
-		{ikeEncryption, "ike-encryption", vpnEncryptionAlgorithms},
-		{ikeHash, "ike-hash", vpnHashAlgorithms},
-		{ikeDHGroup, "ike-dh-group", vpnDHGroups},
-		{ikeDPDAction, "ike-dpd-action", vpnDPDActions},
-		{espEncryption, "esp-encryption", vpnEncryptionAlgorithms},
-		{espHash, "esp-hash", vpnHashAlgorithms},
-		{espPFS, "esp-pfs", vpnPFSGroups},
-	} {
-		if err := vpnValidateEnum(check.val, check.flag, check.valid); err != nil {
-			return err
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
+// NetworkVPNTunnelCreate creates a VPN tunnel using the provided args and client.
+func NetworkVPNTunnelCreate(ctx context.Context, client aruba.Client, args NetworkVPNTunnelCreateArgs) error {
 	// Build IP config
 	ipConfig := aruba.NewVPNIPConfig().
-		WithVPC(aruba.VPCRef(projectID, vpcID)).
-		WithElasticIP(aruba.ElasticIPRef(projectID, publicIPID)).
-		WithSubnet(subnetName, subnetCIDR)
+		WithVPC(aruba.VPCRef(args.ProjectID, args.VPCID)).
+		WithElasticIP(aruba.ElasticIPRef(args.ProjectID, args.ElasticIPID)).
+		WithSubnet(args.SubnetName, args.SubnetCIDR)
 
 	// Build IKE settings
-	ike := aruba.NewVPNIKE().WithLifetimeSeconds(int(ikeLifetime))
-	if ikeEncryption != "" {
-		ike.WithEncryption(aruba.IKEEncryption(ikeEncryption))
+	ike := aruba.NewVPNIKE().WithLifetimeSeconds(int(args.IKELifetime))
+	if string(args.IKEEncryption) != "" {
+		ike.WithEncryption(args.IKEEncryption)
 	}
-	if ikeHash != "" {
-		ike.WithHash(aruba.IKEHash(ikeHash))
+	if string(args.IKEHash) != "" {
+		ike.WithHash(args.IKEHash)
 	}
-	if ikeDHGroup != "" {
-		ike.WithDHGroup(aruba.IKEDHGroup(ikeDHGroup))
+	if string(args.IKEDHGroup) != "" {
+		ike.WithDHGroup(args.IKEDHGroup)
 	}
-	if ikeDPDAction != "" {
-		ike.WithDPDAction(aruba.IKEDPDAction(ikeDPDAction))
+	if string(args.IKEDPDAction) != "" {
+		ike.WithDPDAction(args.IKEDPDAction)
 	}
-	if ikeDPDInterval > 0 {
-		ike.WithDPDIntervalSeconds(int(ikeDPDInterval))
+	if args.IKEDPDInterval > 0 {
+		ike.WithDPDIntervalSeconds(int(args.IKEDPDInterval))
 	}
-	if ikeDPDTimeout > 0 {
-		ike.WithDPDTimeoutSeconds(int(ikeDPDTimeout))
+	if args.IKEDPDTimeout > 0 {
+		ike.WithDPDTimeoutSeconds(int(args.IKEDPDTimeout))
 	}
 
 	// Build ESP settings
 	esp := aruba.NewVPNESP().
-		WithEncryption(aruba.ESPEncryption(espEncryption)).
-		WithLifetimeSeconds(int(espLifetime))
-	if espHash != "" {
-		esp.WithHash(aruba.ESPHash(espHash))
+		WithEncryption(args.ESPEncryption).
+		WithLifetimeSeconds(int(args.ESPLifetime))
+	if string(args.ESPHash) != "" {
+		esp.WithHash(args.ESPHash)
 	}
-	if espPFS != "" {
-		esp.WithPFS(aruba.ESPPFSGroup(espPFS))
+	if string(args.ESPPFS) != "" {
+		esp.WithPFS(args.ESPPFS)
 	}
 
 	// Build PSK settings
 	pskBuilder := aruba.NewVPNPSK()
-	if psk != "" {
-		pskBuilder.WithKey(psk)
+	if args.PSK != "" {
+		pskBuilder.WithKey(args.PSK)
 	}
-	if pskCloudSite != "" {
-		pskBuilder.WithCloudSite(pskCloudSite)
+	if args.PSKCloudSite != "" {
+		pskBuilder.WithCloudSite(args.PSKCloudSite)
 	}
-	if pskOnpremSite != "" {
-		pskBuilder.WithOnPremSite(pskOnpremSite)
+	if args.PSKOnpremSite != "" {
+		pskBuilder.WithOnPremSite(args.PSKOnpremSite)
 	}
 
 	tunnel := aruba.NewVPNTunnel().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		OfType(aruba.VPNType(vpnType)).
-		WithVPNClientProtocol(aruba.VPNClientProtocol(protocol)).
-		BilledBy(aruba.BillingPeriod(billingPeriod)).
-		WithPeerClientPublicIP(peerIP).
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		OfType(args.VPNType).
+		WithVPNClientProtocol(args.Protocol).
+		BilledBy(args.BillingPeriod).
+		WithPeerClientPublicIP(args.PeerIP).
 		WithIPConfig(ipConfig).
 		WithIKESettings(ike).
 		WithESPSettings(esp).
 		WithPSKSettings(pskBuilder).
-		RetaggedAs(tags...)
+		RetaggedAs(args.Tags...)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	resp, err := client.FromNetwork().VPNTunnels().Create(ctx, tunnel)
 	if err != nil {
 		return fmt.Errorf("creating VPN tunnel: %w", apiErrFromV2(err))
@@ -524,7 +871,7 @@ func runVPNTunnelCreate(cmd *cobra.Command, args []string) error {
 
 	if resp != nil && resp.Raw() != nil {
 		raw := resp.Raw()
-		fmt.Printf("\n%s\n", msgCreated("VPN Tunnel", name))
+		fmt.Printf("\n%s\n", msgCreated("VPN Tunnel", args.Name))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:       %s\n", *raw.Metadata.ID)
 		}
@@ -544,34 +891,14 @@ func runVPNTunnelCreate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:     %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgCreatedAsync("VPN Tunnel", name))
+		fmt.Println(msgCreatedAsync("VPN Tunnel", args.Name))
 	}
 	return nil
 }
 
-func runVPNTunnelUpdate(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+// NetworkVPNTunnelUpdate updates a VPN tunnel's name and/or tags.
+func NetworkVPNTunnelUpdate(ctx context.Context, client aruba.Client, args NetworkVPNTunnelUpdateArgs) error {
+	vpn, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting VPN tunnel: %w", apiErrFromV2(err))
 	}
@@ -584,11 +911,11 @@ func runVPNTunnelUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot update VPN tunnel while it is in 'InCreation' state. Please wait until the VPN tunnel is fully created")
 	}
 
-	if name != "" {
-		vpn.Named(name)
+	if args.Name != "" {
+		vpn.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		vpn.RetaggedAs(tags...)
+	if args.TagsChanged {
+		vpn.RetaggedAs(args.Tags...)
 	}
 	// sdk-go v1.0.0 fromResponse now rehydrates IKE/ESP/PSK into the wrapper
 	// via IKE()/ESP()/PSK() accessors, so Update carries them in the PUT body
@@ -601,7 +928,7 @@ func runVPNTunnelUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("VPN Tunnel", vpnTunnelID))
+		fmt.Printf("\n%s\n", msgUpdated("VPN Tunnel", args.ID))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 		}
@@ -612,28 +939,30 @@ func runVPNTunnelUpdate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgUpdatedAsync("VPN Tunnel", vpnTunnelID))
+		fmt.Println(msgUpdatedAsync("VPN Tunnel", args.ID))
 	}
 	return nil
 }
 
-func runVPNTunnelDelete(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	if !skipConfirm {
-		ok, err := confirmDelete("VPN tunnel", vpnTunnelID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
+// NetworkVPNTunnelDelete deletes a VPN tunnel.
+func NetworkVPNTunnelDelete(ctx context.Context, client aruba.Client, args NetworkVPNTunnelDeleteArgs) error {
+	err := client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(args.ProjectID, args.ID))
 	if err != nil {
-		return err
+		return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
+	}
+	fmt.Println(msgDeleted("VPN tunnel", args.ID))
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// NetworkVPNTunnelListRun is the Cobra RunE handler for VPN tunnel list.
+func NetworkVPNTunnelListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewNetworkVPNTunnelListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -644,21 +973,111 @@ func runVPNTunnelDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+	if err := NetworkVPNTunnelList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNTunnelGetRun is the Cobra RunE handler for VPN tunnel get.
+func NetworkVPNTunnelGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNTunnelGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNTunnelGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNTunnelCreateRun is the Cobra RunE handler for VPN tunnel create.
+func NetworkVPNTunnelCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewNetworkVPNTunnelCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNTunnelCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNTunnelUpdateRun is the Cobra RunE handler for VPN tunnel update.
+func NetworkVPNTunnelUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNTunnelUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNTunnelUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNTunnelDeleteRun is the Cobra RunE handler for VPN tunnel delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func NetworkVPNTunnelDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNTunnelDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("VPN tunnel", args.ID)
 		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromNetwork().VPNTunnels().Get(ctx, aruba.VPNTunnelRef(args.ProjectID, args.ID)); err != nil {
 			return fmt.Errorf("dry-run: VPN tunnel not found or inaccessible: %w", apiErrFromV2(err))
 		}
-		fmt.Println(msgDryRun("VPN tunnel", vpnTunnelID))
+		fmt.Println(msgDryRun("VPN tunnel", args.ID))
 		return nil
 	}
 
-	err = client.FromNetwork().VPNTunnels().Delete(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
-	if err != nil {
-		return fmt.Errorf("deleting VPN tunnel: %w", apiErrFromV2(err))
+	if err := NetworkVPNTunnelDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
-
-	fmt.Println(msgDeleted("VPN tunnel", vpnTunnelID))
 	return nil
 }

@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -129,95 +131,400 @@ Example target values:
     --direction Egress --protocol ANY \
     --target-kind Ip --target-value 0.0.0.0/0`,
 	Args: cobra.ExactArgs(2),
-	RunE: runSecurityRuleCreate,
+	RunE: NetworkSecurityRuleCreateRun,
 }
 
 var securityruleGetCmd = &cobra.Command{
 	Use:   "get [vpc-id] [securitygroup-id] [securityrule-id]",
 	Short: "Get security rule details",
 	Args:  cobra.ExactArgs(3),
-	RunE:  runSecurityRuleGet,
+	RunE:  NetworkSecurityRuleGetRun,
 }
 
 var securityruleListCmd = &cobra.Command{
 	Use:   "list [vpc-id] [securitygroup-id]",
 	Short: "List security rules for a security group",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runSecurityRuleList,
+	RunE:  NetworkSecurityRuleListRun,
 }
 
 var securityruleUpdateCmd = &cobra.Command{
 	Use:   "update [vpc-id] [securitygroup-id] [securityrule-id]",
 	Short: "Update a security rule",
 	Args:  cobra.ExactArgs(3),
-	RunE:  runSecurityRuleUpdate,
+	RunE:  NetworkSecurityRuleUpdateRun,
 }
 
 var securityruleDeleteCmd = &cobra.Command{
 	Use:   "delete [vpc-id] [securitygroup-id] [securityrule-id]",
 	Short: "Delete a security rule",
 	Args:  cobra.ExactArgs(3),
-	RunE:  runSecurityRuleDelete,
+	RunE:  NetworkSecurityRuleDeleteRun,
 }
 
-func runSecurityRuleCreate(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	securityGroupID := args[1]
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	direction, _ := cmd.Flags().GetString("direction")
-	protocol, _ := cmd.Flags().GetString("protocol")
-	port, _ := cmd.Flags().GetString("port")
-	targetKind, _ := cmd.Flags().GetString("target-kind")
-	targetValue, _ := cmd.Flags().GetString("target-value")
-	verbose, _ := cmd.Flags().GetBool("verbose")
+// NetworkSecurityRuleCreateArgs holds the typed arguments for creating a security rule.
+type NetworkSecurityRuleCreateArgs struct {
+	ProjectID   string
+	VPCID       string
+	SGID        string
+	Name        string
+	Region      aruba.Region
+	Tags        []string
+	Direction   string
+	Protocol    string
+	Port        string
+	TargetKind  string
+	TargetValue string
+	Verbose     bool
+}
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// NetworkSecurityRuleGetArgs holds the typed arguments for getting a security rule.
+type NetworkSecurityRuleGetArgs struct {
+	ProjectID string
+	VPCID     string
+	SGID      string
+	RuleID    string
+}
+
+// NetworkSecurityRuleUpdateArgs holds the typed arguments for updating a security rule.
+type NetworkSecurityRuleUpdateArgs struct {
+	ProjectID   string
+	VPCID       string
+	SGID        string
+	RuleID      string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+	Debug       bool
+}
+
+// NetworkSecurityRuleDeleteArgs holds the typed arguments for deleting a security rule.
+type NetworkSecurityRuleDeleteArgs struct {
+	ProjectID   string
+	VPCID       string
+	SGID        string
+	RuleID      string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// NetworkSecurityRuleListArgs holds the typed arguments for listing security rules.
+type NetworkSecurityRuleListArgs struct {
+	ProjectID string
+	VPCID     string
+	SGID      string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkSecurityRuleCreateArgsFromCobraCommand parses and validates args for create.
+func NewNetworkSecurityRuleCreateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSecurityRuleCreateArgs, error) {
+	args := &NetworkSecurityRuleCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSecurityRuleGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkSecurityRuleGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSecurityRuleGetArgs, error) {
+	args := &NetworkSecurityRuleGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSecurityRuleUpdateArgsFromCobraCommand parses and validates args for update.
+func NewNetworkSecurityRuleUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSecurityRuleUpdateArgs, error) {
+	args := &NetworkSecurityRuleUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSecurityRuleDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewNetworkSecurityRuleDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSecurityRuleDeleteArgs, error) {
+	args := &NetworkSecurityRuleDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkSecurityRuleListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkSecurityRuleListArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkSecurityRuleListArgs, error) {
+	args := &NetworkSecurityRuleListArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the create args struct.
+func (a *NetworkSecurityRuleCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SGID = cobraArgs[1]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Direction, err = cmd.Flags().GetString("direction"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Protocol, err = cmd.Flags().GetString("protocol"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Port, err = cmd.Flags().GetString("port"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.TargetKind, err = cmd.Flags().GetString("target-kind"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.TargetValue, err = cmd.Flags().GetString("target-value"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		errs = append(errs, err)
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkSecurityRuleGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SGID = cobraArgs[1]
+	}
+	if len(cobraArgs) > 2 {
+		a.RuleID = cobraArgs[2]
 	}
 
-	if verbose {
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *NetworkSecurityRuleUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SGID = cobraArgs[1]
+	}
+	if len(cobraArgs) > 2 {
+		a.RuleID = cobraArgs[2]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+	if debugEnabled, err := rootCmd.PersistentFlags().GetBool("debug"); err == nil {
+		a.Debug = debugEnabled
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *NetworkSecurityRuleDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SGID = cobraArgs[1]
+	}
+	if len(cobraArgs) > 2 {
+		a.RuleID = cobraArgs[2]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the list args struct.
+func (a *NetworkSecurityRuleListArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.VPCID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.SGID = cobraArgs[1]
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks that create args are valid.
+func (a *NetworkSecurityRuleCreateArgs) Validate() error {
+	var errs []error
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.Direction == "" {
+		errs = append(errs, errors.New("--direction is required"))
+	}
+	if a.Protocol == "" {
+		errs = append(errs, errors.New("--protocol is required"))
+	}
+	if a.TargetKind == "" {
+		errs = append(errs, errors.New("--target-kind is required"))
+	}
+	if a.TargetValue == "" {
+		errs = append(errs, errors.New("--target-value is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks that get args are valid.
+func (a *NetworkSecurityRuleGetArgs) Validate() error {
+	return nil
+}
+
+// Validate checks that update args are valid.
+func (a *NetworkSecurityRuleUpdateArgs) Validate() error {
+	var errs []error
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one field (--name or --tags) must be provided for update"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks that delete args are valid.
+func (a *NetworkSecurityRuleDeleteArgs) Validate() error {
+	return nil
+}
+
+// Validate checks that list args are valid.
+func (a *NetworkSecurityRuleListArgs) Validate() error {
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkSecurityRuleCreate creates a new security rule.
+func NetworkSecurityRuleCreate(ctx context.Context, client aruba.Client, args NetworkSecurityRuleCreateArgs) error {
+	if args.Verbose {
 		fmt.Println("Creating security rule with the following parameters:")
-		fmt.Printf("  Name:         %s\n", name)
-		fmt.Printf("  Region:       %s\n", region)
-		fmt.Printf("  Direction:    %s\n", direction)
-		fmt.Printf("  Protocol:     %s\n", protocol)
-		fmt.Printf("  Port:         %s\n", port)
-		fmt.Printf("  Target Kind:  %s\n", targetKind)
-		fmt.Printf("  Target Value: %s\n", targetValue)
-		if len(tags) > 0 {
-			fmt.Printf("  Tags:         %v\n", tags)
+		fmt.Printf("  Name:         %s\n", args.Name)
+		fmt.Printf("  Region:       %s\n", string(args.Region))
+		fmt.Printf("  Direction:    %s\n", args.Direction)
+		fmt.Printf("  Protocol:     %s\n", args.Protocol)
+		fmt.Printf("  Port:         %s\n", args.Port)
+		fmt.Printf("  Target Kind:  %s\n", args.TargetKind)
+		fmt.Printf("  Target Value: %s\n", args.TargetValue)
+		if len(args.Tags) > 0 {
+			fmt.Printf("  Tags:         %v\n", args.Tags)
 		}
 		fmt.Println()
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-
 	rule := aruba.NewSecurityRule().
-		InSecurityGroup(aruba.SecurityGroupRef(projectID, vpcID, securityGroupID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		WithDirection(aruba.RuleDirection(direction)).
-		WithProtocol(aruba.RuleProtocol(protocol)).
-		RetaggedAs(tags...)
+		InSecurityGroup(aruba.SecurityGroupRef(args.ProjectID, args.VPCID, args.SGID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		WithDirection(aruba.RuleDirection(args.Direction)).
+		WithProtocol(aruba.RuleProtocol(args.Protocol)).
+		RetaggedAs(args.Tags...)
 
-	if port != "" {
-		rule = rule.WithPort(port)
+	if args.Port != "" {
+		rule = rule.WithPort(args.Port)
 	}
 
-	if aruba.EndpointTypeDto(targetKind) == aruba.EndpointTypeSecurityGroup {
-		rule = rule.TargetingSecurityGroup(aruba.URI(targetValue))
+	if aruba.EndpointTypeDto(args.TargetKind) == aruba.EndpointTypeSecurityGroup {
+		rule = rule.TargetingSecurityGroup(aruba.URI(args.TargetValue))
 	} else {
-		rule = rule.TargetingCIDR(targetValue)
+		rule = rule.TargetingCIDR(args.TargetValue)
 	}
 
 	resp, err := client.FromNetwork().SecurityGroupRules().Create(ctx, rule)
@@ -243,32 +550,17 @@ func runSecurityRuleCreate(cmd *cobra.Command, args []string) error {
 		if raw.Status.State != nil {
 			status = string(*raw.Status.State)
 		}
-		row := []string{name, id, direction, protocol, port, status}
+		row := []string{args.Name, id, args.Direction, args.Protocol, args.Port, status}
 		PrintOutput(resp, headers, [][]string{row})
 	} else {
-		fmt.Println(msgCreatedAsync("Security rule", name))
+		fmt.Println(msgCreatedAsync("Security rule", args.Name))
 	}
 	return nil
 }
 
-func runSecurityRuleGet(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	securityGroupID := args[1]
-	securityRuleID := args[2]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	rule, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+// NetworkSecurityRuleGet retrieves a security rule by ID.
+func NetworkSecurityRuleGet(ctx context.Context, client aruba.Client, args NetworkSecurityRuleGetArgs) error {
+	rule, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(args.ProjectID, args.VPCID, args.SGID, args.RuleID))
 	if err != nil {
 		return fmt.Errorf("getting security rule: %w", apiErrFromV2(err))
 	}
@@ -316,23 +608,97 @@ func runSecurityRuleGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSecurityRuleList(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	securityGroupID := args[1]
-
-	projectID, err := GetProjectID(cmd)
+// NetworkSecurityRuleUpdate updates an existing security rule.
+func NetworkSecurityRuleUpdate(ctx context.Context, client aruba.Client, args NetworkSecurityRuleUpdateArgs) error {
+	rule, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(args.ProjectID, args.VPCID, args.SGID, args.RuleID))
 	if err != nil {
-		return err
+		return fmt.Errorf("fetching current security rule: %w", apiErrFromV2(err))
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	if rule == nil || rule.Raw() == nil {
+		return fmt.Errorf("security rule not found or no data returned")
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().SecurityGroupRules().List(ctx, aruba.SecurityGroupRef(projectID, vpcID, securityGroupID))
+	if rule.Raw().Status.State != nil && *rule.Raw().Status.State == StateInCreation {
+		return fmt.Errorf("cannot update security rule while it is in 'InCreation' state. Please wait until the security rule is fully created")
+	}
+
+	if args.Name != "" {
+		rule.Named(args.Name)
+	}
+	if args.TagsChanged {
+		rule.RetaggedAs(args.Tags...)
+	}
+
+	if args.Debug {
+		fmt.Fprintf(os.Stderr, "\n=== DEBUG: Security Rule Update ===\n")
+		fmt.Fprintf(os.Stderr, "VPC ID: %s\n", args.VPCID)
+		fmt.Fprintf(os.Stderr, "Security Group ID: %s\n", args.SGID)
+		fmt.Fprintf(os.Stderr, "Security Rule ID: %s\n", args.RuleID)
+		if reqJSON, err := json.Marshal(rule.RawRequest()); err == nil {
+			fmt.Fprintf(os.Stderr, "Request: %s\n", reqJSON)
+		}
+		fmt.Fprintf(os.Stderr, "===================================\n\n")
+	}
+
+	updated, err := client.FromNetwork().SecurityGroupRules().Update(ctx, rule)
+	if err != nil {
+		return fmt.Errorf("updating security rule: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "DIRECTION", Width: 12},
+			{Header: "PROTOCOL", Width: 12},
+			{Header: "PORT", Width: 12},
+			{Header: "STATUS", Width: 15},
+		}
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
+		}
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		status := ""
+		if raw.Status.State != nil {
+			status = string(*raw.Status.State)
+		}
+		row := []string{nameVal, id, string(raw.Properties.Direction), string(raw.Properties.Protocol), raw.Properties.Port, status}
+		PrintOutput(updated, headers, [][]string{row})
+	} else {
+		fmt.Println(msgUpdatedAsync("Security rule", args.RuleID))
+	}
+	return nil
+}
+
+// NetworkSecurityRuleDelete deletes a security rule.
+func NetworkSecurityRuleDelete(ctx context.Context, client aruba.Client, args NetworkSecurityRuleDeleteArgs) error {
+	err := client.FromNetwork().SecurityGroupRules().Delete(ctx, aruba.SecurityRuleRef(args.ProjectID, args.VPCID, args.SGID, args.RuleID))
+	if err != nil {
+		return fmt.Errorf("deleting security rule: %w", apiErrFromV2(err))
+	}
+
+	headers := []TableColumn{
+		{Header: "ID", Width: 26},
+		{Header: "STATUS", Width: 15},
+	}
+	status := "deleted"
+	result := struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}{args.RuleID, status}
+	PrintOutput(result, headers, [][]string{{args.RuleID, status}})
+	return nil
+}
+
+// NetworkSecurityRuleList lists security rules for a security group.
+func NetworkSecurityRuleList(ctx context.Context, client aruba.Client, args NetworkSecurityRuleListArgs) error {
+	list, err := client.FromNetwork().SecurityGroupRules().List(ctx, aruba.SecurityGroupRef(args.ProjectID, args.VPCID, args.SGID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing security rules: %w", apiErrFromV2(err))
 	}
@@ -381,21 +747,15 @@ func runSecurityRuleList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSecurityRuleUpdate(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	securityGroupID := args[1]
-	securityRuleID := args[2]
+// =============================================================================
+// Run wiring functions
+// =============================================================================
 
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one field (--name or --tags) must be provided for update")
-	}
-
-	projectID, err := GetProjectID(cmd)
+// NetworkSecurityRuleCreateRun is the RunE wiring for security rule create.
+func NetworkSecurityRuleCreateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSecurityRuleCreateArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking args: %w", err)
 	}
 
 	client, err := GetArubaClient()
@@ -406,87 +766,63 @@ func runSecurityRuleUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	rule, err := client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
-	if err != nil {
-		return fmt.Errorf("fetching current security rule: %w", apiErrFromV2(err))
-	}
-
-	if rule == nil || rule.Raw() == nil {
-		return fmt.Errorf("security rule not found or no data returned")
-	}
-
-	if rule.Raw().Status.State != nil && *rule.Raw().Status.State == StateInCreation {
-		return fmt.Errorf("cannot update security rule while it is in 'InCreation' state. Please wait until the security rule is fully created")
-	}
-
-	if name != "" {
-		rule.Named(name)
-	}
-	if cmd.Flags().Changed("tags") {
-		rule.RetaggedAs(tags...)
-	}
-
-	debugEnabled, _ := rootCmd.PersistentFlags().GetBool("debug")
-	if debugEnabled {
-		fmt.Fprintf(os.Stderr, "\n=== DEBUG: Security Rule Update ===\n")
-		fmt.Fprintf(os.Stderr, "VPC ID: %s\n", vpcID)
-		fmt.Fprintf(os.Stderr, "Security Group ID: %s\n", securityGroupID)
-		fmt.Fprintf(os.Stderr, "Security Rule ID: %s\n", securityRuleID)
-		if reqJSON, err := json.Marshal(rule.RawRequest()); err == nil {
-			fmt.Fprintf(os.Stderr, "Request: %s\n", reqJSON)
-		}
-		fmt.Fprintf(os.Stderr, "===================================\n\n")
-	}
-
-	updated, err := client.FromNetwork().SecurityGroupRules().Update(ctx, rule)
-	if err != nil {
-		return fmt.Errorf("updating security rule: %w", apiErrFromV2(err))
-	}
-
-	if updated != nil && updated.Raw() != nil {
-		raw := updated.Raw()
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "DIRECTION", Width: 12},
-			{Header: "PROTOCOL", Width: 12},
-			{Header: "PORT", Width: 12},
-			{Header: "STATUS", Width: 15},
-		}
-		nameVal := ""
-		if raw.Metadata.Name != nil {
-			nameVal = *raw.Metadata.Name
-		}
-		id := ""
-		if raw.Metadata.ID != nil {
-			id = *raw.Metadata.ID
-		}
-		status := ""
-		if raw.Status.State != nil {
-			status = string(*raw.Status.State)
-		}
-		row := []string{nameVal, id, string(raw.Properties.Direction), string(raw.Properties.Protocol), raw.Properties.Port, status}
-		PrintOutput(updated, headers, [][]string{row})
-	} else {
-		fmt.Println(msgUpdatedAsync("Security rule", securityRuleID))
+	if err := NetworkSecurityRuleCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }
 
-func runSecurityRuleDelete(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-	securityGroupID := args[1]
-	securityRuleID := args[2]
-
-	projectID, err := GetProjectID(cmd)
+// NetworkSecurityRuleGetRun is the RunE wiring for security rule get.
+func NetworkSecurityRuleGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSecurityRuleGetArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
 
-	if !skipConfirm {
-		ok, err := confirmDelete("security rule", securityRuleID)
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSecurityRuleGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSecurityRuleUpdateRun is the RunE wiring for security rule update.
+func NetworkSecurityRuleUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSecurityRuleUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSecurityRuleUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSecurityRuleDeleteRun is the RunE wiring for security rule delete.
+func NetworkSecurityRuleDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSecurityRuleDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("security rule", args.RuleID)
 		if err != nil {
 			return err
 		}
@@ -503,30 +839,38 @@ func runSecurityRuleDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+	if args.DryRun {
+		_, err = client.FromNetwork().SecurityGroupRules().Get(ctx, aruba.SecurityRuleRef(args.ProjectID, args.VPCID, args.SGID, args.RuleID))
 		if err != nil {
 			return fmt.Errorf("dry-run: security rule not found or inaccessible: %w", apiErrFromV2(err))
 		}
-		fmt.Println(msgDryRun("security rule", securityRuleID))
+		fmt.Println(msgDryRun("security rule", args.RuleID))
 		return nil
 	}
 
-	err = client.FromNetwork().SecurityGroupRules().Delete(ctx, aruba.SecurityRuleRef(projectID, vpcID, securityGroupID, securityRuleID))
+	if err := NetworkSecurityRuleDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkSecurityRuleListRun is the RunE wiring for security rule list.
+func NetworkSecurityRuleListRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkSecurityRuleListArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return fmt.Errorf("deleting security rule: %w", apiErrFromV2(err))
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	headers := []TableColumn{
-		{Header: "ID", Width: 26},
-		{Header: "STATUS", Width: 15},
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
 	}
-	status := "deleted"
-	result := struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{securityRuleID, status}
-	PrintOutput(result, headers, [][]string{{securityRuleID, status}})
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkSecurityRuleList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

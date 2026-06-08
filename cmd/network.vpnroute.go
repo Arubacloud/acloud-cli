@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -97,82 +99,374 @@ var vpnrouteCreateCmd = &cobra.Command{
 Specify the cloud-side subnet with --cloud-subnet and the on-premises subnet
 with --onprem-subnet. Both values should be valid CIDR blocks.`,
 	Example: `  acloud network vpnroute create <vpn-tunnel-id> \
-    --name my-route --region IT-BG \
+    --name my-route --region ITBG-Bergamo \
     --cloud-subnet 10.0.0.0/24 \
     --onprem-subnet 192.168.1.0/24`,
 	Args: cobra.ExactArgs(1),
-	RunE: runVPNRouteCreate,
+	RunE: NetworkVPNRouteCreateRun,
 }
 
 var vpnrouteGetCmd = &cobra.Command{
 	Use:   "get [vpn-tunnel-id] [route-id]",
 	Short: "Get VPN tunnel route details",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runVPNRouteGet,
+	RunE:  NetworkVPNRouteGetRun,
 }
 
 var vpnrouteListCmd = &cobra.Command{
 	Use:   "list [vpn-tunnel-id]",
 	Short: "List VPN tunnel routes",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPNRouteList,
+	RunE:  NetworkVPNRouteListRun,
 }
 
 var vpnrouteUpdateCmd = &cobra.Command{
 	Use:   "update [vpn-tunnel-id] [route-id]",
 	Short: "Update a VPN tunnel route",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runVPNRouteUpdate,
+	RunE:  NetworkVPNRouteUpdateRun,
 }
 
 var vpnrouteDeleteCmd = &cobra.Command{
 	Use:   "delete [vpn-tunnel-id] [route-id]",
 	Short: "Delete a VPN tunnel route",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runVPNRouteDelete,
+	RunE:  NetworkVPNRouteDeleteRun,
 }
 
-func runVPNRouteCreate(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	cloudSubnet, _ := cmd.Flags().GetString("cloud-subnet")
-	onPremSubnet, _ := cmd.Flags().GetString("onprem-subnet")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	verbose, _ := cmd.Flags().GetBool("verbose")
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// NetworkVPNRouteCreateArgs holds the typed arguments for creating a VPN route.
+type NetworkVPNRouteCreateArgs struct {
+	ProjectID    string
+	TunnelID     string
+	Name         string
+	Region       aruba.Region
+	LocalSubnet  string
+	RemoteSubnet string
+	Tags         []string
+	Verbose      bool
+}
+
+// NetworkVPNRouteGetArgs holds the typed arguments for getting a VPN route.
+type NetworkVPNRouteGetArgs struct {
+	ProjectID string
+	TunnelID  string
+	RouteID   string
+}
+
+// NetworkVPNRouteUpdateArgs holds the typed arguments for updating a VPN route.
+type NetworkVPNRouteUpdateArgs struct {
+	ProjectID   string
+	TunnelID    string
+	RouteID     string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// NetworkVPNRouteDeleteArgs holds the typed arguments for deleting a VPN route.
+type NetworkVPNRouteDeleteArgs struct {
+	ProjectID   string
+	TunnelID    string
+	RouteID     string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// NetworkVPNRouteListArgs holds the typed arguments for listing VPN routes.
+type NetworkVPNRouteListArgs struct {
+	ProjectID string
+	TunnelID  string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkVPNRouteCreateArgsFromCobraCommand parses and validates args for create.
+func NewNetworkVPNRouteCreateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNRouteCreateArgs, error) {
+	args := &NetworkVPNRouteCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
 	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNRouteGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkVPNRouteGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNRouteGetArgs, error) {
+	args := &NetworkVPNRouteGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNRouteUpdateArgsFromCobraCommand parses and validates args for update.
+func NewNetworkVPNRouteUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNRouteUpdateArgs, error) {
+	args := &NetworkVPNRouteUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNRouteDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewNetworkVPNRouteDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNRouteDeleteArgs, error) {
+	args := &NetworkVPNRouteDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPNRouteListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkVPNRouteListArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPNRouteListArgs, error) {
+	args := &NetworkVPNRouteListArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the create args struct.
+func (a *NetworkVPNRouteCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.TunnelID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.LocalSubnet, err = cmd.Flags().GetString("cloud-subnet"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.RemoteSubnet, err = cmd.Flags().GetString("onprem-subnet"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		errs = append(errs, err)
 	}
 
-	// Debug output if verbose
-	if verbose {
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkVPNRouteGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.TunnelID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.RouteID = cobraArgs[1]
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *NetworkVPNRouteUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.TunnelID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.RouteID = cobraArgs[1]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *NetworkVPNRouteDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.TunnelID = cobraArgs[0]
+	}
+	if len(cobraArgs) > 1 {
+		a.RouteID = cobraArgs[1]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the list args struct.
+func (a *NetworkVPNRouteListArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.TunnelID = cobraArgs[0]
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *NetworkVPNRouteCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if a.TunnelID == "" {
+		errs = append(errs, errors.New("VPN tunnel ID is required"))
+	}
+	if a.LocalSubnet == "" {
+		errs = append(errs, errors.New("--cloud-subnet is required"))
+	}
+	if a.RemoteSubnet == "" {
+		errs = append(errs, errors.New("--onprem-subnet is required"))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *NetworkVPNRouteGetArgs) Validate() error {
+	var errs []error
+	if a.TunnelID == "" {
+		errs = append(errs, errors.New("VPN tunnel ID is required"))
+	}
+	if a.RouteID == "" {
+		errs = append(errs, errors.New("route ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the update args for correctness.
+func (a *NetworkVPNRouteUpdateArgs) Validate() error {
+	var errs []error
+	if a.RouteID == "" {
+		errs = append(errs, errors.New("route ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one field must be provided for update"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *NetworkVPNRouteDeleteArgs) Validate() error {
+	var errs []error
+	if a.RouteID == "" {
+		errs = append(errs, errors.New("route ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the list args for correctness.
+func (a *NetworkVPNRouteListArgs) Validate() error {
+	var errs []error
+	if a.TunnelID == "" {
+		errs = append(errs, errors.New("VPN tunnel ID is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkVPNRouteCreate creates a VPN route using the provided args and client.
+func NetworkVPNRouteCreate(ctx context.Context, client aruba.Client, args NetworkVPNRouteCreateArgs) error {
+	if args.Verbose {
 		fmt.Println("Creating VPN route with the following parameters:")
-		fmt.Printf("  Name:          %s\n", name)
-		fmt.Printf("  Region:        %s\n", region)
-		fmt.Printf("  Cloud Subnet:  %s\n", cloudSubnet)
-		fmt.Printf("  OnPrem Subnet: %s\n", onPremSubnet)
-		if len(tags) > 0 {
-			fmt.Printf("  Tags:          %v\n", tags)
+		fmt.Printf("  Name:          %s\n", args.Name)
+		fmt.Printf("  Region:        %s\n", args.Region)
+		fmt.Printf("  Cloud Subnet:  %s\n", args.LocalSubnet)
+		fmt.Printf("  OnPrem Subnet: %s\n", args.RemoteSubnet)
+		if len(args.Tags) > 0 {
+			fmt.Printf("  Tags:          %v\n", args.Tags)
 		}
 		fmt.Println()
 	}
 
 	route := aruba.NewVPNRoute().
-		InVPNTunnel(aruba.VPNTunnelRef(projectID, vpnTunnelID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		WithCloudSubnet(cloudSubnet).
-		WithOnPremSubnet(onPremSubnet).
-		RetaggedAs(tags...)
+		InVPNTunnel(aruba.VPNTunnelRef(args.ProjectID, args.TunnelID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		WithCloudSubnet(args.LocalSubnet).
+		WithOnPremSubnet(args.RemoteSubnet).
+		RetaggedAs(args.Tags...)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	resp, err := client.FromNetwork().VPNRoutes().Create(ctx, route)
 	if err != nil {
 		return fmt.Errorf("creating VPN route: %w", apiErrFromV2(err))
@@ -197,28 +491,17 @@ func runVPNRouteCreate(cmd *cobra.Command, args []string) error {
 		if raw.Status.State != nil {
 			status = string(*raw.Status.State)
 		}
-		row := []string{name, id, cloudSubnetVal, onPremSubnetVal, status}
+		row := []string{args.Name, id, cloudSubnetVal, onPremSubnetVal, status}
 		PrintOutput(resp, headers, [][]string{row})
 	} else {
-		fmt.Println(msgCreatedAsync("VPN route", name))
+		fmt.Println(msgCreatedAsync("VPN route", args.Name))
 	}
 	return nil
 }
 
-func runVPNRouteGet(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-	routeID := args[1]
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-	ctx, cancel := newCtx()
-	defer cancel()
-	route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
+// NetworkVPNRouteGet retrieves and displays a VPN route's details.
+func NetworkVPNRouteGet(ctx context.Context, client aruba.Client, args NetworkVPNRouteGetArgs) error {
+	route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(args.ProjectID, args.TunnelID, args.RouteID))
 	if err != nil {
 		return fmt.Errorf("getting VPN route: %w", apiErrFromV2(err))
 	}
@@ -261,19 +544,83 @@ func runVPNRouteGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVPNRouteList(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// NetworkVPNRouteUpdate updates a VPN route's name and/or tags.
+func NetworkVPNRouteUpdate(ctx context.Context, client aruba.Client, args NetworkVPNRouteUpdateArgs) error {
+	route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(args.ProjectID, args.TunnelID, args.RouteID))
+	if err != nil || route == nil || route.Raw() == nil {
+		return fmt.Errorf("fetching current VPN route: %w", apiErrFromV2(err))
 	}
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+
+	if route.Raw().Status.State != nil && *route.Raw().Status.State == StateInCreation {
+		return fmt.Errorf("cannot update VPN route while it is in 'InCreation' state. Please wait until the VPN route is fully created")
 	}
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
+
+	if args.Name != "" {
+		route.Named(args.Name)
+	}
+	if args.TagsChanged {
+		route.RetaggedAs(args.Tags...)
+	}
+
+	updated, err := client.FromNetwork().VPNRoutes().Update(ctx, route)
+	if err != nil {
+		return fmt.Errorf("updating VPN route: %w", apiErrFromV2(err))
+	}
+
+	if updated != nil && updated.Raw() != nil {
+		raw := updated.Raw()
+		headers := []TableColumn{
+			{Header: "NAME", Width: 30},
+			{Header: "ID", Width: 26},
+			{Header: "CLOUD SUBNET", Width: 18},
+			{Header: "ONPREM SUBNET", Width: 18},
+			{Header: "STATUS", Width: 15},
+		}
+		nameVal := ""
+		if raw.Metadata.Name != nil {
+			nameVal = *raw.Metadata.Name
+		}
+		id := ""
+		if raw.Metadata.ID != nil {
+			id = *raw.Metadata.ID
+		}
+		cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
+		onPremSubnetVal := raw.Properties.OnPremSubnet
+		status := ""
+		if raw.Status.State != nil {
+			status = string(*raw.Status.State)
+		}
+		row := []string{nameVal, id, cloudSubnetVal, onPremSubnetVal, status}
+		PrintOutput(updated, headers, [][]string{row})
+	} else {
+		fmt.Println(msgUpdatedAsync("VPN route", args.RouteID))
+	}
+	return nil
+}
+
+// NetworkVPNRouteDelete deletes a VPN route.
+func NetworkVPNRouteDelete(ctx context.Context, client aruba.Client, args NetworkVPNRouteDeleteArgs) error {
+	err := client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(args.ProjectID, args.TunnelID, args.RouteID))
+	if err != nil {
+		return fmt.Errorf("deleting VPN route: %w", apiErrFromV2(err))
+	}
+
+	headers := []TableColumn{
+		{Header: "ID", Width: 26},
+		{Header: "STATUS", Width: 15},
+	}
+	status := "deleted"
+	result := struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}{args.RouteID, status}
+	PrintOutput(result, headers, [][]string{{args.RouteID, status}})
+	return nil
+}
+
+// NetworkVPNRouteList lists VPN routes under a tunnel.
+func NetworkVPNRouteList(ctx context.Context, client aruba.Client, args NetworkVPNRouteListArgs) error {
+	list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(args.ProjectID, args.TunnelID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing VPN routes: %w", apiErrFromV2(err))
 	}
@@ -315,101 +662,83 @@ func runVPNRouteList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVPNRouteUpdate(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-	routeID := args[1]
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	cloudSubnet, _ := cmd.Flags().GetString("cloud-subnet")
-	onPremSubnet, _ := cmd.Flags().GetString("onprem-subnet")
+// =============================================================================
+// Run wiring functions
+// =============================================================================
 
-	if name == "" && !cmd.Flags().Changed("tags") && cloudSubnet == "" && onPremSubnet == "" {
-		return fmt.Errorf("at least one field must be provided for update")
-	}
-
-	projectID, err := GetProjectID(cmd)
+// NetworkVPNRouteCreateRun is the Cobra RunE handler for VPN route create.
+func NetworkVPNRouteCreateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNRouteCreateArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking args: %w", err)
 	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}
+
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	// Fetch current VPN route details
-	route, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
-	if err != nil || route == nil || route.Raw() == nil {
-		return fmt.Errorf("fetching current VPN route: %w", apiErrFromV2(err))
-	}
-
-	// Block update if VPN route is in 'InCreation' state
-	if route.Raw().Status.State != nil && *route.Raw().Status.State == StateInCreation {
-		return fmt.Errorf("cannot update VPN route while it is in 'InCreation' state. Please wait until the VPN route is fully created")
-	}
-
-	if name != "" {
-		route.Named(name)
-	}
-	if cmd.Flags().Changed("tags") {
-		route.RetaggedAs(tags...)
-	}
-	if cloudSubnet != "" {
-		route.WithCloudSubnet(cloudSubnet)
-	}
-	if onPremSubnet != "" {
-		route.WithOnPremSubnet(onPremSubnet)
-	}
-
-	updated, err := client.FromNetwork().VPNRoutes().Update(ctx, route)
-	if err != nil {
-		return fmt.Errorf("updating VPN route: %w", apiErrFromV2(err))
-	}
-
-	if updated != nil && updated.Raw() != nil {
-		raw := updated.Raw()
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "CLOUD SUBNET", Width: 18},
-			{Header: "ONPREM SUBNET", Width: 18},
-			{Header: "STATUS", Width: 15},
-		}
-		nameVal := ""
-		if raw.Metadata.Name != nil {
-			nameVal = *raw.Metadata.Name
-		}
-		id := ""
-		if raw.Metadata.ID != nil {
-			id = *raw.Metadata.ID
-		}
-		cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
-		onPremSubnetVal := raw.Properties.OnPremSubnet
-		status := ""
-		if raw.Status.State != nil {
-			status = string(*raw.Status.State)
-		}
-		row := []string{nameVal, id, cloudSubnetVal, onPremSubnetVal, status}
-		PrintOutput(updated, headers, [][]string{row})
-	} else {
-		fmt.Println(msgUpdatedAsync("VPN route", routeID))
+	if err := NetworkVPNRouteCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }
 
-func runVPNRouteDelete(cmd *cobra.Command, args []string) error {
-	vpnTunnelID := args[0]
-	routeID := args[1]
-
-	projectID, err := GetProjectID(cmd)
+// NetworkVPNRouteGetRun is the Cobra RunE handler for VPN route get.
+func NetworkVPNRouteGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNRouteGetArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	if !skipConfirm {
-		ok, err := confirmDelete("VPN route", routeID)
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNRouteGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNRouteUpdateRun is the Cobra RunE handler for VPN route update.
+func NetworkVPNRouteUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNRouteUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNRouteUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNRouteDeleteRun is the Cobra RunE handler for VPN route delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func NetworkVPNRouteDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNRouteDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("VPN route", args.RouteID)
 		if err != nil {
 			return err
 		}
@@ -422,33 +751,41 @@ func runVPNRouteDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing client: %w", err)
 	}
+
 	ctx, cancel := newCtx()
 	defer cancel()
 
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
-		if err != nil {
+	if args.DryRun {
+		if _, err := client.FromNetwork().VPNRoutes().Get(ctx, aruba.VPNRouteRef(args.ProjectID, args.TunnelID, args.RouteID)); err != nil {
 			return fmt.Errorf("dry-run: VPN route not found or inaccessible: %w", apiErrFromV2(err))
 		}
-		fmt.Println(msgDryRun("VPN route", routeID))
+		fmt.Println(msgDryRun("VPN route", args.RouteID))
 		return nil
 	}
 
-	err = client.FromNetwork().VPNRoutes().Delete(ctx, aruba.VPNRouteRef(projectID, vpnTunnelID, routeID))
+	if err := NetworkVPNRouteDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPNRouteListRun is the Cobra RunE handler for VPN route list.
+func NetworkVPNRouteListRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPNRouteListArgsFromCobraCommand(cmd, cobraArgs)
 	if err != nil {
-		return fmt.Errorf("deleting VPN route: %w", apiErrFromV2(err))
+		return fmt.Errorf("checking args: %w", err)
 	}
 
-	headers := []TableColumn{
-		{Header: "ID", Width: 26},
-		{Header: "STATUS", Width: 15},
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
 	}
-	status := "deleted"
-	result := struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{routeID, status}
-	PrintOutput(result, headers, [][]string{{routeID, status}})
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPNRouteList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

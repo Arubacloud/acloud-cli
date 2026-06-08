@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -165,7 +168,7 @@ func TestVPNRouteCreateCmd(t *testing.T) {
 		"network", "vpnroute", "create", "vpn-001",
 		"--project-id", "proj-123",
 		"--name", "my-route",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--cloud-subnet", "10.0.0.0/24",
 		"--onprem-subnet", "192.168.1.0/24",
 	}
@@ -413,7 +416,7 @@ func TestVPNRouteCreateCmd_WithStatus(t *testing.T) {
 		"network", "vpnroute", "create", "vpn-001",
 		"--project-id", "proj-123",
 		"--name", "my-route",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--cloud-subnet", "10.0.0.0/24",
 		"--onprem-subnet", "192.168.1.0/24",
 	})
@@ -447,7 +450,7 @@ func TestVPNRouteGetCmd_FullDetail(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "route-001", "my-route"
 	uri := "/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001"
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	state := types.StateActive
 	createdBy := "test-user@example.com"
 	now := time.Now()
@@ -472,5 +475,291 @@ func TestVPNRouteGetCmd_FullDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "route-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validNetworkVPNRouteCreateArgs() NetworkVPNRouteCreateArgs {
+	return NetworkVPNRouteCreateArgs{
+		ProjectID:    "proj-123",
+		TunnelID:     "vpn-001",
+		Name:         "my-route",
+		Region:       aruba.RegionITBGBergamo,
+		LocalSubnet:  "10.0.0.0/24",
+		RemoteSubnet: "192.168.1.0/24",
+	}
+}
+
+func TestNetworkVPNRouteCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkVPNRouteCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *NetworkVPNRouteCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "empty tunnel ID",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.TunnelID = "" },
+			wantErr:     true,
+			errContains: "VPN tunnel ID",
+		},
+		{
+			name:        "empty local subnet",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.LocalSubnet = "" },
+			wantErr:     true,
+			errContains: "--cloud-subnet",
+		},
+		{
+			name:        "empty remote subnet",
+			mutate:      func(a *NetworkVPNRouteCreateArgs) { a.RemoteSubnet = "" },
+			wantErr:     true,
+			errContains: "--onprem-subnet",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validNetworkVPNRouteCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNetworkVPNRouteGetArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPNRouteGetArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "route-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty route ID", func(t *testing.T) {
+		args := NetworkVPNRouteGetArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty route ID")
+		}
+	})
+	t.Run("empty tunnel ID", func(t *testing.T) {
+		args := NetworkVPNRouteGetArgs{ProjectID: "p1", TunnelID: "", RouteID: "route-001"}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty tunnel ID")
+		}
+	})
+}
+
+func TestNetworkVPNRouteUpdateArgs_Validate(t *testing.T) {
+	t.Run("happy path with name", func(t *testing.T) {
+		args := NetworkVPNRouteUpdateArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "route-001", Name: "new-name"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("happy path with tags changed", func(t *testing.T) {
+		args := NetworkVPNRouteUpdateArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "route-001", TagsChanged: true}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("no name and no tags", func(t *testing.T) {
+		args := NetworkVPNRouteUpdateArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "route-001"}
+		err := args.Validate()
+		if err == nil {
+			t.Fatal("expected error when no flags provided")
+		}
+		if !strings.Contains(err.Error(), "at least one") {
+			t.Errorf("error %q does not contain 'at least one'", err.Error())
+		}
+	})
+	t.Run("empty route ID", func(t *testing.T) {
+		args := NetworkVPNRouteUpdateArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "", Name: "x"}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty route ID")
+		}
+	})
+}
+
+func TestNetworkVPNRouteDeleteArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPNRouteDeleteArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: "route-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty route ID", func(t *testing.T) {
+		args := NetworkVPNRouteDeleteArgs{ProjectID: "p1", TunnelID: "vpn-001", RouteID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty route ID")
+		}
+	})
+}
+
+func TestNetworkVPNRouteListArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkVPNRouteListArgs{ProjectID: "p1", TunnelID: "vpn-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty tunnel ID", func(t *testing.T) {
+		args := NetworkVPNRouteListArgs{ProjectID: "p1", TunnelID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty tunnel ID")
+		}
+	})
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkVPNRouteCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-new", "my-route"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		jsonResponse(200, types.VPNRouteResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteCreate(context.Background(), srv.Client(), validNetworkVPNRouteCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "route-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := NetworkVPNRouteCreate(context.Background(), srv.Client(), validNetworkVPNRouteCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating VPN route") {
+		t.Errorf("error %q does not contain 'creating VPN route'", err.Error())
+	}
+}
+
+func TestNetworkVPNRouteList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		jsonResponse(200, types.VPNRouteListResponse{
+			Values: []types.VPNRouteResponse{
+				{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+			},
+		}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteList(context.Background(), srv.Client(), NetworkVPNRouteListArgs{
+			ProjectID: "proj-123",
+			TunnelID:  "vpn-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "route-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		jsonResponse(200, types.VPNRouteListResponse{}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteList(context.Background(), srv.Client(), NetworkVPNRouteListArgs{
+			ProjectID: "proj-123",
+			TunnelID:  "vpn-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No VPN routes found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"network", "vpnroute", "create", "tunnel-001",
+		"--project-id", "proj-123",
+		"--name", "x",
+		"--region", "ITBG-Bergamo",
+		"--cloud-subnet", "10.0.0.0/24",
+		"--onprem-subnet", "10.1.0.0/24",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkVPNRouteListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "vpnroute", "list", "tunnel-001"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

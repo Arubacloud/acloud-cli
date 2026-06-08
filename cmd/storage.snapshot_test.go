@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -161,7 +162,7 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", snapshotVolID,
 	}
 	tests := []struct {
@@ -189,13 +190,13 @@ func TestSnapshotCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "IT-BG", "--volume-id", snapshotVolID},
+			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--volume-id", snapshotVolID},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --volume-id",
-			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "my-snapshot", "--region", "IT-BG"},
+			args:        []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "my-snapshot", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "volume-id",
 		},
@@ -387,6 +388,34 @@ func TestSnapshotUpdateCmd(t *testing.T) {
 	}
 }
 
+func TestStorageSnapshotCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "snapshot", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--volume-id", "vol-001"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestStorageSnapshotListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"storage", "snapshot", "list"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestSnapshotCreateCmd_Verbose(t *testing.T) {
 	id, name := "snap-new", "my-snapshot"
 	srv := newArubaTestServer(t)
@@ -397,7 +426,7 @@ func TestSnapshotCreateCmd_Verbose(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", snapshotVolID,
 		"--verbose",
 	})
@@ -426,7 +455,7 @@ func TestSnapshotCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"storage", "snapshot", "create",
 		"--project-id", "proj-123",
 		"--name", "my-snapshot",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--volume-id", "vol-001",
 	})
 	if err != nil {

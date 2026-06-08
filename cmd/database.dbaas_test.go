@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -253,7 +255,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-new", "my-dbaas"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
@@ -268,7 +270,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "success with networking flags",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50",
 				"--vpc-id", "vpc-001",
 				"--subnet-id", "sub-001",
 				"--security-group-id", "sg-001",
@@ -288,19 +290,19 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "name",
 		},
 		{
 			name:        "missing required flag --engine-id",
-			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--flavor", "db.small", "--storage-size", "50"},
+			args:        []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--flavor", "db.small", "--storage-size", "50"},
 			wantErr:     true,
 			errContains: "engine-id",
 		},
 		{
 			name: "server error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -309,7 +311,7 @@ func TestDBaaSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "IT-BG", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
+			args: []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "my-dbaas", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -491,6 +493,35 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 	}
 }
 
+func TestDatabaseDBaaSCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"database", "dbaas", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--zone", "ITBG-1", "--engine-id", "postgres14", "--flavor", "db.small", "--storage-size", "50"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestDatabaseDBaaSListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"database", "dbaas", "list"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestDBaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "dbaas-001", "my-db"
@@ -508,7 +539,7 @@ func TestDBaaSCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"database", "dbaas", "create",
 		"--project-id", "proj-123",
 		"--name", "my-db",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--zone", "IT-BG-1",
 		"--engine-id", "mysql-8.0",
 		"--flavor", "DBO4A8",
@@ -542,5 +573,319 @@ func TestDBaaSListCmd_WithLocationAndStatus(t *testing.T) {
 	}
 	if !strings.Contains(out, "dbaas-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestDatabaseDBaaSCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-new", "my-dbaas"
+	srv.OnPost("/projects/p1/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := DatabaseDBaaSCreate(ctx, srv.Client(), DatabaseDBaaSCreateArgs{
+			ProjectID:     "p1",
+			Name:          "my-dbaas",
+			Region:        aruba.RegionITBGBergamo,
+			Zone:          "ITBG-1",
+			Engine:        "mysql-8.0",
+			Flavor:        "DBO4A8",
+			SizeGB:        50,
+			BillingPeriod: aruba.BillingPeriodHour,
+		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dbaas-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSCreate_WithNetworking(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-net", "net-dbaas"
+	srv.OnPost("/projects/p1/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := DatabaseDBaaSCreate(ctx, srv.Client(), DatabaseDBaaSCreateArgs{
+			ProjectID:   "p1",
+			Name:        "net-dbaas",
+			Region:      aruba.RegionITBGBergamo,
+			Zone:        "ITBG-1",
+			Engine:      "mysql-8.0",
+			Flavor:      "DBO4A8",
+			SizeGB:      50,
+			VPCID:       "vpc-001",
+			SubnetID:    "sub-001",
+			SGID:        "sg-001",
+			ElasticIPID: "eip-001",
+		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dbaas-net") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/p1/providers/Aruba.Database/dbaas", errorResponse(500, "Internal Server Error", "quota"))
+	ctx, cancel := newCtx()
+	defer cancel()
+	err := DatabaseDBaaSCreate(ctx, srv.Client(), DatabaseDBaaSCreateArgs{
+		ProjectID: "p1",
+		Name:      "my-dbaas",
+		Engine:    "mysql-8.0",
+		Flavor:    "DBO4A8",
+		SizeGB:    50,
+	})
+	if err == nil || !strings.Contains(err.Error(), "creating") {
+		t.Errorf("expected creating error, got: %v", err)
+	}
+}
+
+func TestDatabaseDBaaSGet_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-1", "my-dbaas"
+	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas/dbaas-1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := DatabaseDBaaSGet(ctx, srv.Client(), DatabaseDBaaSGetArgs{ProjectID: "p1", ID: "dbaas-1"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dbaas-1") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSUpdate_AsyncMessage(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-upd", "my-dbaas"
+	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas/dbaas-upd", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	srv.OnPut("/projects/p1/providers/Aruba.Database/dbaas/dbaas-upd", jsonResponse(202, types.DBaaSResponse{}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := DatabaseDBaaSUpdate(ctx, srv.Client(), DatabaseDBaaSUpdateArgs{
+			ProjectID: "p1",
+			ID:        "dbaas-upd",
+			Name:      "new-name",
+		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dbaas-upd") {
+		t.Errorf("expected ID in async message, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{}))
+	ctx, cancel := newCtx()
+	defer cancel()
+	out := captureStdout(func() {
+		err := DatabaseDBaaSList(ctx, srv.Client(), DatabaseDBaaSListArgs{ProjectID: "p1"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No DBaaS instances") {
+		t.Errorf("expected 'No DBaaS instances' message, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/p1/providers/Aruba.Database/dbaas", errorResponse(500, "Internal Server Error", "boom"))
+	ctx, cancel := newCtx()
+	defer cancel()
+	err := DatabaseDBaaSList(ctx, srv.Client(), DatabaseDBaaSListArgs{ProjectID: "p1"})
+	if err == nil || !strings.Contains(err.Error(), "listing") {
+		t.Errorf("expected listing error, got: %v", err)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate tests (pure Go, no SDK)
+// =============================================================================
+
+func TestDatabaseDBaaSCreateArgs_Validate(t *testing.T) {
+	validBase := DatabaseDBaaSCreateArgs{
+		ProjectID:     "p1",
+		Name:          "my-dbaas",
+		Region:        aruba.RegionITBGBergamo,
+		Zone:          "ITBG-1",
+		Engine:        "mysql-8.0",
+		Flavor:        "DBO4A8",
+		SizeGB:        50,
+		BillingPeriod: aruba.BillingPeriodHour,
+	}
+	tests := []struct {
+		name        string
+		mutate      func(*DatabaseDBaaSCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", mutate: func(_ *DatabaseDBaaSCreateArgs) {}, wantErr: false},
+		{
+			name:        "name too short",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.Region = aruba.Region("bad") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.BillingPeriod = aruba.BillingPeriod("Weekly") },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:        "empty engine",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.Engine = "" },
+			wantErr:     true,
+			errContains: "--engine-id is required",
+		},
+		{
+			name:        "empty flavor",
+			mutate:      func(a *DatabaseDBaaSCreateArgs) { a.Flavor = "" },
+			wantErr:     true,
+			errContains: "--flavor is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validBase
+			tc.mutate(&args)
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, got: %v", tc.errContains, err)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSGetArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    DatabaseDBaaSGetArgs
+		wantErr bool
+	}{
+		{name: "valid", args: DatabaseDBaaSGetArgs{ProjectID: "p1", ID: "d1"}, wantErr: false},
+		{name: "empty ID", args: DatabaseDBaaSGetArgs{ProjectID: "p1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        DatabaseDBaaSUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid with name", args: DatabaseDBaaSUpdateArgs{ProjectID: "p1", ID: "d1", Name: "new"}, wantErr: false},
+		{name: "valid with tags", args: DatabaseDBaaSUpdateArgs{ProjectID: "p1", ID: "d1", TagsChanged: true}, wantErr: false},
+		{name: "missing ID", args: DatabaseDBaaSUpdateArgs{ProjectID: "p1", Name: "new"}, wantErr: true, errContains: "DBaaS ID is required"},
+		{name: "no fields", args: DatabaseDBaaSUpdateArgs{ProjectID: "p1", ID: "d1"}, wantErr: true, errContains: "at least one"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error to contain %q, got: %v", tc.errContains, err)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSDeleteArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    DatabaseDBaaSDeleteArgs
+		wantErr bool
+	}{
+		{name: "valid", args: DatabaseDBaaSDeleteArgs{ProjectID: "p1", ID: "d1"}, wantErr: false},
+		{name: "empty ID", args: DatabaseDBaaSDeleteArgs{ProjectID: "p1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSListArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    DatabaseDBaaSListArgs
+		wantErr bool
+	}{
+		{name: "valid", args: DatabaseDBaaSListArgs{ProjectID: "p1"}, wantErr: false},
+		{name: "empty project", args: DatabaseDBaaSListArgs{}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("wantErr=%v got %v", tc.wantErr, err)
+			}
+		})
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -34,7 +36,7 @@ func init() {
 	cloudserverCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverCreateCmd.Flags().String("name", "", "Name for the cloud server (required)")
 	cloudserverCreateCmd.Flags().String("region", "", "Region code (required)")
-	cloudserverCreateCmd.Flags().String("zone", "", "Zone code (required, e.g., itbg1-a)")
+	cloudserverCreateCmd.Flags().String("zone", "", "Zone code (required, e.g., ITBG-1)")
 	cloudserverCreateCmd.Flags().String("flavor", "", "Flavor name (required)")
 	cloudserverCreateCmd.Flags().String("keypair-id", "", "Keypair ID (optional)")
 	cloudserverCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
@@ -50,6 +52,7 @@ func init() {
 	cloudserverCreateCmd.MarkFlagRequired("zone")
 
 	cloudserverGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
+	cloudserverGetCmd.Flags().Bool("verbose", false, "Print full JSON response")
 
 	cloudserverUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverUpdateCmd.Flags().String("name", "", "New name for the cloud server")
@@ -83,7 +86,7 @@ func init() {
 	cloudserverConnectCmd.ValidArgsFunction = completeCloudServerID
 }
 
-// cloudServerRef builds the combined project+server Ref that v0.2.0 Get/Delete need.
+// cloudServerRef builds the combined project+server Ref that Get/Delete need.
 func cloudServerRef(projectID, serverID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Compute/cloudServers/" + serverID)
@@ -146,126 +149,624 @@ subnet, security group) must already exist; pass their IDs with --vpc-id,
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud compute cloudserver create \
-    --name my-server --region IT-BG --zone IT-BG-1 \
-    --flavor <flavor-id> \
+    --name my-server --region ITBG-Bergamo --zone ITBG-1 \
+    --flavor CSO4A8 \
     --boot-disk-id <volume-id> \
     --vpc-id <vpc-id> \
     --subnet-id <subnet-id> \
     --security-group-id <sg-id>`,
 	Args: cobra.NoArgs,
-	RunE: runCloudServerCreate,
+	RunE: ComputeCloudServerCreateRun,
 }
 
 var cloudserverGetCmd = &cobra.Command{
 	Use:   "get [cloudserver-id]",
 	Short: "Get cloud server details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerGet,
+	RunE:  ComputeCloudServerGetRun,
 }
 
 var cloudserverUpdateCmd = &cobra.Command{
 	Use:   "update [cloudserver-id]",
 	Short: "Update a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerUpdate,
+	RunE:  ComputeCloudServerUpdateRun,
 }
 
 var cloudserverDeleteCmd = &cobra.Command{
 	Use:   "delete [cloudserver-id]",
 	Short: "Delete a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerDelete,
+	RunE:  ComputeCloudServerDeleteRun,
 }
 
 var cloudserverListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all cloud servers",
 	Args:  cobra.NoArgs,
-	RunE:  runCloudServerList,
+	RunE:  ComputeCloudServerListRun,
 }
 
 var cloudserverPowerOnCmd = &cobra.Command{
 	Use:   "power-on [cloudserver-id]",
 	Short: "Power on a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerPowerOn,
+	RunE:  ComputeCloudServerPowerOnRun,
 }
 
 var cloudserverPowerOffCmd = &cobra.Command{
 	Use:   "power-off [cloudserver-id]",
 	Short: "Power off a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerPowerOff,
+	RunE:  ComputeCloudServerPowerOffRun,
 }
 
 var cloudserverSetPasswordCmd = &cobra.Command{
 	Use:   "set-password [cloudserver-id]",
 	Short: "Set password for a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerSetPassword,
+	RunE:  ComputeCloudServerSetPasswordRun,
 }
 
 var cloudserverConnectCmd = &cobra.Command{
 	Use:   "connect [cloudserver-id]",
 	Short: "Get SSH connection information for a cloud server",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runCloudServerConnect,
+	RunE:  ComputeCloudServerConnectRun,
 }
 
-func runCloudServerCreate(cmd *cobra.Command, args []string) error {
-	vpcID, _ := cmd.Flags().GetString("vpc-id")
-	subnetIDs, _ := cmd.Flags().GetStringSlice("subnet-id")
-	sgIDs, _ := cmd.Flags().GetStringSlice("security-group-id")
-	elasticIPID, _ := cmd.Flags().GetString("elasticip-id")
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// =============================================================================
+// Args structs
+// =============================================================================
+
+// ComputeCloudServerCreateArgs holds the typed arguments for creating a cloud server.
+type ComputeCloudServerCreateArgs struct {
+	ProjectID        string
+	Name             string
+	Region           aruba.Region
+	Zone             aruba.Zone
+	Flavor           aruba.CloudServerFlavor
+	BootDiskID       string
+	VPCID            string
+	SubnetIDs        []string
+	SecurityGroupIDs []string
+	ElasticIPID      string
+	KeypairID        string
+	Tags             []string
+	BillingPeriod    aruba.BillingPeriod
+	UserDataFile     string
+}
+
+// ComputeCloudServerGetArgs holds the typed arguments for getting a cloud server.
+type ComputeCloudServerGetArgs struct {
+	ProjectID string
+	ID        string
+	Verbose   bool
+}
+
+// ComputeCloudServerUpdateArgs holds the typed arguments for updating a cloud server.
+type ComputeCloudServerUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// ComputeCloudServerDeleteArgs holds the typed arguments for deleting a cloud server.
+type ComputeCloudServerDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// ComputeCloudServerListArgs holds the typed arguments for listing cloud servers.
+type ComputeCloudServerListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// ComputeCloudServerPowerOnArgs holds the typed arguments for powering on a cloud server.
+type ComputeCloudServerPowerOnArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// ComputeCloudServerPowerOffArgs holds the typed arguments for powering off a cloud server.
+type ComputeCloudServerPowerOffArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// ComputeCloudServerSetPasswordArgs holds the typed arguments for setting a cloud server password.
+type ComputeCloudServerSetPasswordArgs struct {
+	ProjectID string
+	ID        string
+	Password  string
+}
+
+// ComputeCloudServerConnectArgs holds the typed arguments for connecting to a cloud server.
+type ComputeCloudServerConnectArgs struct {
+	ProjectID string
+	ID        string
+	User      string
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewComputeCloudServerCreateArgsFromCobraCommand parses and validates args for create.
+func NewComputeCloudServerCreateArgsFromCobraCommand(cmd *cobra.Command) (*ComputeCloudServerCreateArgs, error) {
+	args := &ComputeCloudServerCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerGetArgsFromCobraCommand parses and validates args for get.
+func NewComputeCloudServerGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerGetArgs, error) {
+	args := &ComputeCloudServerGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerUpdateArgsFromCobraCommand parses and validates args for update.
+func NewComputeCloudServerUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerUpdateArgs, error) {
+	args := &ComputeCloudServerUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewComputeCloudServerDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerDeleteArgs, error) {
+	args := &ComputeCloudServerDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerListArgsFromCobraCommand parses and validates args for list.
+func NewComputeCloudServerListArgsFromCobraCommand(cmd *cobra.Command) (*ComputeCloudServerListArgs, error) {
+	args := &ComputeCloudServerListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerPowerOnArgsFromCobraCommand parses and validates args for power-on.
+func NewComputeCloudServerPowerOnArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerPowerOnArgs, error) {
+	args := &ComputeCloudServerPowerOnArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerPowerOffArgsFromCobraCommand parses and validates args for power-off.
+func NewComputeCloudServerPowerOffArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerPowerOffArgs, error) {
+	args := &ComputeCloudServerPowerOffArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerSetPasswordArgsFromCobraCommand parses and validates args for set-password.
+func NewComputeCloudServerSetPasswordArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerSetPasswordArgs, error) {
+	args := &ComputeCloudServerSetPasswordArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewComputeCloudServerConnectArgsFromCobraCommand parses and validates args for connect.
+func NewComputeCloudServerConnectArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*ComputeCloudServerConnectArgs, error) {
+	args := &ComputeCloudServerConnectArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *ComputeCloudServerCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("zone"); err == nil {
+		a.Zone = aruba.Zone(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("flavor"); err == nil {
+		a.Flavor = aruba.CloudServerFlavor(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.BootDiskID, err = cmd.Flags().GetString("boot-disk-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.VPCID, err = cmd.Flags().GetString("vpc-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SubnetIDs, err = cmd.Flags().GetStringSlice("subnet-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SecurityGroupIDs, err = cmd.Flags().GetStringSlice("security-group-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.ElasticIPID, err = cmd.Flags().GetString("elasticip-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.KeypairID, err = cmd.Flags().GetString("keypair-id"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("billing-period"); err == nil {
+		a.BillingPeriod = aruba.BillingPeriod(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.UserDataFile, err = cmd.Flags().GetString("user-data-file"); err != nil {
+		errs = append(errs, err)
 	}
 
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	zone, _ := cmd.Flags().GetString("zone")
-	flavor, _ := cmd.Flags().GetString("flavor")
-	bootDiskID, _ := cmd.Flags().GetString("boot-disk-id")
-	keypairID, _ := cmd.Flags().GetString("keypair-id")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-	billingPeriod, _ := cmd.Flags().GetString("billing-period")
-	userDataFile, _ := cmd.Flags().GetString("user-data-file")
+	return errors.Join(errs...)
+}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *ComputeCloudServerGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		errs = append(errs, err)
 	}
 
-	subnetRefs := make([]aruba.Ref, len(subnetIDs))
-	for i, s := range subnetIDs {
-		subnetRefs[i] = aruba.SubnetRef(projectID, vpcID, s)
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *ComputeCloudServerUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
 	}
-	sgRefs := make([]aruba.Ref, len(sgIDs))
-	for i, sg := range sgIDs {
-		sgRefs[i] = aruba.SecurityGroupRef(projectID, vpcID, sg)
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *ComputeCloudServerDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *ComputeCloudServerListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the power-on args struct.
+func (a *ComputeCloudServerPowerOnArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the power-off args struct.
+func (a *ComputeCloudServerPowerOffArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the set-password args struct.
+func (a *ComputeCloudServerSetPasswordArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Password, err = cmd.Flags().GetString("password"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the connect args struct.
+func (a *ComputeCloudServerConnectArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.User, err = cmd.Flags().GetString("user"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *ComputeCloudServerCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+	if !slices.Contains(validZones, a.Zone) {
+		errs = append(errs, fmt.Errorf("--zone %q: must be one of %v", a.Zone, validZones))
+	}
+	if !slices.Contains(validCloudServerFlavors, a.Flavor) {
+		errs = append(errs, fmt.Errorf("--flavor %q: must be one of %v", a.Flavor, validCloudServerFlavors))
+	}
+	if !slices.Contains(validBillingPeriods, a.BillingPeriod) {
+		errs = append(errs, fmt.Errorf("--billing-period %q: must be one of %v", a.BillingPeriod, validBillingPeriods))
+	}
+	if a.VPCID == "" {
+		errs = append(errs, errors.New("--vpc-id is required"))
+	}
+	if a.BootDiskID == "" {
+		errs = append(errs, errors.New("--boot-disk-id is required"))
+	}
+	if len(a.SubnetIDs) == 0 {
+		errs = append(errs, errors.New("--subnet-id requires at least one value"))
+	}
+	if len(a.SecurityGroupIDs) == 0 {
+		errs = append(errs, errors.New("--security-group-id requires at least one value"))
+	}
+	if a.UserDataFile != "" {
+		if _, err := os.Stat(a.UserDataFile); err != nil {
+			errs = append(errs, fmt.Errorf("--user-data-file %q: %w", a.UserDataFile, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *ComputeCloudServerGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("cloud server ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *ComputeCloudServerUpdateArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("cloud server ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one of --name or --tags must be provided"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *ComputeCloudServerDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("cloud server ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *ComputeCloudServerListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// Validate checks the power-on args for correctness.
+func (a *ComputeCloudServerPowerOnArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("cloud server ID is required")
+	}
+	return nil
+}
+
+// Validate checks the power-off args for correctness.
+func (a *ComputeCloudServerPowerOffArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("cloud server ID is required")
+	}
+	return nil
+}
+
+// Validate checks the set-password args for correctness.
+func (a *ComputeCloudServerSetPasswordArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("cloud server ID is required"))
+	}
+	if a.Password == "" {
+		errs = append(errs, errors.New("--password is required"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the connect args for correctness.
+func (a *ComputeCloudServerConnectArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("cloud server ID is required"))
+	}
+	if a.User == "" || a.User == "<user>" {
+		errs = append(errs, errors.New("--user is required (e.g. ubuntu, centos, root)"))
+	}
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// ComputeCloudServerCreate creates a cloud server using the provided args and client.
+func ComputeCloudServerCreate(ctx context.Context, client aruba.Client, args ComputeCloudServerCreateArgs) error {
+	subnetRefs := make([]aruba.Ref, len(args.SubnetIDs))
+	for i, s := range args.SubnetIDs {
+		subnetRefs[i] = aruba.SubnetRef(args.ProjectID, args.VPCID, s)
+	}
+	sgRefs := make([]aruba.Ref, len(args.SecurityGroupIDs))
+	for i, sg := range args.SecurityGroupIDs {
+		sgRefs[i] = aruba.SecurityGroupRef(args.ProjectID, args.VPCID, sg)
+	}
+
 	server := aruba.NewCloudServer().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		InZone(aruba.Zone(zone)).
-		OfFlavor(aruba.CloudServerFlavor(flavor)).
-		BootingFrom(volumeRef(projectID, bootDiskID)).
-		WithVPC(aruba.VPCRef(projectID, vpcID)).
+		InProject(projectRef(args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		InZone(args.Zone).
+		OfFlavor(args.Flavor).
+		BootingFrom(volumeRef(args.ProjectID, args.BootDiskID)).
+		WithVPC(aruba.VPCRef(args.ProjectID, args.VPCID)).
 		OnSubnets(subnetRefs...).
 		WithSecurityGroups(sgRefs...).
-		RetaggedAs(tags...).
-		BilledBy(aruba.BillingPeriod(billingPeriod))
+		RetaggedAs(args.Tags...).
+		BilledBy(args.BillingPeriod)
 
-	if elasticIPID != "" {
-		server.WithElasticIP(aruba.ElasticIPRef(projectID, elasticIPID))
+	if args.ElasticIPID != "" {
+		server.WithElasticIP(aruba.ElasticIPRef(args.ProjectID, args.ElasticIPID))
 	}
-	if keypairID != "" {
-		server.UsingKeyPair(keypairRef(projectID, keypairID))
+	if args.KeypairID != "" {
+		server.UsingKeyPair(keypairRef(args.ProjectID, args.KeypairID))
 	}
-	if userDataFile != "" {
-		fileContent, err := os.ReadFile(userDataFile)
+	if args.UserDataFile != "" {
+		fileContent, err := os.ReadFile(args.UserDataFile)
 		if err != nil {
 			return fmt.Errorf("reading user-data file: %w", err)
 		}
@@ -273,8 +774,6 @@ func runCloudServerCreate(cmd *cobra.Command, args []string) error {
 		server.WithUserData(userDataBase64)
 	}
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	resp, err := client.FromCompute().CloudServers().Create(ctx, server)
 	if err != nil {
 		return fmt.Errorf("creating cloud server: %w", apiErrFromV2(err))
@@ -318,114 +817,76 @@ func runCloudServerCreate(cmd *cobra.Command, args []string) error {
 		}
 		PrintOutput(resp, headers, [][]string{row})
 	} else {
-		fmt.Println(msgCreatedAsync("Cloud server", name))
+		fmt.Println(msgCreatedAsync("Cloud server", args.Name))
 	}
 	return nil
 }
 
-func runCloudServerGet(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerGet retrieves and displays a cloud server's details.
+func ComputeCloudServerGet(ctx context.Context, client aruba.Client, args ComputeCloudServerGetArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 	}
 
-	if server != nil && server.Raw() != nil {
-		raw := server.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(server, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nCloud Server Details:")
-		fmt.Println("====================")
-
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-
-		if raw.Properties.Flavor.Name != "" {
-			fmt.Printf("Flavor:          %s\n", raw.Properties.Flavor.Name)
-		}
-		fmt.Printf("CPU:             %d\n", raw.Properties.Flavor.CPU)
-		fmt.Printf("RAM:             %d GB\n", raw.Properties.Flavor.RAM)
-		fmt.Printf("HD:              %d GB\n", raw.Properties.Flavor.HD)
-
-		if raw.Properties.BootVolume.URI != "" {
-			fmt.Printf("Boot Volume URI: %s\n", raw.Properties.BootVolume.URI)
-		}
-
-		if raw.Properties.KeyPair.URI != "" {
-			fmt.Printf("Keypair URI:     %s\n", raw.Properties.KeyPair.URI)
-		}
-
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-
-		verbose, _ := cmd.Flags().GetBool("verbose")
-		if verbose {
-			jsonData, _ := json.MarshalIndent(raw, "", "  ")
-			fmt.Println("\nFull JSON Response:")
-			fmt.Println("==================")
-			fmt.Println(string(jsonData))
-		}
-	} else {
+	if server == nil || server.Raw() == nil {
 		fmt.Println("Cloud server not found or no data returned.")
+		return nil
+	}
+
+	raw := server.Raw()
+
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(server, nil, nil)
+		return nil
+	}
+
+	fmt.Println("\nCloud Server Details:")
+	fmt.Println("====================")
+
+	if raw.Metadata.ID != nil {
+		fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+	}
+	if raw.Metadata.Name != nil {
+		fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+	}
+	if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
+		fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Flavor.Name != "" {
+		fmt.Printf("Flavor:          %s\n", raw.Properties.Flavor.Name)
+	}
+	fmt.Printf("CPU:             %d\n", raw.Properties.Flavor.CPU)
+	fmt.Printf("RAM:             %d GB\n", raw.Properties.Flavor.RAM)
+	fmt.Printf("HD:              %d GB\n", raw.Properties.Flavor.HD)
+	if raw.Properties.BootVolume.URI != "" {
+		fmt.Printf("Boot Volume URI: %s\n", raw.Properties.BootVolume.URI)
+	}
+	if raw.Properties.KeyPair.URI != "" {
+		fmt.Printf("Keypair URI:     %s\n", raw.Properties.KeyPair.URI)
+	}
+	if raw.Status.State != nil {
+		fmt.Printf("Status:          %s\n", *raw.Status.State)
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+	} else {
+		fmt.Printf("Tags:            []\n")
+	}
+
+	if args.Verbose {
+		jsonData, _ := json.MarshalIndent(raw, "", "  ")
+		fmt.Println("\nFull JSON Response:")
+		fmt.Println("==================")
+		fmt.Println(string(jsonData))
 	}
 	return nil
 }
 
-func runCloudServerUpdate(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerUpdate updates a cloud server's name and/or tags.
+func ComputeCloudServerUpdate(ctx context.Context, client aruba.Client, args ComputeCloudServerUpdateArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("fetching current cloud server: %w", apiErrFromV2(err))
 	}
@@ -434,11 +895,11 @@ func runCloudServerUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cloud server not found")
 	}
 
-	if name != "" {
-		server.Named(name)
+	if args.Name != "" {
+		server.Named(args.Name)
 	}
-	if cmd.Flags().Changed("tags") {
-		server.RetaggedAs(tags...)
+	if args.TagsChanged {
+		server.RetaggedAs(args.Tags...)
 	}
 
 	updated, err := client.FromCompute().CloudServers().Update(ctx, server)
@@ -448,7 +909,7 @@ func runCloudServerUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("Cloud server", serverID))
+		fmt.Printf("\n%s\n", msgUpdated("Cloud server", args.ID))
 		if raw.Metadata.Name != nil {
 			fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
 		}
@@ -456,71 +917,24 @@ func runCloudServerUpdate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgUpdatedAsync("Cloud server", serverID))
+		fmt.Println(msgUpdatedAsync("Cloud server", args.ID))
 	}
 	return nil
 }
 
-func runCloudServerDelete(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-	if !skipConfirm {
-		ok, err := confirmDelete("cloud server", serverID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
-		if err != nil {
-			return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("cloud server", serverID))
-		return nil
-	}
-
-	err = client.FromCompute().CloudServers().Delete(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerDelete deletes a cloud server.
+func ComputeCloudServerDelete(ctx context.Context, client aruba.Client, args ComputeCloudServerDeleteArgs) error {
+	err := client.FromCompute().CloudServers().Delete(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("deleting cloud server: %w", apiErrFromV2(err))
 	}
-
-	fmt.Println(msgDeleted("Cloud server", serverID))
+	fmt.Println(msgDeleted("Cloud server", args.ID))
 	return nil
 }
 
-func runCloudServerList(cmd *cobra.Command, args []string) error {
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromCompute().CloudServers().List(ctx, aruba.URI("/projects/"+projectID))
+// ComputeCloudServerList lists all cloud servers in a project.
+func ComputeCloudServerList(ctx context.Context, client aruba.Client, args ComputeCloudServerListArgs) error {
+	list, err := client.FromCompute().CloudServers().List(ctx, projectRef(args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
 	}
@@ -574,33 +988,18 @@ func runCloudServerList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runCloudServerPowerOn(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	// GET the server wrapper first (enables action methods)
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerPowerOn powers on a cloud server.
+func ComputeCloudServerPowerOn(ctx context.Context, client aruba.Client, args ComputeCloudServerPowerOnArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 	}
 
-	err = server.PowerOn(ctx)
-	if err != nil {
+	if err := server.PowerOn(ctx); err != nil {
 		return fmt.Errorf("powering on cloud server: %w", apiErrFromV2(err))
 	}
 
-	fmt.Println(msgAction("Cloud server", serverID, "powered on"))
+	fmt.Println(msgAction("Cloud server", args.ID, "powered on"))
 	if server.Raw() != nil {
 		if server.Raw().Metadata.Name != nil {
 			fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
@@ -612,33 +1011,18 @@ func runCloudServerPowerOn(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runCloudServerPowerOff(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	// GET the server wrapper first (enables action methods)
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerPowerOff powers off a cloud server.
+func ComputeCloudServerPowerOff(ctx context.Context, client aruba.Client, args ComputeCloudServerPowerOffArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 	}
 
-	err = server.PowerOff(ctx)
-	if err != nil {
+	if err := server.PowerOff(ctx); err != nil {
 		return fmt.Errorf("powering off cloud server: %w", apiErrFromV2(err))
 	}
 
-	fmt.Println(msgAction("Cloud server", serverID, "powered off"))
+	fmt.Println(msgAction("Cloud server", args.ID, "powered off"))
 	if server.Raw() != nil {
 		if server.Raw().Metadata.Name != nil {
 			fmt.Printf("Server: %s\n", *server.Raw().Metadata.Name)
@@ -650,70 +1034,24 @@ func runCloudServerPowerOff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runCloudServerSetPassword(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	password, _ := cmd.Flags().GetString("password")
-	if password == "" {
-		return fmt.Errorf("--password is required")
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	// GET the server wrapper first (enables action methods)
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerSetPassword sets the password for a cloud server.
+func ComputeCloudServerSetPassword(ctx context.Context, client aruba.Client, args ComputeCloudServerSetPasswordArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 	}
 
-	err = server.SetPassword(ctx, password)
-	if err != nil {
+	if err := server.SetPassword(ctx, args.Password); err != nil {
 		return fmt.Errorf("setting cloud server password: %w", apiErrFromV2(err))
 	}
 
-	fmt.Println(msgAction("Cloud server", serverID, "password set"))
+	fmt.Println(msgAction("Cloud server", args.ID, "password set"))
 	return nil
 }
 
-func runCloudServerConnect(cmd *cobra.Command, args []string) error {
-	serverID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	user, _ := cmd.Flags().GetString("user")
-	if user == "" || user == "<user>" {
-		fmt.Println("Error: --user is required")
-		fmt.Println("\nCommon SSH users by image type:")
-		fmt.Println("  - Ubuntu/Debian: ubuntu")
-		fmt.Println("  - CentOS/RHEL: centos or root")
-		fmt.Println("  - Other Linux: root or check image documentation")
-		fmt.Println("\nFor more information, see: https://kb.arubacloud.com/cmp/en/computing/cloud-server.aspx")
-		return fmt.Errorf("--user is required")
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	// Get the cloud server details
-	server, err := client.FromCompute().CloudServers().Get(ctx, aruba.URI("/projects/"+projectID+"/providers/Aruba.Compute/cloudServers/"+serverID))
+// ComputeCloudServerConnect prints the SSH connection command for a cloud server.
+func ComputeCloudServerConnect(ctx context.Context, client aruba.Client, args ComputeCloudServerConnectArgs) error {
+	server, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting cloud server: %w", apiErrFromV2(err))
 	}
@@ -747,7 +1085,7 @@ func runCloudServerConnect(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get ElasticIP details
-	eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(projectID, elasticIPID))
+	eip, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(args.ProjectID, elasticIPID))
 	if err != nil {
 		return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 	}
@@ -764,6 +1102,226 @@ func runCloudServerConnect(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print SSH connection command
-	fmt.Printf("Connect by running: ssh %s@%s\n", user, *eipRaw.Properties.Address)
+	fmt.Printf("Connect by running: ssh %s@%s\n", args.User, *eipRaw.Properties.Address)
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// ComputeCloudServerCreateRun is the Cobra RunE handler for cloud server create.
+func ComputeCloudServerCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewComputeCloudServerCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerGetRun is the Cobra RunE handler for cloud server get.
+func ComputeCloudServerGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerUpdateRun is the Cobra RunE handler for cloud server update.
+func ComputeCloudServerUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerDeleteRun is the Cobra RunE handler for cloud server delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func ComputeCloudServerDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("cloud server", args.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID)); err != nil {
+			return fmt.Errorf("dry-run: cloud server not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("cloud server", args.ID))
+		return nil
+	}
+
+	if err := ComputeCloudServerDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerListRun is the Cobra RunE handler for cloud server list.
+func ComputeCloudServerListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewComputeCloudServerListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerPowerOnRun is the Cobra RunE handler for cloud server power-on.
+func ComputeCloudServerPowerOnRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerPowerOnArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerPowerOn(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerPowerOffRun is the Cobra RunE handler for cloud server power-off.
+func ComputeCloudServerPowerOffRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerPowerOffArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerPowerOff(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerSetPasswordRun is the Cobra RunE handler for cloud server set-password.
+func ComputeCloudServerSetPasswordRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerSetPasswordArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerSetPassword(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ComputeCloudServerConnectRun is the Cobra RunE handler for cloud server connect.
+func ComputeCloudServerConnectRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewComputeCloudServerConnectArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		// Print user-friendly guidance before returning the error
+		if errors.Is(err, ErrValidationFailed) && strings.Contains(err.Error(), "--user is required") {
+			fmt.Println("Common SSH users by image type:")
+			fmt.Println("  - Ubuntu/Debian: ubuntu")
+			fmt.Println("  - CentOS/RHEL: centos or root")
+			fmt.Println("  - Other Linux: root or check image documentation")
+			fmt.Println("\nFor more information, see: https://kb.arubacloud.com/cmp/en/computing/cloud-server.aspx")
+		}
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ComputeCloudServerConnect(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,34 +33,34 @@ var contextSetCmd = &cobra.Command{
 	Use:   "set [context-name]",
 	Short: "Set a context with a project ID",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContextSet,
+	RunE:  ContextSetRun,
 }
 
 var contextUseCmd = &cobra.Command{
 	Use:   "use [context-name]",
 	Short: "Switch to a different context",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContextUse,
+	RunE:  ContextUseRun,
 }
 
 var contextListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all contexts",
 	Args:  cobra.NoArgs,
-	RunE:  runContextList,
+	RunE:  ContextListRun,
 }
 
 var contextCurrentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show current context",
-	RunE:  runContextCurrent,
+	RunE:  ContextCurrentRun,
 }
 
 var contextDeleteCmd = &cobra.Command{
 	Use:   "delete [context-name]",
 	Short: "Delete a context",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runContextDelete,
+	RunE:  ContextDeleteRun,
 }
 
 // LoadContext loads the context configuration
@@ -142,73 +144,166 @@ func init() {
 	contextSetCmd.MarkFlagRequired("project-id")
 }
 
-func runContextSet(cmd *cobra.Command, args []string) error {
-	contextName := args[0]
-	projectID, err := cmd.Flags().GetString("project-id")
-	if err != nil {
+// ─── Context Set ──────────────────────────────────────────────────────────────
+
+// ContextSetArgs holds parsed arguments for the context set command.
+type ContextSetArgs struct {
+	Name      string
+	ProjectID string
+}
+
+// NewContextSetArgsFromCobraCommand parses and validates args for context set.
+func NewContextSetArgsFromCobraCommand(cmd *cobra.Command, cmdArgs []string) (*ContextSetArgs, error) {
+	args := &ContextSetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cmdArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// ParseFromCobraCommand reads positional arg and flags into the struct.
+func (a *ContextSetArgs) ParseFromCobraCommand(cmd *cobra.Command, cmdArgs []string) error {
+	a.Name = cmdArgs[0]
+	var err error
+	if a.ProjectID, err = cmd.Flags().GetString("project-id"); err != nil {
 		return err
 	}
+	return nil
+}
 
-	if projectID == "" {
-		return fmt.Errorf("--project-id is required")
+// Validate performs pure validation on the parsed args.
+func (a *ContextSetArgs) Validate() error {
+	var errs []error
+	if a.ProjectID == "" {
+		errs = append(errs, errors.New("--project-id is required"))
 	}
+	return errors.Join(errs...)
+}
 
-	// Load existing context or create new
+// ContextSet creates or updates a named context.
+func ContextSet(_ context.Context, args ContextSetArgs) error {
 	ctx, err := LoadContext()
 	if err != nil {
-		// Create new context
 		ctx = &Context{
 			Contexts: make(map[string]CtxInfo),
 		}
 	}
 
-	// Add or update context
-	ctx.Contexts[contextName] = CtxInfo{
-		ProjectID: projectID,
+	ctx.Contexts[args.Name] = CtxInfo{
+		ProjectID: args.ProjectID,
 	}
 
-	// Save context
 	if err := SaveContext(ctx); err != nil {
 		return fmt.Errorf("saving context: %w", err)
 	}
 
-	fmt.Printf("Context '%s' set with project ID: %s\n", contextName, projectID)
+	fmt.Printf("Context '%s' set with project ID: %s\n", args.Name, args.ProjectID)
 	return nil
 }
 
-func runContextUse(cmd *cobra.Command, args []string) error {
-	contextName := args[0]
+// ContextSetRun is the RunE wiring for the context set command.
+func ContextSetRun(cmd *cobra.Command, cmdArgs []string) error {
+	args, err := NewContextSetArgsFromCobraCommand(cmd, cmdArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
 
-	// Load context
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContextSet(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ─── Context Use ──────────────────────────────────────────────────────────────
+
+// ContextUseArgs holds parsed arguments for the context use command.
+type ContextUseArgs struct {
+	Name string
+}
+
+// NewContextUseArgsFromCobraCommand parses and validates args for context use.
+func NewContextUseArgsFromCobraCommand(_ *cobra.Command, cmdArgs []string) (*ContextUseArgs, error) {
+	args := &ContextUseArgs{}
+	if err := args.ParseFromCobraCommand(cmdArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// ParseFromCobraCommand reads the positional arg into the struct.
+func (a *ContextUseArgs) ParseFromCobraCommand(cmdArgs []string) error {
+	a.Name = cmdArgs[0]
+	return nil
+}
+
+// Validate performs pure validation on the parsed args.
+func (a *ContextUseArgs) Validate() error {
+	return nil
+}
+
+// ContextUse switches the active context to the named context.
+func ContextUse(_ context.Context, args ContextUseArgs) error {
 	ctx, err := LoadContext()
 	if err != nil {
 		return fmt.Errorf("loading context: %w", err)
 	}
 
-	// Check if context exists
-	if _, exists := ctx.Contexts[contextName]; !exists {
+	if _, exists := ctx.Contexts[args.Name]; !exists {
 		available := make([]string, 0, len(ctx.Contexts))
 		for name := range ctx.Contexts {
 			available = append(available, name)
 		}
-		return fmt.Errorf("context '%s' not found; available contexts: %v", contextName, available)
+		return fmt.Errorf("context '%s' not found; available contexts: %v", args.Name, available)
 	}
 
-	// Set current context
-	ctx.CurrentContext = contextName
+	ctx.CurrentContext = args.Name
 
-	// Save context
 	if err := SaveContext(ctx); err != nil {
 		return fmt.Errorf("saving context: %w", err)
 	}
 
-	fmt.Printf("Switched to context '%s'\n", contextName)
-	fmt.Printf("Project ID: %s\n", ctx.Contexts[contextName].ProjectID)
+	fmt.Printf("Switched to context '%s'\n", args.Name)
+	fmt.Printf("Project ID: %s\n", ctx.Contexts[args.Name].ProjectID)
 	return nil
 }
 
-func runContextList(cmd *cobra.Command, args []string) error {
-	// Load context
+// ContextUseRun is the RunE wiring for the context use command.
+func ContextUseRun(cmd *cobra.Command, cmdArgs []string) error {
+	args, err := NewContextUseArgsFromCobraCommand(cmd, cmdArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContextUse(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ─── Context List ─────────────────────────────────────────────────────────────
+
+// ContextListArgs holds the (empty) arguments for the context list command.
+type ContextListArgs struct{}
+
+// NewContextListArgsFromCobraCommand parses and validates args for context list.
+func NewContextListArgsFromCobraCommand(_ *cobra.Command) (*ContextListArgs, error) {
+	return &ContextListArgs{}, nil
+}
+
+// ContextList prints all configured contexts.
+func ContextList(_ context.Context, _ ContextListArgs) error {
 	ctx, err := LoadContext()
 	if err != nil {
 		fmt.Println("No contexts found")
@@ -235,8 +330,34 @@ func runContextList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runContextCurrent(cmd *cobra.Command, args []string) error {
-	// Load context
+// ContextListRun is the RunE wiring for the context list command.
+func ContextListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewContextListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContextList(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ─── Context Current ──────────────────────────────────────────────────────────
+
+// ContextCurrentArgs holds the (empty) arguments for the context current command.
+type ContextCurrentArgs struct{}
+
+// NewContextCurrentArgsFromCobraCommand parses and validates args for context current.
+func NewContextCurrentArgsFromCobraCommand(_ *cobra.Command) (*ContextCurrentArgs, error) {
+	return &ContextCurrentArgs{}, nil
+}
+
+// ContextCurrent prints the active context name and its project ID.
+func ContextCurrent(_ context.Context, _ ContextCurrentArgs) error {
 	ctx, err := LoadContext()
 	if err != nil || ctx.CurrentContext == "" {
 		fmt.Println("No current context set")
@@ -254,33 +375,90 @@ func runContextCurrent(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runContextDelete(cmd *cobra.Command, args []string) error {
-	contextName := args[0]
+// ContextCurrentRun is the RunE wiring for the context current command.
+func ContextCurrentRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewContextCurrentArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
 
-	// Load context
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContextCurrent(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// ─── Context Delete ───────────────────────────────────────────────────────────
+
+// ContextDeleteArgs holds parsed arguments for the context delete command.
+type ContextDeleteArgs struct {
+	Name string
+}
+
+// NewContextDeleteArgsFromCobraCommand parses and validates args for context delete.
+func NewContextDeleteArgsFromCobraCommand(_ *cobra.Command, cmdArgs []string) (*ContextDeleteArgs, error) {
+	args := &ContextDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmdArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// ParseFromCobraCommand reads the positional arg into the struct.
+func (a *ContextDeleteArgs) ParseFromCobraCommand(cmdArgs []string) error {
+	a.Name = cmdArgs[0]
+	return nil
+}
+
+// Validate performs pure validation on the parsed args.
+func (a *ContextDeleteArgs) Validate() error {
+	return nil
+}
+
+// ContextDelete removes a named context from the context file.
+func ContextDelete(_ context.Context, args ContextDeleteArgs) error {
 	ctx, err := LoadContext()
 	if err != nil {
 		return fmt.Errorf("loading context: %w", err)
 	}
 
-	// Check if context exists
-	if _, exists := ctx.Contexts[contextName]; !exists {
-		return fmt.Errorf("context '%s' not found", contextName)
+	if _, exists := ctx.Contexts[args.Name]; !exists {
+		return fmt.Errorf("context '%s' not found", args.Name)
 	}
 
-	// Delete context
-	delete(ctx.Contexts, contextName)
+	delete(ctx.Contexts, args.Name)
 
-	// If this was the current context, clear it
-	if ctx.CurrentContext == contextName {
+	// If this was the active context, clear the pointer.
+	if ctx.CurrentContext == args.Name {
 		ctx.CurrentContext = ""
 	}
 
-	// Save context
 	if err := SaveContext(ctx); err != nil {
 		return fmt.Errorf("saving context: %w", err)
 	}
 
-	fmt.Printf("Context '%s' deleted\n", contextName)
+	fmt.Printf("Context '%s' deleted\n", args.Name)
+	return nil
+}
+
+// ContextDeleteRun is the RunE wiring for the context delete command.
+func ContextDeleteRun(cmd *cobra.Command, cmdArgs []string) error {
+	args, err := NewContextDeleteArgsFromCobraCommand(cmd, cmdArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := ContextDelete(ctx, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
 	return nil
 }

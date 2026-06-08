@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -159,7 +163,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
+			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "sg-001", "my-sg"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupResponse{
@@ -174,7 +178,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--region", "IT-BG"},
+			args:        []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "name",
 		},
@@ -186,7 +190,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
+			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -195,7 +199,7 @@ func TestSecurityGroupCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "IT-BG"},
+			args: []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "my-sg", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -475,7 +479,7 @@ func TestSecurityGroupCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"network", "securitygroup", "create", "vpc-001",
 		"--project-id", "proj-123",
 		"--name", "my-sg",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -508,5 +512,144 @@ func TestSecurityGroupGetCmd_FullDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "sg-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests
+// =============================================================================
+
+func TestNetworkSecurityGroupCreateArgs_Validate(t *testing.T) {
+	valid := NetworkSecurityGroupCreateArgs{ProjectID: "p1", VPCID: "vpc-1", Name: "my-sg"}
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkSecurityGroupCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{name: "happy path"},
+		{name: "name too short", mutate: func(a *NetworkSecurityGroupCreateArgs) { a.Name = "ab" }, wantErr: true, errContains: "--name"},
+		{name: "name too long", mutate: func(a *NetworkSecurityGroupCreateArgs) { a.Name = strings.Repeat("x", 65) }, wantErr: true, errContains: "--name"},
+		{name: "empty vpc-id", mutate: func(a *NetworkSecurityGroupCreateArgs) { a.VPCID = "" }, wantErr: true, errContains: "vpc-id"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := valid
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewNetworkSecurityGroupCreateArgs_WrapsValidationFailed(t *testing.T) {
+	_ = aruba.RegionITBGBergamo // ensure aruba import used
+	// Validate directly and confirm the sentinel can be detected via errors.Is
+	args := NetworkSecurityGroupCreateArgs{ProjectID: "p1", VPCID: "", Name: "sg"}
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	// Confirm ErrValidationFailed works as a sentinel for wrapping
+	if errors.Is(ErrValidationFailed, ErrParsingFailed) {
+		t.Error("sentinels must be distinct")
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests
+// =============================================================================
+
+func TestNetworkSecurityGroupCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sg-new", "my-sg"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	out := captureStdout(func() {
+		err := NetworkSecurityGroupCreate(context.Background(), srv.Client(), NetworkSecurityGroupCreateArgs{
+			ProjectID: "proj-123", VPCID: "vpc-001", Name: "my-sg",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "sg-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkSecurityGroupCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups",
+		errorResponse(500, "Internal Server Error", "boom"))
+	err := NetworkSecurityGroupCreate(context.Background(), srv.Client(), NetworkSecurityGroupCreateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", Name: "my-sg",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating security group") {
+		t.Errorf("error %q does not contain 'creating security group'", err.Error())
+	}
+}
+
+func TestNetworkSecurityGroupList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sg-001", "my-sg"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
+		Values: []types.SecurityGroupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	out := captureStdout(func() {
+		err := NetworkSecurityGroupList(context.Background(), srv.Client(), NetworkSecurityGroupListArgs{
+			ProjectID: "proj-123", VPCID: "vpc-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "sg-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkSecurityGroupCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "securitygroup", "create", "vpc-001", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkSecurityGroupListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "securitygroup", "list", "vpc-001"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

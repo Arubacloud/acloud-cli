@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -92,60 +94,309 @@ network resources are created within a VPC.`,
 	Example: `  acloud network vpc create --name my-vpc --region IT-BG
   acloud network vpc create --name prod-vpc --region IT-BG --tags env=prod,team=infra`,
 	Args: cobra.NoArgs,
-	RunE: runVPCCreate,
+	RunE: NetworkVPCCreateRun,
 }
 
 var vpcGetCmd = &cobra.Command{
 	Use:   "get <vpc-id>",
 	Short: "Get VPC details",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPCGet,
+	RunE:  NetworkVPCGetRun,
 }
 
 var vpcUpdateCmd = &cobra.Command{
 	Use:   "update <vpc-id>",
 	Short: "Update a VPC",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPCUpdate,
+	RunE:  NetworkVPCUpdateRun,
 }
 
 var vpcDeleteCmd = &cobra.Command{
 	Use:   "delete <vpc-id>",
 	Short: "Delete a VPC",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runVPCDelete,
+	RunE:  NetworkVPCDeleteRun,
 }
 
 var vpcListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all VPCs",
 	Args:  cobra.NoArgs,
-	RunE:  runVPCList,
+	RunE:  NetworkVPCListRun,
 }
 
-func runVPCCreate(cmd *cobra.Command, args []string) error {
-	name, _ := cmd.Flags().GetString("name")
-	region, _ := cmd.Flags().GetString("region")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
+// =============================================================================
+// Args structs
+// =============================================================================
 
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
+// NetworkVPCCreateArgs holds the typed arguments for creating a VPC.
+type NetworkVPCCreateArgs struct {
+	ProjectID string
+	Name      string
+	Region    aruba.Region
+	Tags      []string
+}
+
+// NetworkVPCGetArgs holds the typed arguments for getting a VPC.
+type NetworkVPCGetArgs struct {
+	ProjectID string
+	ID        string
+}
+
+// NetworkVPCUpdateArgs holds the typed arguments for updating a VPC.
+type NetworkVPCUpdateArgs struct {
+	ProjectID   string
+	ID          string
+	Name        string
+	Tags        []string
+	TagsChanged bool
+}
+
+// NetworkVPCDeleteArgs holds the typed arguments for deleting a VPC.
+type NetworkVPCDeleteArgs struct {
+	ProjectID   string
+	ID          string
+	DryRun      bool
+	SkipConfirm bool
+}
+
+// NetworkVPCListArgs holds the typed arguments for listing VPCs.
+type NetworkVPCListArgs struct {
+	ProjectID string
+	CallOpts  []aruba.CallOption
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+// NewNetworkVPCCreateArgsFromCobraCommand parses and validates args for create.
+func NewNetworkVPCCreateArgsFromCobraCommand(cmd *cobra.Command) (*NetworkVPCCreateArgs, error) {
+	args := &NetworkVPCCreateArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPCGetArgsFromCobraCommand parses and validates args for get.
+func NewNetworkVPCGetArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPCGetArgs, error) {
+	args := &NetworkVPCGetArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPCUpdateArgsFromCobraCommand parses and validates args for update.
+func NewNetworkVPCUpdateArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPCUpdateArgs, error) {
+	args := &NetworkVPCUpdateArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPCDeleteArgsFromCobraCommand parses and validates args for delete.
+func NewNetworkVPCDeleteArgsFromCobraCommand(cmd *cobra.Command, cobraArgs []string) (*NetworkVPCDeleteArgs, error) {
+	args := &NetworkVPCDeleteArgs{}
+	if err := args.ParseFromCobraCommand(cmd, cobraArgs); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// NewNetworkVPCListArgsFromCobraCommand parses and validates args for list.
+func NewNetworkVPCListArgsFromCobraCommand(cmd *cobra.Command) (*NetworkVPCListArgs, error) {
+	args := &NetworkVPCListArgs{}
+	if err := args.ParseFromCobraCommand(cmd); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrParsingFailed, err)
+	}
+	if err := args.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: [%w]", ErrValidationFailed, err)
+	}
+	return args, nil
+}
+
+// =============================================================================
+// ParseFromCobraCommand methods
+// =============================================================================
+
+// ParseFromCobraCommand reads Cobra flags into the create args struct.
+func (a *NetworkVPCCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if s, err := cmd.Flags().GetString("region"); err == nil {
+		a.Region = aruba.Region(s)
+	} else {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
 	}
 
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the get args struct.
+func (a *NetworkVPCGetArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
 	}
 
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the update args struct.
+func (a *NetworkVPCUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.Name, err = cmd.Flags().GetString("name"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
+		errs = append(errs, err)
+	}
+	a.TagsChanged = cmd.Flags().Changed("tags")
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags and positional args into the delete args struct.
+func (a *NetworkVPCDeleteArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraArgs []string) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	if len(cobraArgs) > 0 {
+		a.ID = cobraArgs[0]
+	}
+	if a.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.SkipConfirm, err = cmd.Flags().GetBool("yes"); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+// ParseFromCobraCommand reads Cobra flags into the list args struct.
+func (a *NetworkVPCListArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
+	var errs []error
+	var err error
+
+	if a.ProjectID, err = GetProjectID(cmd); err != nil {
+		errs = append(errs, err)
+	}
+	a.CallOpts = listOpts(cmd)
+
+	return errors.Join(errs...)
+}
+
+// =============================================================================
+// Validate methods
+// =============================================================================
+
+// Validate checks the create args for correctness.
+func (a *NetworkVPCCreateArgs) Validate() error {
+	var errs []error
+
+	if len(a.Name) < 3 {
+		errs = append(errs, errors.New("--name must be at least 3 characters"))
+	}
+	if len(a.Name) > 64 {
+		errs = append(errs, errors.New("--name must be at most 64 characters"))
+	}
+	if !slices.Contains(validRegions, a.Region) {
+		errs = append(errs, fmt.Errorf("--region %q: must be one of %v", a.Region, validRegions))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Validate checks the get args for correctness.
+func (a *NetworkVPCGetArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("VPC ID is required")
+	}
+	return nil
+}
+
+// Validate checks the update args for correctness.
+func (a *NetworkVPCUpdateArgs) Validate() error {
+	var errs []error
+	if a.ID == "" {
+		errs = append(errs, errors.New("VPC ID is required"))
+	}
+	if a.Name == "" && !a.TagsChanged {
+		errs = append(errs, errors.New("at least one of --name or --tags must be provided"))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the delete args for correctness.
+func (a *NetworkVPCDeleteArgs) Validate() error {
+	if a.ID == "" {
+		return errors.New("VPC ID is required")
+	}
+	return nil
+}
+
+// Validate checks the list args for correctness.
+func (a *NetworkVPCListArgs) Validate() error {
+	if a.ProjectID == "" {
+		return errors.New("project ID is required")
+	}
+	return nil
+}
+
+// =============================================================================
+// Operation functions
+// =============================================================================
+
+// NetworkVPCCreate creates a VPC using the provided args and client.
+func NetworkVPCCreate(ctx context.Context, client aruba.Client, args NetworkVPCCreateArgs) error {
 	vpc := aruba.NewVPC().
-		InProject(aruba.URI("/projects/" + projectID)).
-		Named(name).
-		InRegion(aruba.Region(region)).
-		RetaggedAs(tags...)
+		InProject(aruba.URI("/projects/" + args.ProjectID)).
+		Named(args.Name).
+		InRegion(args.Region).
+		RetaggedAs(args.Tags...)
 
-	ctx, cancel := newCtx()
-	defer cancel()
 	created, err := client.FromNetwork().VPCs().Create(ctx, vpc)
 	if err != nil {
 		return fmt.Errorf("creating VPC: %w", apiErrFromV2(err))
@@ -153,7 +404,7 @@ func runVPCCreate(cmd *cobra.Command, args []string) error {
 
 	if created != nil && created.Raw() != nil {
 		raw := created.Raw()
-		fmt.Printf("\n%s\n", msgCreated("VPC", name))
+		fmt.Printf("\n%s\n", msgCreated("VPC", args.Name))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 		}
@@ -165,27 +416,14 @@ func runVPCCreate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgCreatedAsync("VPC", name))
+		fmt.Println(msgCreatedAsync("VPC", args.Name))
 	}
 	return nil
 }
 
-func runVPCGet(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
+// NetworkVPCGet retrieves and displays a VPC's details.
+func NetworkVPCGet(ctx context.Context, client aruba.Client, args NetworkVPCGetArgs) error {
+	vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 	}
@@ -233,29 +471,9 @@ func runVPCGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runVPCUpdate(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-
-	name, _ := cmd.Flags().GetString("name")
-	tags, _ := cmd.Flags().GetStringSlice("tags")
-
-	if name == "" && !cmd.Flags().Changed("tags") {
-		return fmt.Errorf("at least one of --name or --tags must be provided")
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
+// NetworkVPCUpdate updates a VPC's name and/or tags.
+func NetworkVPCUpdate(ctx context.Context, client aruba.Client, args NetworkVPCUpdateArgs) error {
+	vpc, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 	}
@@ -268,11 +486,11 @@ func runVPCUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot update VPC while it is in 'InCreation' state. Please wait until the VPC is fully created")
 	}
 
-	if name != "" {
-		vpc.Named(name)
+	if args.Name != "" {
+		vpc.Named(args.Name)
 	}
-	if len(tags) > 0 {
-		vpc.RetaggedAs(tags...)
+	if len(args.Tags) > 0 {
+		vpc.RetaggedAs(args.Tags...)
 	}
 
 	updated, err := client.FromNetwork().VPCs().Update(ctx, vpc)
@@ -282,7 +500,7 @@ func runVPCUpdate(cmd *cobra.Command, args []string) error {
 
 	if updated != nil && updated.Raw() != nil {
 		raw := updated.Raw()
-		fmt.Printf("\n%s\n", msgUpdated("VPC", vpcID))
+		fmt.Printf("\n%s\n", msgUpdated("VPC", args.ID))
 		if raw.Metadata.ID != nil {
 			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
 		}
@@ -293,72 +511,24 @@ func runVPCUpdate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
 		}
 	} else {
-		fmt.Println(msgUpdatedAsync("VPC", vpcID))
+		fmt.Println(msgUpdatedAsync("VPC", args.ID))
 	}
 	return nil
 }
 
-func runVPCDelete(cmd *cobra.Command, args []string) error {
-	vpcID := args[0]
-
-	skipConfirm, _ := cmd.Flags().GetBool("yes")
-
-	if !skipConfirm {
-		ok, err := confirmDelete("VPC", vpcID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
-		_, err = client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(projectID, vpcID))
-		if err != nil {
-			return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", apiErrFromV2(err))
-		}
-		fmt.Println(msgDryRun("VPC", vpcID))
-		return nil
-	}
-
-	err = client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(projectID, vpcID))
+// NetworkVPCDelete deletes a VPC.
+func NetworkVPCDelete(ctx context.Context, client aruba.Client, args NetworkVPCDeleteArgs) error {
+	err := client.FromNetwork().VPCs().Delete(ctx, aruba.VPCRef(args.ProjectID, args.ID))
 	if err != nil {
 		return fmt.Errorf("deleting VPC: %w", apiErrFromV2(err))
 	}
-
-	fmt.Println(msgDeleted("VPC", vpcID))
+	fmt.Println(msgDeleted("VPC", args.ID))
 	return nil
 }
 
-func runVPCList(cmd *cobra.Command, args []string) error {
-	client, err := GetArubaClient()
-	if err != nil {
-		return fmt.Errorf("initializing client: %w", err)
-	}
-
-	projectID, err := GetProjectID(cmd)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := newCtx()
-	defer cancel()
-	list, err := client.FromNetwork().VPCs().List(ctx, aruba.URI("/projects/"+projectID))
+// NetworkVPCList lists all VPCs in a project.
+func NetworkVPCList(ctx context.Context, client aruba.Client, args NetworkVPCListArgs) error {
+	list, err := client.FromNetwork().VPCs().List(ctx, projectRef(args.ProjectID), args.CallOpts...)
 	if err != nil {
 		return fmt.Errorf("listing VPCs: %w", apiErrFromV2(err))
 	}
@@ -401,6 +571,134 @@ func runVPCList(cmd *cobra.Command, args []string) error {
 		PrintOutput(list, headers, rows)
 	} else {
 		fmt.Println("No VPCs found")
+	}
+	return nil
+}
+
+// =============================================================================
+// Run wiring functions
+// =============================================================================
+
+// NetworkVPCCreateRun is the Cobra RunE handler for VPC create.
+func NetworkVPCCreateRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewNetworkVPCCreateArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPCCreate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPCGetRun is the Cobra RunE handler for VPC get.
+func NetworkVPCGetRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPCGetArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPCGet(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPCUpdateRun is the Cobra RunE handler for VPC update.
+func NetworkVPCUpdateRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPCUpdateArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPCUpdate(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPCDeleteRun is the Cobra RunE handler for VPC delete.
+// confirmDelete and --dry-run live here; the operation function is I/O-pure.
+func NetworkVPCDeleteRun(cmd *cobra.Command, cobraArgs []string) error {
+	args, err := NewNetworkVPCDeleteArgsFromCobraCommand(cmd, cobraArgs)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	if !args.SkipConfirm {
+		ok, err := confirmDelete("VPC", args.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if args.DryRun {
+		if _, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(args.ProjectID, args.ID)); err != nil {
+			return fmt.Errorf("dry-run: VPC not found or inaccessible: %w", apiErrFromV2(err))
+		}
+		fmt.Println(msgDryRun("VPC", args.ID))
+		return nil
+	}
+
+	if err := NetworkVPCDelete(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
+	}
+	return nil
+}
+
+// NetworkVPCListRun is the Cobra RunE handler for VPC list.
+func NetworkVPCListRun(cmd *cobra.Command, _ []string) error {
+	args, err := NewNetworkVPCListArgsFromCobraCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("checking args: %w", err)
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return fmt.Errorf("initializing client: %w", err)
+	}
+
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	if err := NetworkVPCList(ctx, client, *args); err != nil {
+		return fmt.Errorf("running command: %w", err)
 	}
 	return nil
 }

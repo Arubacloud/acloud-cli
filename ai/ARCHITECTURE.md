@@ -8,7 +8,29 @@ Global flags registered on `rootCmd` (available on every command):
 - `--debug, -d` — enables HTTP request/response logging to stderr (microsecond-precision, stderr output)
 - `--project-id` — target project (falls back to active context if omitted)
 
-Commands use `Run` (not `RunE`). Errors are printed with `fmt.Printf` and the handler returns early — no exit codes are used in resource commands.
+All resource commands use `RunE` (not `Run`). Errors propagate up via `return
+fmt.Errorf(...)` — never `fmt.Print` + early return. No `os.Exit` in resource commands.
+
+### Args / Operation / Run call stack
+
+Each `RunE` field points to a named wiring function, never an anonymous closure:
+
+```
+RunE: <Family><Resource><Action>Run
+        │
+        ├─ New<Family><Resource><Action>ArgsFromCobraCommand(cmd)
+        │       ├─ args.ParseFromCobraCommand(cmd)   ← flag reads + type casts
+        │       └─ args.Validate()                   ← pure; no SDK, no I/O
+        │
+        ├─ GetArubaClient()
+        ├─ newCtx()
+        └─ <Family><Resource><Action>(ctx, client, args)   ← pure operation
+```
+
+Parse errors wrap `ErrParsingFailed`; validation errors wrap `ErrValidationFailed`
+(both in `cmd/args.go`). The operation function must not call `GetArubaClient`,
+`GetProjectID`, `cmd.Flags()`, or read `os.Stdin`. See `ai/CONVENTIONS.md` for the
+full template and naming convention.
 
 ---
 
@@ -431,9 +453,15 @@ Always returns `cobra.ShellCompDirectiveNoFileComp`. On any error, returns `nil,
 
 ## Error Handling Rules
 
-- Resource commands use `Run` (not `RunE`). Errors are printed and the function returns.
-- `os.Exit` is called only in `cmd/root.go` (if `Execute()` fails) and `cmd/config.go` (hard validation errors during initial setup). Never in resource commands.
-- SDK call errors from `err != nil` and API-level errors from `response.IsError()` are handled separately (see SDK Call Pattern above).
+- Resource commands use `RunE`. Errors propagate via `return fmt.Errorf(...)`.
+- `os.Exit` is called only in `cmd/root.go` (if `Execute()` fails) and `cmd/config.go`
+  (hard validation errors during initial setup). Never in resource commands.
+- Flag-parse errors from `ParseFromCobraCommand` are wrapped as:
+  `fmt.Errorf("%w: [%w]", ErrParsingFailed, err)`.
+- Validation errors from `Validate()` are wrapped as:
+  `fmt.Errorf("%w: [%w]", ErrValidationFailed, err)`.
+- SDK call errors surface as `*aruba.HTTPError`. Use `apiErrFromV2(err)` to format them;
+  there is no separate `response.IsError()` check.
 
 ---
 

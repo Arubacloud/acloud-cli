@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -153,7 +156,7 @@ func TestDBBackupCreateCmd(t *testing.T) {
 		"database", "backup", "create",
 		"--project-id", "proj-123",
 		"--name", "my-backup",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--dbaas-id", "dbaas-001",
 		"--database-name", "mydb",
 	}
@@ -185,7 +188,7 @@ func TestDBBackupCreateCmd(t *testing.T) {
 			args: []string{
 				"database", "backup", "create",
 				"--project-id", "proj-123",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--dbaas-id", "dbaas-001",
 				"--database-name", "mydb",
 			},
@@ -198,7 +201,7 @@ func TestDBBackupCreateCmd(t *testing.T) {
 				"database", "backup", "create",
 				"--project-id", "proj-123",
 				"--name", "my-backup",
-				"--region", "IT-BG",
+				"--region", "ITBG-Bergamo",
 				"--database-name", "mydb",
 			},
 			wantErr:     true,
@@ -313,7 +316,7 @@ func TestDBBackupListCmd_AllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "bkp-001", "my-backup"
 	state := types.StateActive
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
 		Values: []types.BackupResponse{
 			{
@@ -333,7 +336,7 @@ func TestDBBackupListCmd_AllOptionalFields(t *testing.T) {
 	if !strings.Contains(out, "bkp-001") {
 		t.Errorf("expected ID in output, got: %s", out)
 	}
-	if !strings.Contains(out, "IT-BG") {
+	if !strings.Contains(out, "ITBG-Bergamo") {
 		t.Errorf("expected region in output, got: %s", out)
 	}
 	if !strings.Contains(out, "Active") {
@@ -348,7 +351,7 @@ func TestDBBackupGetCmd_AllOptionalFields(t *testing.T) {
 	uri := "/projects/proj-123/providers/Aruba.Database/backups/bkp-001"
 	createdBy := "user@example.com"
 	state := types.StateActive
-	region := types.Region("IT-BG")
+	region := types.Region("ITBG-Bergamo")
 	now := time.Now()
 	makeResponse := func() types.BackupResponse {
 		return types.BackupResponse{
@@ -375,7 +378,7 @@ func TestDBBackupGetCmd_AllOptionalFields(t *testing.T) {
 		if !strings.Contains(out, "bkp-001") {
 			t.Errorf("expected ID in output, got: %s", out)
 		}
-		if !strings.Contains(out, "IT-BG") {
+		if !strings.Contains(out, "ITBG-Bergamo") {
 			t.Errorf("expected region in output, got: %s", out)
 		}
 		if !strings.Contains(out, "user@example.com") {
@@ -401,4 +404,390 @@ func TestDBBackupGetCmd_AllOptionalFields(t *testing.T) {
 			t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
 		}
 	})
+}
+
+func TestDatabaseDBaaSBackupCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"database", "backup", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--dbaas-id", "dbaas-001", "--database-name", "mydb"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestDatabaseDBaaSBackupListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"database", "backup", "list"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func validDatabaseDBaaSBackupCreateArgs() DatabaseDBaaSBackupCreateArgs {
+	return DatabaseDBaaSBackupCreateArgs{
+		ProjectID:     "proj-123",
+		Name:          "my-backup",
+		Region:        aruba.RegionITBGBergamo,
+		DBaaSID:       "dbaas-001",
+		DatabaseName:  "mydb",
+		BillingPeriod: aruba.BillingPeriodHour,
+	}
+}
+
+func TestDatabaseDBaaSBackupCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*DatabaseDBaaSBackupCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "happy path",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *DatabaseDBaaSBackupCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.Region = "ZZ-Invalid" },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.BillingPeriod = "Weekly" },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+		{
+			name:        "empty dbaas-id",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.DBaaSID = "" },
+			wantErr:     true,
+			errContains: "--dbaas-id",
+		},
+		{
+			name:        "empty database-name",
+			mutate:      func(a *DatabaseDBaaSBackupCreateArgs) { a.DatabaseName = "" },
+			wantErr:     true,
+			errContains: "--database-name",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validDatabaseDBaaSBackupCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSBackupGetArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := DatabaseDBaaSBackupGetArgs{ProjectID: "p1", BackupID: "bkp-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty backup ID", func(t *testing.T) {
+		args := DatabaseDBaaSBackupGetArgs{ProjectID: "p1", BackupID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty backup ID")
+		}
+	})
+}
+
+func TestDatabaseDBaaSBackupListArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := DatabaseDBaaSBackupListArgs{ProjectID: "proj-123"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty project ID", func(t *testing.T) {
+		args := DatabaseDBaaSBackupListArgs{}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty project ID")
+		}
+	})
+}
+
+func TestDatabaseDBaaSBackupDeleteArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := DatabaseDBaaSBackupDeleteArgs{ProjectID: "p1", BackupID: "bkp-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty backup ID", func(t *testing.T) {
+		args := DatabaseDBaaSBackupDeleteArgs{ProjectID: "p1", BackupID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty backup ID")
+		}
+	})
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestDatabaseDBaaSBackupCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-new", "my-backup"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupCreate(context.Background(), srv.Client(), validDatabaseDBaaSBackupCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "my-backup") {
+		t.Errorf("expected name in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := DatabaseDBaaSBackupCreate(context.Background(), srv.Client(), validDatabaseDBaaSBackupCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating backup") {
+		t.Errorf("error %q does not contain 'creating backup'", err.Error())
+	}
+}
+
+func TestDatabaseDBaaSBackupCreate_AsyncResponse(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// Async: server returns 202 with no body; the SDK may return nil wrapper.
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(202, nil))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupCreate(context.Background(), srv.Client(), validDatabaseDBaaSBackupCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "my-backup") {
+		t.Errorf("expected name in async output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-001", "my-backup"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{
+		Values: []types.BackupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupList(context.Background(), srv.Client(), DatabaseDBaaSBackupListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bkp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{}))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupList(context.Background(), srv.Client(), DatabaseDBaaSBackupListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No backups found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupGet_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-001", "my-backup"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups/bkp-001", jsonResponse(200, types.BackupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupGet(context.Background(), srv.Client(), DatabaseDBaaSBackupGetArgs{
+			ProjectID: "proj-123",
+			BackupID:  "bkp-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bkp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupGet_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups/bkp-001", errorResponse(404, "Not Found", "not found"))
+
+	err := DatabaseDBaaSBackupGet(context.Background(), srv.Client(), DatabaseDBaaSBackupGetArgs{
+		ProjectID: "proj-123",
+		BackupID:  "bkp-001",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "getting backup") {
+		t.Errorf("error %q does not contain 'getting backup'", err.Error())
+	}
+}
+
+func TestDatabaseDBaaSBackupDelete_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnDelete("/projects/proj-123/providers/Aruba.Database/backups/bkp-001", jsonResponse(200, nil))
+
+	out := captureStdout(func() {
+		err := DatabaseDBaaSBackupDelete(context.Background(), srv.Client(), DatabaseDBaaSBackupDeleteArgs{
+			ProjectID: "proj-123",
+			BackupID:  "bkp-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bkp-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestDatabaseDBaaSBackupDelete_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnDelete("/projects/proj-123/providers/Aruba.Database/backups/bkp-001", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := DatabaseDBaaSBackupDelete(context.Background(), srv.Client(), DatabaseDBaaSBackupDeleteArgs{
+		ProjectID: "proj-123",
+		BackupID:  "bkp-001",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "deleting backup") {
+		t.Errorf("error %q does not contain 'deleting backup'", err.Error())
+	}
+}
+
+// TestDatabaseDBaaSBackupCreateArgs_ConstructorWrapsErrors verifies that the constructor
+// wraps validation failures with ErrValidationFailed.
+func TestDatabaseDBaaSBackupCreateArgs_ConstructorWrapsErrors(t *testing.T) {
+	cmd := backupCreateCmd
+	resetCmdFlags(cmd)
+	_ = cmd.Flags().Set("project-id", "proj-123")
+	_ = cmd.Flags().Set("name", "my-backup")
+	_ = cmd.Flags().Set("region", "ZZ-Invalid")
+	_ = cmd.Flags().Set("dbaas-id", "dbaas-001")
+	_ = cmd.Flags().Set("database-name", "mydb")
+
+	_, err := NewDatabaseDBaaSBackupCreateArgsFromCobraCommand(cmd)
+	if err == nil {
+		t.Fatal("expected validation error for invalid region")
+	}
+	if !strings.Contains(err.Error(), "validation failed") {
+		t.Errorf("expected ErrValidationFailed wrapping, got: %v", err)
+	}
+}
+
+// TestDatabaseDBaaSBackupCreate_WithTagsAndRegion verifies tags are forwarded and
+// region reaches the SDK builder (exercises RetaggedAs branch).
+func TestDatabaseDBaaSBackupCreate_WithTagsAndRegion(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-tags", "tagged-backup"
+	region := types.Region("ITBG-Bergamo")
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupResponse{
+		Metadata: types.ResourceMetadataResponse{
+			ID:               &id,
+			Name:             &name,
+			LocationResponse: &types.LocationResponse{Value: region},
+			Tags:             []string{"env=test"},
+		},
+	}))
+
+	out := captureStdout(func() {
+		args := validDatabaseDBaaSBackupCreateArgs()
+		args.Tags = []string{"env=test"}
+		err := DatabaseDBaaSBackupCreate(context.Background(), srv.Client(), args)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bkp-tags") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// TestDatabaseDBaaSBackupList_WithCallOpts verifies that CallOpts are threaded through.
+func TestDatabaseDBaaSBackupList_WithCallOpts(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.DBaaSBackupListResponse{}))
+
+	err := DatabaseDBaaSBackupList(context.Background(), srv.Client(), DatabaseDBaaSBackupListArgs{
+		ProjectID: "proj-123",
+		CallOpts:  []aruba.CallOption{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

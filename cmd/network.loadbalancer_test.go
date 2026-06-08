@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -204,5 +206,136 @@ func TestLoadBalancerGetCmd_FullDetail(t *testing.T) {
 	}
 	if !strings.Contains(out, "lb-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// =============================================================================
+// Layer 1 — Validate() tests (pure-Go, no SDK, no httptest)
+// =============================================================================
+
+func TestNetworkLoadBalancerListArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkLoadBalancerListArgs{ProjectID: "proj-123"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty project ID", func(t *testing.T) {
+		args := NetworkLoadBalancerListArgs{}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty project ID")
+		}
+	})
+}
+
+func TestNetworkLoadBalancerGetArgs_Validate(t *testing.T) {
+	t.Run("happy path", func(t *testing.T) {
+		args := NetworkLoadBalancerGetArgs{ProjectID: "p1", ID: "lb-001"}
+		if err := args.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	t.Run("empty ID", func(t *testing.T) {
+		args := NetworkLoadBalancerGetArgs{ProjectID: "p1", ID: ""}
+		if err := args.Validate(); err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestNetworkLoadBalancerList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "lb-001", "my-lb"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{
+		Values: []types.LoadBalancerResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkLoadBalancerList(context.Background(), srv.Client(), NetworkLoadBalancerListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "lb-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkLoadBalancerList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers", jsonResponse(200, types.LoadBalancerListResponse{}))
+
+	out := captureStdout(func() {
+		err := NetworkLoadBalancerList(context.Background(), srv.Client(), NetworkLoadBalancerListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No Load Balancers found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestNetworkLoadBalancerGet_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "lb-001", "my-lb"
+	state := types.StateActive
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-001", jsonResponse(200, types.LoadBalancerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	out := captureStdout(func() {
+		err := NetworkLoadBalancerGet(context.Background(), srv.Client(), NetworkLoadBalancerGetArgs{
+			ProjectID: "proj-123",
+			ID:        "lb-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "lb-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkLoadBalancerGet_NotFound(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/loadBalancers/lb-999",
+		errorResponse(404, "Not Found", "not found"))
+
+	err := NetworkLoadBalancerGet(context.Background(), srv.Client(), NetworkLoadBalancerGetArgs{
+		ProjectID: "proj-123",
+		ID:        "lb-999",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestNetworkLoadBalancerListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "loadbalancer", "list"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

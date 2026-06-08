@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -165,7 +169,7 @@ func TestSecurityRuleCreateCmd(t *testing.T) {
 		"network", "securityrule", "create", "vpc-001", "sg-001",
 		"--project-id", "proj-123",
 		"--name", "my-rule",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--direction", "Ingress",
 		"--protocol", "TCP",
 		"--target-kind", "Ip",
@@ -558,7 +562,7 @@ func TestSecurityRuleCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"network", "securityrule", "create", "vpc-001", "sg-001",
 		"--project-id", "proj-123",
 		"--name", "my-rule",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 		"--direction", "Ingress",
 		"--protocol", "TCP",
 		"--port", "80",
@@ -604,6 +608,136 @@ func TestSecurityRuleListCmd_WithAllFields(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Layer 1 — Validate() tests
+// =============================================================================
+
+func TestNetworkSecurityRuleCreateArgs_Validate(t *testing.T) {
+	valid := NetworkSecurityRuleCreateArgs{
+		ProjectID:   "p1",
+		VPCID:       "vpc-1",
+		SGID:        "sg-1",
+		Name:        "my-rule",
+		Region:      aruba.RegionITBGBergamo,
+		Direction:   "Ingress",
+		Protocol:    "TCP",
+		TargetKind:  "Ip",
+		TargetValue: "0.0.0.0/0",
+	}
+	tests := []struct {
+		name        string
+		mutate      func(*NetworkSecurityRuleCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{name: "happy path"},
+		{name: "name too short", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.Name = "ab" }, wantErr: true, errContains: "--name"},
+		{name: "invalid region", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.Region = "ZZ" }, wantErr: true, errContains: "--region"},
+		{name: "empty direction", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.Direction = "" }, wantErr: true, errContains: "--direction"},
+		{name: "empty protocol", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.Protocol = "" }, wantErr: true, errContains: "--protocol"},
+		{name: "empty target-kind", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.TargetKind = "" }, wantErr: true, errContains: "--target-kind"},
+		{name: "empty target-value", mutate: func(a *NetworkSecurityRuleCreateArgs) { a.TargetValue = "" }, wantErr: true, errContains: "--target-value"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := valid
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNetworkSecurityRuleCreateArgs_ErrValidationFailed(t *testing.T) {
+	args := NetworkSecurityRuleCreateArgs{ProjectID: "p1", VPCID: "vpc-1", SGID: "sg-1", Name: "x", Region: "bad"}
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !errors.Is(ErrValidationFailed, ErrValidationFailed) {
+		t.Error("sentinel self-check failed")
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests
+// =============================================================================
+
+func TestNetworkSecurityRuleCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "rule-new", "my-rule"
+	dir := types.RuleDirectionIngress
+	proto := types.RuleProtocolTCP
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleResponse{
+		Metadata:   types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Properties: types.SecurityRulePropertiesResponse{Direction: dir, Protocol: proto, Port: "80"},
+	}))
+	out := captureStdout(func() {
+		err := NetworkSecurityRuleCreate(context.Background(), srv.Client(), NetworkSecurityRuleCreateArgs{
+			ProjectID: "proj-123", VPCID: "vpc-001", SGID: "sg-001",
+			Name: "my-rule", Region: aruba.RegionITBGBergamo,
+			Direction: "Ingress", Protocol: "TCP", Port: "80",
+			TargetKind: "Ip", TargetValue: "0.0.0.0/0",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "rule-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkSecurityRuleCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules",
+		errorResponse(500, "Internal Server Error", "boom"))
+	err := NetworkSecurityRuleCreate(context.Background(), srv.Client(), NetworkSecurityRuleCreateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", SGID: "sg-001",
+		Name: "my-rule", Region: aruba.RegionITBGBergamo,
+		Direction: "Ingress", Protocol: "TCP",
+		TargetKind: "Ip", TargetValue: "0.0.0.0/0",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating security rule") {
+		t.Errorf("error %q does not contain 'creating security rule'", err.Error())
+	}
+}
+
+func TestNetworkSecurityRuleList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "rule-001", "my-rule"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-001/securityRules", jsonResponse(200, types.SecurityRuleListResponse{
+		Values: []types.SecurityRuleResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	out := captureStdout(func() {
+		err := NetworkSecurityRuleList(context.Background(), srv.Client(), NetworkSecurityRuleListArgs{
+			ProjectID: "proj-123", VPCID: "vpc-001", SGID: "sg-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "rule-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
 func TestSecurityRuleGetCmd_WithAllOptionals(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "rule-001", "my-rule"
@@ -638,5 +772,42 @@ func TestSecurityRuleGetCmd_WithAllOptionals(t *testing.T) {
 	}
 	if !strings.Contains(out, "rule-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestNetworkSecurityRuleCreateRun_ValidationError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{
+		"network", "securityrule", "create", "vpc-001", "sg-001",
+		"--project-id", "proj-123",
+		"--name", "x",
+		"--region", "ITBG-Bergamo",
+		"--direction", "Ingress",
+		"--protocol", "TCP",
+		"--target-kind", "Ip",
+		"--target-value", "0.0.0.0/0",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestNetworkSecurityRuleListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"network", "securityrule", "list", "vpc-001", "sg-001"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

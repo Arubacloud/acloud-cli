@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -207,7 +211,7 @@ func TestKMSCreateCmd(t *testing.T) {
 	}{
 		{
 			name: "success",
-			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "kms-new", "my-kms"
 				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsResponse{
@@ -222,7 +226,7 @@ func TestKMSCreateCmd(t *testing.T) {
 		},
 		{
 			name:        "missing required flag --name",
-			args:        []string{"security", "kms", "create", "--project-id", "proj-123", "--region", "IT-BG"},
+			args:        []string{"security", "kms", "create", "--project-id", "proj-123", "--region", "ITBG-Bergamo"},
 			wantErr:     true,
 			errContains: "name",
 		},
@@ -234,7 +238,7 @@ func TestKMSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "server error propagates",
-			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "quota exceeded"))
 			},
@@ -243,7 +247,7 @@ func TestKMSCreateCmd(t *testing.T) {
 		},
 		{
 			name: "API error propagates",
-			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "IT-BG"},
+			args: []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "my-kms", "--region", "ITBG-Bergamo"},
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(404, "Not Found", "resource not found"))
 			},
@@ -427,6 +431,35 @@ func TestKMSDeleteCmd(t *testing.T) {
 	}
 }
 
+func TestSecurityKMSCreateRun_ValidationError(t *testing.T) {
+	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"security", "kms", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "checking args") {
+		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestSecurityKMSListRun_NoProjectID(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUP := os.Getenv("USERPROFILE")
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	os.Setenv("USERPROFILE", tmp)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUP)
+	}()
+	srv := newArubaTestServer(t)
+	err := runCmd(srv.Client(), []string{"security", "kms", "list"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestKMSCreateCmd_WithLocationAndStatus(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "kms-001", "my-kms"
@@ -444,7 +477,7 @@ func TestKMSCreateCmd_WithLocationAndStatus(t *testing.T) {
 		"security", "kms", "create",
 		"--project-id", "proj-123",
 		"--name", "my-kms",
-		"--region", "IT-BG",
+		"--region", "ITBG-Bergamo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -474,5 +507,227 @@ func TestKMSListCmd_WithLocationAndStatus(t *testing.T) {
 	}
 	if !strings.Contains(out, "kms-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func validKMSCreateArgs() SecurityKMSCreateArgs {
+	return SecurityKMSCreateArgs{
+		ProjectID:     "proj-123",
+		Name:          "my-kms",
+		Region:        aruba.RegionITBGBergamo,
+		BillingPeriod: aruba.BillingPeriodHour,
+		Tags:          []string{},
+	}
+}
+
+func TestSecurityKMSCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*SecurityKMSCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid args",
+			wantErr: false,
+		},
+		{
+			name:        "name too short",
+			mutate:      func(a *SecurityKMSCreateArgs) { a.Name = "ab" },
+			wantErr:     true,
+			errContains: "--name must be at least 3 characters",
+		},
+		{
+			name:    "name minimum length 3",
+			mutate:  func(a *SecurityKMSCreateArgs) { a.Name = "abc" },
+			wantErr: false,
+		},
+		{
+			name:        "name too long",
+			mutate:      func(a *SecurityKMSCreateArgs) { a.Name = strings.Repeat("x", 65) },
+			wantErr:     true,
+			errContains: "--name must be at most 64 characters",
+		},
+		{
+			name:    "name maximum length 64",
+			mutate:  func(a *SecurityKMSCreateArgs) { a.Name = strings.Repeat("x", 64) },
+			wantErr: false,
+		},
+		{
+			name:        "invalid region",
+			mutate:      func(a *SecurityKMSCreateArgs) { a.Region = aruba.Region("ZZ-Invalid") },
+			wantErr:     true,
+			errContains: "--region",
+		},
+		{
+			name:        "invalid billing period",
+			mutate:      func(a *SecurityKMSCreateArgs) { a.BillingPeriod = aruba.BillingPeriod("Quarterly") },
+			wantErr:     true,
+			errContains: "--billing-period",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validKMSCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSecurityKMSCreateArgs_Validate_WrappedByConstructor(t *testing.T) {
+	args := validKMSCreateArgs()
+	args.Name = "x" // too short
+	err := args.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	wrapped := errors.Join(ErrValidationFailed, err) // mirrors constructor pattern
+	if !errors.Is(wrapped, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed in chain, got: %v", wrapped)
+	}
+}
+
+func TestSecurityKMSUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKMSUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid with name",
+			args:    SecurityKMSUpdateArgs{ProjectID: "proj-123", ID: "kms-001", Name: "new-name"},
+			wantErr: false,
+		},
+		{
+			name:    "valid with tags changed",
+			args:    SecurityKMSUpdateArgs{ProjectID: "proj-123", ID: "kms-001", TagsChanged: true},
+			wantErr: false,
+		},
+		{
+			name:        "no fields changed",
+			args:        SecurityKMSUpdateArgs{ProjectID: "proj-123", ID: "kms-001"},
+			wantErr:     true,
+			errContains: "at least one of",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Layer 2 — Operation function tests (httptest harness, bypasses RunE)
+// =============================================================================
+
+func TestSecurityKMSCreate_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kms-new", "my-kms"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		err := SecurityKMSCreate(context.Background(), srv.Client(), validKMSCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kms-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestSecurityKMSCreate_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "quota exceeded"))
+
+	err := SecurityKMSCreate(context.Background(), srv.Client(), validKMSCreateArgs())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "creating KMS") {
+		t.Errorf("error %q does not contain 'creating KMS'", err.Error())
+	}
+}
+
+func TestSecurityKMSList_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kms-001", "my-kms"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
+		Values: []types.KmsResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+
+	out := captureStdout(func() {
+		err := SecurityKMSList(context.Background(), srv.Client(), SecurityKMSListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kms-001") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+func TestSecurityKMSList_Empty(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{}))
+
+	out := captureStdout(func() {
+		err := SecurityKMSList(context.Background(), srv.Client(), SecurityKMSListArgs{
+			ProjectID: "proj-123",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No KMS resources found") {
+		t.Errorf("expected empty message, got: %s", out)
+	}
+}
+
+func TestSecurityKMSList_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "boom"))
+
+	err := SecurityKMSList(context.Background(), srv.Client(), SecurityKMSListArgs{
+		ProjectID: "proj-123",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "listing KMS") {
+		t.Errorf("error %q does not contain 'listing KMS'", err.Error())
 	}
 }

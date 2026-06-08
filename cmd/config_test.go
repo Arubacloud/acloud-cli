@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -408,6 +412,182 @@ func TestConfigShowCmd_NoConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !strings.Contains(out, "No configuration found") {
+		t.Errorf("expected no-config message, got: %s", out)
+	}
+}
+
+// ─── Layer-1: Validate ────────────────────────────────────────────────────────
+
+func TestConfigSetArgs_Validate(t *testing.T) {
+	// ConfigSetArgs.Validate is intentionally no-op: required-field checks are
+	// deferred to ConfigSet because they depend on the existing config on disk.
+	// Verify that Validate always returns nil regardless of field values.
+	cases := []struct {
+		name string
+		args ConfigSetArgs
+	}{
+		{"all empty", ConfigSetArgs{}},
+		{"only client-id", ConfigSetArgs{ClientID: "id"}},
+		{"only client-secret", ConfigSetArgs{ClientSecret: "secret"}},
+		{"all set", ConfigSetArgs{ClientID: "id", ClientSecret: "secret", BaseURL: "https://x", TokenIssuerURL: "https://y"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.args.Validate(); err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestNewConfigSetArgsFromCobraCommand_ParseError(t *testing.T) {
+	// A cobra.Command with none of the expected flags registered causes
+	// GetString to return an error for every flag, which should surface as
+	// ErrParsingFailed from the constructor.
+	bare := &cobra.Command{}
+	_, err := NewConfigSetArgsFromCobraCommand(bare)
+	if err == nil {
+		t.Fatal("expected ErrParsingFailed for command with no flags, got nil")
+	}
+	if !errors.Is(err, ErrParsingFailed) {
+		t.Errorf("expected ErrParsingFailed, got: %v", err)
+	}
+}
+
+// ─── Layer-2: Operation ───────────────────────────────────────────────────────
+
+func withTempHome(t *testing.T) func() {
+	t.Helper()
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	return func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}
+}
+
+func TestConfigSet_Operation_Success(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	out := captureStdout(func() {
+		err := ConfigSet(context.Background(), ConfigSetArgs{
+			ClientID:     "op-id",
+			ClientSecret: "op-secret",
+		})
+		if err != nil {
+			t.Errorf("ConfigSet() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "updated successfully") {
+		t.Errorf("expected success message, got: %s", out)
+	}
+	if !strings.Contains(out, "op-id") {
+		t.Errorf("expected client ID in output, got: %s", out)
+	}
+
+	// Verify file was written correctly.
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig after ConfigSet: %v", err)
+	}
+	if loaded.ClientID != "op-id" {
+		t.Errorf("ClientID = %q, want op-id", loaded.ClientID)
+	}
+	if loaded.ClientSecret != "op-secret" {
+		t.Errorf("ClientSecret = %q, want op-secret", loaded.ClientSecret)
+	}
+}
+
+func TestConfigSet_Operation_MissingClientID(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	err := ConfigSet(context.Background(), ConfigSetArgs{ClientSecret: "secret"})
+	if err == nil {
+		t.Fatal("expected error for missing client-id")
+	}
+	if !strings.Contains(err.Error(), "client-id") {
+		t.Errorf("expected client-id mention, got: %v", err)
+	}
+}
+
+func TestConfigSet_Operation_UpdatesExistingConfig(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	// Write initial config.
+	if err := SaveConfig(&Config{ClientID: "old-id", ClientSecret: "old-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	// Update only the base URL — existing credentials are preserved.
+	err := ConfigSet(context.Background(), ConfigSetArgs{
+		BaseURL: "https://custom.example.com",
+	})
+	if err != nil {
+		t.Fatalf("ConfigSet() error: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.ClientID != "old-id" {
+		t.Errorf("ClientID = %q, want old-id", loaded.ClientID)
+	}
+	if loaded.BaseURL != "https://custom.example.com" {
+		t.Errorf("BaseURL = %q, want https://custom.example.com", loaded.BaseURL)
+	}
+}
+
+func TestConfigShow_Operation_WithConfig(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	if err := SaveConfig(&Config{ClientID: "show-op-id", ClientSecret: "show-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ConfigShow(context.Background(), ConfigShowArgs{})
+		if err != nil {
+			t.Errorf("ConfigShow() unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "show-op-id") {
+		t.Errorf("expected client ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "********") {
+		t.Errorf("expected redacted secret in output, got: %s", out)
+	}
+	if !strings.Contains(out, DefaultBaseURL+" (default)") {
+		t.Errorf("expected default base URL label, got: %s", out)
+	}
+}
+
+func TestConfigShow_Operation_NoConfig(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	out := captureStdout(func() {
+		err := ConfigShow(context.Background(), ConfigShowArgs{})
+		if err != nil {
+			t.Errorf("ConfigShow() unexpected error: %v", err)
+		}
+	})
+
 	if !strings.Contains(out, "No configuration found") {
 		t.Errorf("expected no-config message, got: %s", out)
 	}
