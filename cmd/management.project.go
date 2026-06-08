@@ -438,15 +438,11 @@ func ManagementProjectGet(ctx context.Context, client aruba.Client, args Managem
 		if !p.UpdatedAt().IsZero() {
 			fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
 		}
-		// CreatedBy / UpdatedBy have no wrapper accessors in sdk-go v1.0.0. TECH_DEBT: TD-033 (#131)
-		// See https://github.com/Arubacloud/acloud-cli/issues/131
-		if raw := p.Raw(); raw != nil {
-			if raw.Metadata.CreatedBy != nil {
-				fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-			}
-			if raw.Metadata.UpdatedBy != nil {
-				fmt.Printf("Updated By:      %s\n", *raw.Metadata.UpdatedBy)
-			}
+		if v := p.CreatedBy(); v != "" {
+			fmt.Printf("Created By:      %s\n", v)
+		}
+		if v := p.UpdatedBy(); v != "" {
+			fmt.Printf("Updated By:      %s\n", v)
 		}
 
 		tags := p.Tags()

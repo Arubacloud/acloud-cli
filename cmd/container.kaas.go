@@ -790,9 +790,8 @@ func ContainerKaaSGet(ctx context.Context, client aruba.Client, args ContainerKa
 		if !kaas.CreatedAt().IsZero() {
 			fmt.Printf("Creation Date:   %s\n", kaas.CreatedAt().Format(DateLayout))
 		}
-		// CreatedBy has no wrapper accessor in sdk-go v1.0.0 — TECH_DEBT: TD-033
-		if raw := kaas.Raw(); raw != nil && raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+		if v := kaas.CreatedBy(); v != "" {
+			fmt.Printf("Created By:      %s\n", v)
 		}
 		if tags := kaas.Tags(); len(tags) > 0 {
 			fmt.Printf("Tags:            %v\n", tags)
