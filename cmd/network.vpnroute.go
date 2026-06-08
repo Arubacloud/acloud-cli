@@ -485,13 +485,11 @@ func NetworkVPNRouteCreate(ctx context.Context, client aruba.Client, args Networ
 		if raw.Metadata.ID != nil {
 			id = *raw.Metadata.ID
 		}
-		cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
-		onPremSubnetVal := raw.Properties.OnPremSubnet
 		status := ""
 		if raw.Status.State != nil {
 			status = string(*raw.Status.State)
 		}
-		row := []string{args.Name, id, cloudSubnetVal, onPremSubnetVal, status}
+		row := []string{args.Name, id, resp.CloudSubnet(), resp.OnPremSubnet(), status}
 		PrintOutput(resp, headers, [][]string{row})
 	} else {
 		fmt.Println(msgCreatedAsync("VPN route", args.Name))
@@ -522,8 +520,8 @@ func NetworkVPNRouteGet(ctx context.Context, client aruba.Client, args NetworkVP
 		if raw.Metadata.LocationResponse != nil {
 			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
 		}
-		fmt.Printf("Cloud Subnet:    %s\n", raw.Properties.CloudSubnet.CIDR)
-		fmt.Printf("OnPrem Subnet:   %s\n", raw.Properties.OnPremSubnet)
+		fmt.Printf("Cloud Subnet:    %s\n", route.CloudSubnet())
+		fmt.Printf("OnPrem Subnet:   %s\n", route.OnPremSubnet())
 		if raw.Metadata.CreationDate != nil {
 			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
 		}
@@ -584,13 +582,11 @@ func NetworkVPNRouteUpdate(ctx context.Context, client aruba.Client, args Networ
 		if raw.Metadata.ID != nil {
 			id = *raw.Metadata.ID
 		}
-		cloudSubnetVal := raw.Properties.CloudSubnet.CIDR
-		onPremSubnetVal := raw.Properties.OnPremSubnet
 		status := ""
 		if raw.Status.State != nil {
 			status = string(*raw.Status.State)
 		}
-		row := []string{nameVal, id, cloudSubnetVal, onPremSubnetVal, status}
+		row := []string{nameVal, id, updated.CloudSubnet(), updated.OnPremSubnet(), status}
 		PrintOutput(updated, headers, [][]string{row})
 	} else {
 		fmt.Println(msgUpdatedAsync("VPN route", args.RouteID))
@@ -647,13 +643,11 @@ func NetworkVPNRouteList(ctx context.Context, client aruba.Client, args NetworkV
 			if raw.Metadata.ID != nil {
 				id = *raw.Metadata.ID
 			}
-			cloudSubnet := raw.Properties.CloudSubnet.CIDR
-			onPremSubnet := raw.Properties.OnPremSubnet
 			status := ""
 			if raw.Status.State != nil {
 				status = string(*raw.Status.State)
 			}
-			rows = append(rows, []string{name, id, cloudSubnet, onPremSubnet, status})
+			rows = append(rows, []string{name, id, route.CloudSubnet(), route.OnPremSubnet(), status})
 		}
 		PrintOutput(list, headers, rows)
 	} else {

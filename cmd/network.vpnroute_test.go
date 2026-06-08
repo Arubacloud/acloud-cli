@@ -672,6 +672,92 @@ func TestNetworkVPNRouteCreate_HappyPath(t *testing.T) {
 	}
 }
 
+func TestNetworkVPNRouteCreate_CloudSubnetInOutput(t *testing.T) {
+	// Verifies that CloudSubnet() from the response is printed correctly — the
+	// previous bug (TD-030) caused it to always be blank because the SDK did not
+	// parse the {"cidr":"..."} JSON shape returned by the API.
+	srv := newArubaTestServer(t)
+	id, name := "route-new", "my-route"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		jsonResponse(200, types.VPNRouteResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+			Properties: types.VPNRoutePropertiesResponse{
+				CloudSubnet:  types.SubnetCIDROrRef{CIDR: "10.0.0.0/24"},
+				OnPremSubnet: "192.168.1.0/24",
+			},
+		}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteCreate(context.Background(), srv.Client(), validNetworkVPNRouteCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "10.0.0.0/24") {
+		t.Errorf("CloudSubnet CIDR missing from create output; got: %s", out)
+	}
+	if !strings.Contains(out, "192.168.1.0/24") {
+		t.Errorf("OnPremSubnet CIDR missing from create output; got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteGet_CloudSubnetInOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes/route-001",
+		jsonResponse(200, types.VPNRouteResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+			Properties: types.VPNRoutePropertiesResponse{
+				CloudSubnet:  types.SubnetCIDROrRef{CIDR: "10.0.0.0/24"},
+				OnPremSubnet: "192.168.1.0/24",
+			},
+		}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteGet(context.Background(), srv.Client(), NetworkVPNRouteGetArgs{
+			ProjectID: "proj-123",
+			TunnelID:  "vpn-001",
+			RouteID:   "route-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "10.0.0.0/24") {
+		t.Errorf("CloudSubnet CIDR missing from get output; got: %s", out)
+	}
+}
+
+func TestNetworkVPNRouteList_CloudSubnetInOutput(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "route-001", "my-route"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",
+		jsonResponse(200, types.VPNRouteListResponse{
+			Values: []types.VPNRouteResponse{
+				{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Properties: types.VPNRoutePropertiesResponse{
+						CloudSubnet:  types.SubnetCIDROrRef{CIDR: "10.0.0.0/24"},
+						OnPremSubnet: "192.168.1.0/24",
+					},
+				},
+			},
+		}))
+
+	out := captureStdout(func() {
+		err := NetworkVPNRouteList(context.Background(), srv.Client(), NetworkVPNRouteListArgs{
+			ProjectID: "proj-123",
+			TunnelID:  "vpn-001",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "10.0.0.0/24") {
+		t.Errorf("CloudSubnet CIDR missing from list output; got: %s", out)
+	}
+}
+
 func TestNetworkVPNRouteCreate_APIError(t *testing.T) {
 	srv := newArubaTestServer(t)
 	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-001/vpnRoutes",

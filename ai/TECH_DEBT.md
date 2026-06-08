@@ -72,27 +72,6 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 
 ---
 
-### TD-030 · VPN route Cloud Subnet always blank on `get` / `list`
-
-`acloud network vpnroute get` prints an empty `Cloud Subnet:` row even when the route
-was created with `--cloud-subnet 10.0.0.0/24`. The CLI reads
-`raw.Properties.CloudSubnet.CIDR`, but the GET response places the value under a
-different field path (likely `raw.Properties.CloudSubnet.Value` or a flat string).
-Confirmed blank in the network e2e run on 2026-06-03.
-
-**Root cause:** Structural mismatch between `types.VPNRoutePropertiesResponse` and the
-actual API response body — an sdk-go issue.
-
-**Fix (blocked on sdk-go):** Once the SDK aligns the type definition with the API
-contract, update the field read in `cmd/network.vpnroute.go` (both `get` and `list`
-output blocks).
-
-**Filed as:** https://github.com/Arubacloud/acloud-cli/issues/135
-
-**Upstream tracking:** https://github.com/Arubacloud/sdk-go/issues/327
-
----
-
 ### TD-031 · Schedule job create does not send `steps[]` — API rejects with 400
 
 `acloud schedule job create` always returns HTTP 400 because the payload contains no
