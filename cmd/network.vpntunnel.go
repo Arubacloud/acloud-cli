@@ -124,8 +124,8 @@ func init() {
 	vpntunnelCreateCmd.Flags().String("region", "", "Region code (e.g., ITBG-Bergamo)")
 	vpntunnelCreateCmd.Flags().String("peer-ip", "", "Peer client public IP address")
 	vpntunnelCreateCmd.Flags().String("vpc-id", "", "VPC ID")
-	vpntunnelCreateCmd.Flags().String("subnet-cidr", "", "Subnet CIDR (e.g., 10.0.1.0/24)")
-	vpntunnelCreateCmd.Flags().String("subnet-name", "", "Subnet name (alternative to CIDR)")
+	vpntunnelCreateCmd.Flags().String("subnet-cidr", "", "CIDR of the routing subnet (must already exist in the VPC and be unique per tunnel)")
+	vpntunnelCreateCmd.Flags().String("subnet-name", "", "Name of the routing subnet (alternative lookup to --subnet-cidr)")
 	vpntunnelCreateCmd.Flags().String("elastic-ip-id", "", "Elastic IP ID")
 	vpntunnelCreateCmd.Flags().String("vpn-type", "Site-To-Site", "VPN type (default: Site-To-Site)")
 	vpntunnelCreateCmd.Flags().String("protocol", "ikev2", "VPN protocol (default: ikev2)")
@@ -243,8 +243,11 @@ var vpntunnelCreateCmd = &cobra.Command{
 	Short: "Create a new VPN tunnel",
 	Long: `Create a site-to-site VPN tunnel to an on-premises network.
 
-The VPC and Elastic IP must already exist. Specify the subnet the tunnel will
-use via --subnet-cidr (CIDR of existing subnet) or --subnet-name.
+The VPC and Elastic IP must already exist. Specify the routing subnet via
+--subnet-cidr or --subnet-name. The subnet must already exist in the VPC and
+its CIDR must be unique across all VPN tunnels in the project — it is a routing
+reference, not a provisioning instruction. The 400 "overlaps" error means the
+same CIDR is already associated with another tunnel configuration.
 
 VPN type defaults to Site-To-Site. Protocol defaults to ikev2.
 Billing period: Hour (default), Month, or Year.

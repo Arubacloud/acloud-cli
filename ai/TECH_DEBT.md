@@ -35,6 +35,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-034 | VPN tunnel update handler manual IKE/ESP/PSK reattach block removed from `cmd/network.vpntunnel.go`. sdk-go v1.0.0 `fromResponse` now fully rehydrates IKE/ESP/PSK into the `*VPNIKE`/`*VPNESP`/`*VPNPSK` wrapper fields exposed via `IKE()`/`ESP()`/`PSK()` accessors; `toRequest()` builds the PUT body from those fields. Closed #132. Residual: `redactVPNTunnelSecrets` still mutates `t.response.Properties.VPNClientSettingsCommon.PSK.Secret` directly because `RawJSON()` serializes `t.response`; upstream `RedactPSK()` mutator still needed (tracked in #132 comment). |
 | TD-035 | Subnet update DHCP preservation block migrated to wrapper accessors in `cmd/network.subnet.go`. `subnet.Type()` replaces `subnet.Raw().Properties.Type`; `subnet.DHCP()` replaces `.Raw().Properties.DHCP` with full `IsEnabled()`/`Routes()`/`DNS()` read access on `*SubnetDHCPCommon`. Zero `.Raw()` calls remain for this code path. Closed #133. |
 | TD-030 | sdk-go v1.0.4 added `cidr` JSON field handling to `SubnetCIDROrRef.UnmarshalJSON`, fixing the field-path mismatch that caused `vpnroute get/list` to always show a blank Cloud Subnet. CLI migrated all four output blocks from `raw.Properties.CloudSubnet.CIDR` to `route.CloudSubnet()` and from `raw.Properties.OnPremSubnet` to `route.OnPremSubnet()`. Closed #135 / #130. |
+| TD-025 | sdk-go v1.0.4 clarified `SubnetInfoCommon` as a routing reference (subnet must already exist; `cidr` must be unique per tunnel). Updated `--subnet-cidr`/`--subnet-name` flag descriptions and `vpntunnel create` Long doc to match. Closed #73. |
 | TD-038 | All 137 Cobra `RunE` handlers decomposed into `<Family><Resource><Action>Args` struct + `ParseFromCobraCommand` + `Validate()` + pure `<Action>` operation function + thin `<Action>Run` wiring. `Validate()` methods cover typed-enum value-sets via `slices.Contains`. `ErrParsingFailed` / `ErrValidationFailed` sentinels added to `cmd/args.go`; cross-resource valid-value slices in `cmd/enums.go`. Closes the testability gap left by PR #138. |
 
 ---
@@ -45,15 +46,6 @@ Issues are grouped by severity. Address Critical items before new features ship;
 `PrintTable(headers, rows)` is now a one-line shim around `PrintOutput(nil, headers, rows)`. All call sites that pass `nil` as the first arg produce `{}` for `-o json` / `-o yaml` instead of the actual resource data. Remaining direct `PrintTable` calls should be replaced with `PrintOutput(response.Data, headers, rows)` and the shim deleted.
 
 **Fix:** Grep for `PrintTable(` and migrate each site to `PrintOutput`, passing the typed SDK response as the first argument. Remove the `PrintTable` function once all sites are updated.
-
----
-
-### TD-025 · VPN tunnel subnet semantics: CLI says "existing", API says "overlap"
-`cmd/network.vpntunnel.go:28-29` documents `--subnet-cidr` as *"CIDR of existing subnet"* and `--subnet-name` as an alternative lookup — i.e. a reference to a pre-existing subnet. But when a subnet with the referenced CIDR already exists in the VPC, the API responds `ipConfigurations.subnet.cidr overlaps with an existing subnet`, suggesting it interprets the field as a *provisioning* instruction rather than a lookup. The two readings are contradictory and the e2e test cannot safely pre-create the subnet.
-
-**Fix:** Confirm with the API team whether `ipConfigurations.subnet` is a reference or a creation spec. If it is a lookup, surface a clearer error when the subnet is missing. If it is a creation field, update the CLI `Long`, flag descriptions, and `docs/website/docs/resources/network/vpntunnel.md` accordingly, and remove the pre-create step from the e2e test.
-
-**Upstream tracking:** https://github.com/Arubacloud/sdk-go/issues/328
 
 ---
 
