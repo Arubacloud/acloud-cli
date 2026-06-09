@@ -603,6 +603,14 @@ func DatabaseDBaaSUpdate(ctx context.Context, client aruba.Client, args Database
 		return fmt.Errorf("DBaaS instance not found")
 	}
 
+	// The SDK fromResponse hydrates d.engine from Engine.Type (e.g. "mysql"), but
+	// toRequest() emits it as Engine.ID. The API catalog lookup requires the original
+	// catalog ID (e.g. "mysql-8.0"), so a Get→Update round-trip would otherwise fail
+	// with "Product not found in catalog". Re-populate from Engine.ID if present.
+	if raw := dbaas.Raw(); raw.Properties.Engine != nil && raw.Properties.Engine.ID != nil {
+		dbaas.OfEngine(aruba.DatabaseEngine(*raw.Properties.Engine.ID))
+	}
+
 	if args.Name != "" {
 		dbaas.Named(args.Name)
 	}

@@ -450,6 +450,28 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "engine ID re-populated from response — avoids 'Product not found in catalog'",
+			args: []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123", "--tags", "updated"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				engineID, engineType := "mysql-8.0", "mysql"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+					Properties: types.DBaaSPropertiesResponse{
+						Engine: &types.DBaaSEngineResponse{ID: &engineID, Type: &engineType},
+					},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, Tags: []string{"updated"}},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name:        "no flags error",
 			args:        []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123"},
 			wantErr:     true,
