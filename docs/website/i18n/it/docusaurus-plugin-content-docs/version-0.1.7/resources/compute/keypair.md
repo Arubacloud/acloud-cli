@@ -22,6 +22,7 @@ acloud compute keypair create [flags]
 **Flag Richiesti:**
 - `--name <string>` - Nome per la coppia di chiavi
 - `--public-key <string>` - Valore della chiave pubblica (chiave pubblica SSH)
+- `--region <string>` - Codice regione (es. `ITBG-Bergamo`)
 
 **Flag Opzionali:**
 - `--project-id <string>` - ID progetto (usa il contesto se non specificato)
@@ -31,11 +32,13 @@ acloud compute keypair create [flags]
 # Usando un file
 acloud compute keypair create \
   --name "my-keypair" \
+  --region "ITBG-Bergamo" \
   --public-key "$(cat ~/.ssh/id_rsa.pub)"
 
 # O direttamente
 acloud compute keypair create \
   --name "my-keypair" \
+  --region "ITBG-Bergamo" \
   --public-key "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... user@host"
 ```
 
@@ -92,25 +95,15 @@ Il comando visualizza:
 
 ### `update`
 
-Aggiorna la chiave pubblica di una coppia di chiavi (utile per la rotazione delle chiavi).
+**Non supportato.** L'API non supporta l'aggiornamento della chiave pubblica di una coppia di chiavi. L'esecuzione di questo comando stampa un errore e termina senza apportare modifiche.
 
-**Sintassi:**
+Per ruotare una coppia di chiavi, eliminarla e ricrearla con lo stesso nome:
+
 ```bash
-acloud compute keypair update <keypair-name> [flags]
-```
-
-**Argomenti:**
-- `<keypair-name>` - Il nome della coppia di chiavi
-
-**Flag Richiesti:**
-- `--public-key <string>` - Nuovo valore della chiave pubblica
-
-**Flag Opzionali:**
-- `--project-id <string>` - ID progetto (usa il contesto se non specificato)
-
-**Esempio:**
-```bash
-acloud compute keypair update "my-keypair" \
+acloud compute keypair delete "my-keypair" --yes
+acloud compute keypair create \
+  --name "my-keypair" \
+  --region "ITBG-Bergamo" \
   --public-key "$(cat ~/.ssh/id_rsa_new.pub)"
 ```
 
@@ -153,6 +146,7 @@ acloud compute keypair delete <TAB>
 # Se hai già una coppia di chiavi SSH
 acloud compute keypair create \
   --name "my-laptop-key" \
+  --region "ITBG-Bergamo" \
   --public-key "$(cat ~/.ssh/id_rsa.pub)"
 ```
 
@@ -167,6 +161,7 @@ acloud compute keypair create \
    ```bash
    acloud compute keypair create \
      --name "aruba-key" \
+     --region "ITBG-Bergamo" \
      --public-key "$(cat ~/.ssh/aruba_key.pub)"
    ```
 
@@ -175,32 +170,38 @@ acloud compute keypair create \
    acloud compute cloudserver create \
      --name "my-server" \
      --region "ITBG-Bergamo" \
-     --flavor "small" \
-     --image "your-image-id" \
-     --keypair "aruba-key"
+     --zone "ITBG-1" \
+     --flavor "CSO4A8" \
+     --boot-disk-id "<volume-id>" \
+     --vpc-id "<vpc-id>" \
+     --subnet-id "<subnet-id>" \
+     --security-group-id "<sg-id>" \
+     --keypair-id "<keypair-id>"
    ```
 
 ### Rotazione delle Chiavi
 
-1. **Genera una nuova coppia di chiavi**:
+Poiché l'aggiornamento della coppia di chiavi non è supportato dall'API, la rotazione richiede eliminazione + ricreazione:
+
+1. **Genera una nuova coppia di chiavi SSH**:
    ```bash
-   ssh-keygen -t rsa -b 4096 -f ~/.ssh/aruba_key_new -N ""
+   ssh-keygen -t ed25519 -f ~/.ssh/aruba_key_new -N ""
    ```
 
-2. **Aggiorna la coppia di chiavi**:
+2. **Elimina la coppia di chiavi esistente**:
    ```bash
-   acloud compute keypair update "aruba-key" \
+   acloud compute keypair delete "aruba-key" --yes
+   ```
+
+3. **Ricreala con la nuova chiave pubblica**:
+   ```bash
+   acloud compute keypair create \
+     --name "aruba-key" \
+     --region "ITBG-Bergamo" \
      --public-key "$(cat ~/.ssh/aruba_key_new.pub)"
    ```
 
-3. **Aggiorna la tua configurazione SSH locale** per usare la nuova chiave privata
-
-4. **Testa la connessione** ai tuoi server
-
-5. **Elimina la vecchia coppia di chiavi** (se non più necessaria):
-   ```bash
-   acloud compute keypair delete "old-keypair" --yes
-   ```
+4. **Aggiorna la tua configurazione SSH locale** per usare la nuova chiave privata e testa la connessione.
 
 ## Best Practices
 

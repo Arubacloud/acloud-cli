@@ -41,8 +41,8 @@ acloud database dbaas database get <dbaas-id> <database-name>
 # Crea un database
 acloud database dbaas database create <dbaas-id> --name "my-database"
 
-# Aggiorna un database (rinomina)
-acloud database dbaas database update <dbaas-id> <database-name> --name "new-name"
+# Aggiorna un database (rinomina — non supportato dall'API, restituisce 405)
+# acloud database dbaas database update <dbaas-id> <database-name> --name "new-name"
 
 # Elimina un database
 acloud database dbaas database delete <dbaas-id> <database-name>
@@ -63,11 +63,30 @@ acloud database dbaas user get <dbaas-id> <username>
 # Crea un utente
 acloud database dbaas user create <dbaas-id> --username "my-user" --password "secure-password"
 
-# Aggiorna un utente (cambia password)
-acloud database dbaas user update <dbaas-id> <username> --password "new-password"
+# Aggiorna un utente (cambia password — non supportato dall'API, restituisce 405)
+# acloud database dbaas user update <dbaas-id> <username> --password "new-password"
 
 # Elimina un utente
 acloud database dbaas user delete <dbaas-id> <username>
+```
+
+### [Grant DBaaS](database/dbaas.grant.md)
+
+I grant controllano quali utenti possono accedere a quali database all'interno di un'istanza DBaaS e con quale livello di privilegi.
+
+**Comandi Rapidi:**
+```bash
+# Elenca tutti i grant su un database
+acloud database dbaas grant list <dbaas-id> <database-name>
+
+# Ottieni i dettagli del grant
+acloud database dbaas grant get <dbaas-id> <database-name> <grant-id>
+
+# Crea un grant
+acloud database dbaas grant create <dbaas-id> <database-name> --username "my-user" --role "liteadmin"
+
+# Revoca un grant
+acloud database dbaas grant delete <dbaas-id> <database-name> <grant-id>
 ```
 
 ### [Backup Database](database/backup.md)

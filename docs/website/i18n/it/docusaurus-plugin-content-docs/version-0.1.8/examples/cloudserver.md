@@ -44,13 +44,15 @@ Scegli una subnet con `STATUS` pari a `Active` e annota il suo `ID` e `CIDR`. Se
 
 ---
 
-## Step 3: Estrai la URI della Subnet
+## Step 3: Verifica l'ID della Subnet
+
+Annota l'`ID` della subnet scelta dall'output del comando list. Lo userai direttamente nel comando di creazione con `--subnet-id`.
 
 ```bash
-acloud network subnet get <vpc-id> <subnet-id> | grep URI
+acloud network subnet get <vpc-id> <subnet-id>
 ```
 
-Salva questa URI per il provisioning del cloud server.
+> **Nota:** Annota l'`ID` della subnet. Procedi solo se lo `STATUS` è `Active`.
 
 ---
 
@@ -66,15 +68,15 @@ Scegli un security group con `STATUS` pari a `Active` e annota il suo `ID`. Se n
 
 ---
 
-## Step 5: Estrai la URI dell'Elastic IP (se serve accesso pubblico)
+## Step 5: Annota l'ID dell'Elastic IP (se serve accesso pubblico)
 
-Se vuoi assegnare un Elastic IP, estrai la sua URI:
+Se vuoi accesso pubblico per il server, annota l'`ID` dell'Elastic IP dall'output di `acloud network elasticip list`. Puoi verificarlo con:
 
 ```bash
-acloud network elasticip get <elasticip-id> | grep URI
+acloud network elasticip get <elasticip-id>
 ```
 
-Salva questa URI per il provisioning. Salta questo step se non ti serve accesso pubblico.
+> **Nota:** Annota l'`ID` dell'Elastic IP. Salta questo step se non ti serve accesso pubblico.
 
 ---
 
@@ -115,15 +117,21 @@ acloud compute keypair create --name my-keypair --public-key "$(cat ~/.ssh/id_rs
 
 ---
 
-## Step 8: Estrai la URI del disco di avvio
+## Step 8: Verifica l'ID e lo stato del disco di avvio
 
-Dopo aver creato il block storage avviabile, estrai la sua URI:
+Annota l'`ID` del block storage avviabile. Il block storage deve essere in stato `NotUsed` prima di poterlo usare come disco di avvio.
 
 ```bash
-acloud storage blockstorage get <volume-id> | grep URI
+acloud storage blockstorage list
 ```
 
-Assicurati che il block storage sia in stato `NotUsed` prima di usarlo come disco di avvio.
+Esempio output:
+```
+NAME         ID                         SIZE(GB)  REGION         ZONE  TYPE         STATUS
+boot-ubuntu  697b3a0dce7dfeef9153256a   20        ITBG-Bergamo         Performance  NotUsed
+```
+
+> **Nota:** Annota l'`ID` del disco. Procedi solo quando lo stato è `NotUsed` o `Active`.
 
 ---
 
@@ -147,7 +155,40 @@ Sostituisci `<hashed-password>` con una password hash valida (consulta la docume
 
 ---
 
-## Step 10: Attendi che il Cloud Server sia Attivo
+## Step 10: Crea il Cloud Server
+
+Usa gli ID raccolti nei passaggi precedenti per creare il cloud server:
+
+```bash
+acloud compute cloudserver create \
+  --name "my-server" \
+  --region "ITBG-Bergamo" \
+  --zone "ITBG-1" \
+  --flavor "CSO4A8" \
+  --boot-disk-id "697b3a0dce7dfeef9153256a" \
+  --vpc-id "69495ef64d0cdc87949b71ec" \
+  --subnet-id "694ba1737712ac0032dbe50a" \
+  --security-group-id "694b05ac4d0cdc87949b75f9" \
+  --keypair-id "69007ebf4e7d691466d8621e" \
+  --user-data-file "cloud-init.yaml" \
+  --billing-period Hour \
+  --tags "production"
+```
+
+Esempio output:
+```
+ID                             NAME         FLAVOR    CPU   RAM(GB)   HD(GB)   REGION
+697c62605b79733376b3386a       my-server    CSO4A8    4     8         0        ITBG-Bergamo
+```
+
+- Sostituisci gli ID con i tuoi valori reali di VPC, subnet, security group, keypair e disco di avvio.
+- Il flag `--user-data-file` è opzionale e può essere omesso se non necessario.
+- Puoi specificare più subnet o security group usando valori separati da virgola.
+- Tutti i flag di rete (`--vpc-id`, `--subnet-id`, `--security-group-id`) e il flag `--zone` sono richiesti.
+
+---
+
+## Step 11: Attendi che il Cloud Server sia Attivo
 
 Una volta eseguito il comando di creazione, puoi controllare lo stato del server con:
 
@@ -163,7 +204,7 @@ my-server                 697c62605b79733376b3386a       ITBG-Bergamo    CSO4A8 
 
 ---
 
-## Step 11: Connettersi al Cloud Server
+## Step 12: Connettersi al Cloud Server
 
 Per connetterti al cloud server, usa il comando `acloud compute cloudserver connect` specificando l'utente in base all'immagine di avvio. Ad esempio, per Ubuntu usa l'utente `ubuntu`:
 
@@ -182,7 +223,7 @@ Connect by running: ssh ubuntu@85.235.152.94
 
 ---
 
-## Step 12: Spegnere o Accendere il Cloud Server
+## Step 13: Spegnere o Accendere il Cloud Server
 
 Puoi spegnere o accendere il cloud server in qualsiasi momento con i seguenti comandi:
 
@@ -214,7 +255,7 @@ Status: Updating
 
 ---
 
-## Step 13: Eliminare il Cloud Server
+## Step 14: Eliminare il Cloud Server
 
 Per eliminare il cloud server quando non serve più, usa il comando:
 
