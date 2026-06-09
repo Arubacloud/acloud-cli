@@ -38,12 +38,19 @@ if [ -z "${ACLOUD_CMD:-}" ]; then
     unset _ACLOUD_COMMON_DIR
 fi
 
-# --- Failure tracking ----------------------------------------------------
+# --- Failure / skip tracking ---------------------------------------------
 # Scripts can call fail() on each red ✗ to feed a non-zero exit code.
+# Scripts can call skip() on each yellow ⚠ to surface skipped steps in the
+# final summary without treating them as failures.
 FAILURES=0
+SKIPS=0
 fail() {
     FAILURES=$((FAILURES + 1))
     echo -e "${RED}✗ $*${NC}"
+}
+skip() {
+    SKIPS=$((SKIPS + 1))
+    echo -e "${YELLOW}⚠ $*${NC}"
 }
 
 # --- Validators ----------------------------------------------------------
