@@ -71,25 +71,20 @@ Scegli una subnet con `STATUS` pari a `Active` e annota il suo `ID` e `CIDR`. Se
 
 ---
 
-## Step 3: Estrai l'URI della Subnet
+## Step 3: Verifica l'ID della Subnet
 
-Una volta scelta la subnet, estrai il suo URI per usarlo nel comando di provisioning. Esegui:
+Annota l'`ID` della subnet scelta dall'output del comando list. Lo userai direttamente nel comando di creazione con `--subnet-id`.
 
 ```bash
-acloud network subnet get <vpc-id> <subnet-id> | grep URI
+acloud network subnet get <vpc-id> <subnet-id>
 ```
 
 Esempio:
 ```bash
-acloud network subnet get 69495ef64d0cdc87949b71ec 694ba1737712ac0032dbe50a | grep URI
+acloud network subnet get 69495ef64d0cdc87949b71ec 694ba1737712ac0032dbe50a
 ```
 
-Esempio output:
-```
-URI:             /projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec/subnets/694ba1737712ac0032dbe50a
-```
-
-> **Nota:** Salva questo URI per il provisioning Kubernetes.
+> **Nota:** Annota l'`ID` della subnet. Procedi solo se lo `STATUS` è `Active`.
 
 ---
 
@@ -121,22 +116,17 @@ Esempio reale di creazione di un cluster Kubernetes con un singolo node pool:
 acloud container kaas create \
   --name "test-cluster" \
   --region "ITBG-Bergamo" \
-  --vpc-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec" \
-  --subnet-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec/subnets/694ba1737712ac0032dbe50a" \
-  --node-cidr-address "10.0.0.0/16" \
+  --vpc-id "69495ef64d0cdc87949b71ec" \
+  --subnet-id "694ba1737712ac0032dbe50a" \
+  --node-cidr-address "10.0.0.0/24" \
   --node-cidr-name "node-cidr" \
   --security-group-name "kaas-sg" \
   --kubernetes-version "1.33.2" \
   --node-pool-name "default-pool" \
-  --node-pool-autoscaling \
-  --node-pool-max-count 5 \
-  --node-pool-min-count 1 \
-  --node-pool-nodes 3 \
-  --node-pool-instance "K4A8" \
+  --node-pool-nodes 1 \
+  --node-pool-instance "K2A4" \
   --node-pool-zone "ITBG-1" \
-  --tags "production,kubernetes" \
-  --ha \
-  --billing-period "Hour"
+  --tags "production,kubernetes"
 ```
 
 Esempio output:

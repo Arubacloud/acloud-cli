@@ -41,8 +41,8 @@ acloud database dbaas database get <dbaas-id> <database-name>
 # Create a database
 acloud database dbaas database create <dbaas-id> --name "my-database"
 
-# Update a database (rename)
-acloud database dbaas database update <dbaas-id> <database-name> --name "new-name"
+# Update a database (rename — not supported by API, returns 405)
+# acloud database dbaas database update <dbaas-id> <database-name> --name "new-name"
 
 # Delete a database
 acloud database dbaas database delete <dbaas-id> <database-name>
@@ -63,11 +63,30 @@ acloud database dbaas user get <dbaas-id> <username>
 # Create a user
 acloud database dbaas user create <dbaas-id> --username "my-user" --password "secure-password"
 
-# Update a user (change password)
-acloud database dbaas user update <dbaas-id> <username> --password "new-password"
+# Update a user (change password — not supported by API, returns 405)
+# acloud database dbaas user update <dbaas-id> <username> --password "new-password"
 
 # Delete a user
 acloud database dbaas user delete <dbaas-id> <username>
+```
+
+### [DBaaS Grants](database/dbaas.grant.md)
+
+Grants control which users can access which databases within a DBaaS instance and at what privilege level.
+
+**Quick Commands:**
+```bash
+# List all grants on a database
+acloud database dbaas grant list <dbaas-id> <database-name>
+
+# Get grant details
+acloud database dbaas grant get <dbaas-id> <database-name> <grant-id>
+
+# Create a grant
+acloud database dbaas grant create <dbaas-id> <database-name> --username "my-user" --role "liteadmin"
+
+# Revoke a grant
+acloud database dbaas grant delete <dbaas-id> <database-name> <grant-id>
 ```
 
 ### [Database Backups](database/backup.md)

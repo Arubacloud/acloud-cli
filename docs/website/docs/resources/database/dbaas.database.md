@@ -92,6 +92,8 @@ acloud database dbaas database get 69455aa70d0972656501d45d "my-database"
 
 Rename a database.
 
+> **Note:** Database rename (PUT) is **not supported** by the API and returns HTTP 405. Use `delete` followed by `create` to rename a database.
+
 ### Usage
 
 ```bash
@@ -148,5 +150,6 @@ acloud database dbaas database delete 69455aa70d0972656501d45d "my-database" --y
 
 - [DBaaS](dbaas.md) - Manage DBaaS instances
 - [DBaaS Users](dbaas.user.md) - Manage users for databases
+- [DBaaS Grants](dbaas.grant.md) - Control user access to databases
 - [Database Backups](backup.md) - Create backups of databases
 

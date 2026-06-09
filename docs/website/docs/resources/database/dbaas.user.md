@@ -94,6 +94,8 @@ acloud database dbaas user get 69455aa70d0972656501d45d "app-user"
 
 Change a user's password.
 
+> **Note:** User password update (PUT) is **not supported** by the API and returns HTTP 405. Use `delete` followed by `create` to replace a user.
+
 ### Usage
 
 ```bash
@@ -158,5 +160,6 @@ acloud database dbaas user delete 69455aa70d0972656501d45d "app-user" --yes
 
 - [DBaaS](dbaas.md) - Manage DBaaS instances
 - [DBaaS Databases](dbaas.database.md) - Manage databases
+- [DBaaS Grants](dbaas.grant.md) - Control user access to databases
 - [Database Backups](backup.md) - Create backups of databases
 
