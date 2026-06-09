@@ -183,7 +183,7 @@ acloud version
 Esempio output:
 
 ```text
-Aruba Cloud CLI version 1.2.0
+Aruba Cloud CLI version 0.2.0
 ```
 
 ---

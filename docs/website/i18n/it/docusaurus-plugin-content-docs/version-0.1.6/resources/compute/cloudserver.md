@@ -22,25 +22,34 @@ acloud compute cloudserver create [flags]
 **Flag Richiesti:**
 - `--name <string>` - Nome per il cloud server
 - `--region <string>` - Codice regione (es. `ITBG-Bergamo`)
-- `--flavor <string>` - Nome flavor (es. `small`, `medium`, `large`)
-- `--image <string>` - ID o nome immagine
+- `--zone <string>` - Codice zona/datacenter (es. `ITBG-1`)
+- `--flavor <string>` - Codice flavor (es. `CSO4A8`)
+- `--boot-disk-id <string>` - ID block storage avviabile
+- `--vpc-id <string>` - ID VPC
+- `--subnet-id <stringSlice>` - ID Subnet (separati da virgola)
+- `--security-group-id <stringSlice>` - ID Security Group (separati da virgola)
 
 **Flag Opzionali:**
 - `--project-id <string>` - ID progetto (usa il contesto se non specificato)
-- `--keypair <string>` - Nome coppia di chiavi per accesso SSH
+- `--keypair-id <string>` - ID coppia di chiavi per accesso SSH
 - `--tags <stringSlice>` - Tag (separati da virgola)
 - `--user-data-file <string>` - Percorso al file YAML cloud-init (verrà codificato in base64)
+- `--billing-period <string>` - Periodo di fatturazione: Hour, Month, Year (default: Hour)
 
 **Esempio:**
 ```bash
 acloud compute cloudserver create \
   --name "web-server" \
   --region "ITBG-Bergamo" \
-  --flavor "small" \
-  --image "ubuntu-22.04" \
-  --keypair "my-keypair" \
+  --zone "ITBG-1" \
+  --flavor "CSO4A8" \
+  --boot-disk-id "<volume-id>" \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --security-group-id "<sg-id>" \
+  --keypair-id "<keypair-id>" \
   --tags "production,web" \
-  --user-data-file "/percorso/al/cloud-init.yaml"
+  --billing-period Hour
 ```
 
 **Nota:** Il flag `--user-data-file` accetta un percorso a un file YAML cloud-init. Il contenuto del file verrà automaticamente codificato in base64 e incluso nella richiesta di creazione del cloud server. Questo ti consente di configurare il server durante l'inizializzazione utilizzando script cloud-init.

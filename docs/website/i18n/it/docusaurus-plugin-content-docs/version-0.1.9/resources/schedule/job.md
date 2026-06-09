@@ -33,7 +33,7 @@ Crea un job che viene eseguito una volta a un orario specifico.
 ### Utilizzo
 
 ```bash
-acloud schedule job create --name <name> --region <region> --job-type "OneShot" --schedule-at <datetime> [flags]
+acloud schedule job create --name <name> --region <region> --job-type "OneShot" --schedule-at <datetime> --step-resource-uri <uri> [flags]
 ```
 
 ### Flag Richiesti
@@ -41,7 +41,16 @@ acloud schedule job create --name <name> --region <region> --job-type "OneShot" 
 - `--name` - Nome per il job
 - `--region` - Codice regione (es. "ITBG-Bergamo")
 - `--job-type` - Deve essere "OneShot"
-- `--schedule-at` - Data e ora in cui il job dovrebbe essere eseguito (formato ISO 8601, es. "2024-12-31T23:59:59Z")
+- `--schedule-at` - Data e ora in cui il job dovrebbe essere eseguito (formato RFC3339, es. "2026-12-31T23:59:59Z")
+
+### Flag Step (richiesti dall'API)
+
+L'API schedule richiede almeno uno step con un URI risorsa valido. Lo step definisce su quale risorsa il job agisce e quale azione eseguire.
+
+- `--step-resource-uri` - URI della risorsa su cui agire (es. `/projects/<pid>/providers/Aruba.Compute/cloudServers/<id>`)
+- `--step-action-uri` - Azione da invocare sulla risorsa (es. `poweroff`, `start`)
+- `--step-http-verb` - Verbo HTTP per l'azione dello step (default: `POST`)
+- `--step-name` - Nome visualizzato per lo step
 
 ### Flag Opzionali
 
@@ -53,13 +62,18 @@ acloud schedule job create --name <name> --region <region> --job-type "OneShot" 
 
 ```bash
 acloud schedule job create \
-  --name "deploy-release" \
+  --name "scheduled-poweroff" \
   --region "ITBG-Bergamo" \
   --job-type "OneShot" \
-  --schedule-at "2024-12-31T23:59:59Z" \
-  --enabled true \
-  --tags "deployment,production"
+  --schedule-at "2026-12-31T23:59:59Z" \
+  --step-resource-uri "/projects/<project-id>/providers/Aruba.Compute/cloudServers/<server-id>" \
+  --step-action-uri "poweroff" \
+  --step-http-verb "POST" \
+  --step-name "e2e-step" \
+  --tags "maintenance,oneshot"
 ```
+
+**Nota:** `--step-resource-uri` deve puntare a un tipo di risorsa registrata con lo scheduler (es. cloud server). L'API restituisce "Not found configuration for typology" se il tipo di risorsa non è registrato.
 
 ## Crea Job Ricorrente
 
@@ -68,7 +82,7 @@ Crea un job che viene eseguito su una pianificazione ricorrente.
 ### Utilizzo
 
 ```bash
-acloud schedule job create --name <name> --region <region> --job-type "Recurring" --cron <cron-expression> --execute-until <datetime> [flags]
+acloud schedule job create --name <name> --region <region> --job-type "Recurring" --cron <cron-expression> --execute-until <datetime> --step-resource-uri <uri> [flags]
 ```
 
 ### Flag Richiesti
@@ -77,24 +91,31 @@ acloud schedule job create --name <name> --region <region> --job-type "Recurring
 - `--region` - Codice regione (es. "ITBG-Bergamo")
 - `--job-type` - Deve essere "Recurring"
 - `--cron` - Espressione CRON che definisce la pianificazione
-- `--execute-until` - Data di fine fino alla quale il job può essere eseguito (formato ISO 8601)
+- `--execute-until` - Data di fine fino alla quale il job può essere eseguito (formato RFC3339)
+
+### Flag Step (richiesti dall'API)
+
+Stessi flag degli OneShot: `--step-resource-uri`, `--step-action-uri`, `--step-http-verb`, `--step-name`.
 
 ### Flag Opzionali
 
 - `--project-id` - ID progetto (usa il contesto se non specificato)
-- `--enabled` - Abilita il job (default: true)
+- `--enabled` - Abilita o disabilita il job (default: true)
 - `--tags` - Tag (separati da virgola)
 
 ### Esempio
 
 ```bash
 acloud schedule job create \
-  --name "daily-backup" \
+  --name "daily-poweroff" \
   --region "ITBG-Bergamo" \
   --job-type "Recurring" \
-  --cron "0 2 * * *" \
-  --execute-until "2025-12-31T23:59:59Z" \
-  --enabled true \
+  --cron "0 0 * * *" \
+  --execute-until "2027-01-01T00:00:00Z" \
+  --step-resource-uri "/projects/<project-id>/providers/Aruba.Compute/cloudServers/<server-id>" \
+  --step-action-uri "poweroff" \
+  --step-http-verb "POST" \
+  --step-name "daily-step" \
   --tags "backup,daily"
 ```
 

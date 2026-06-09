@@ -22,32 +22,36 @@ acloud container containerregistry create [flags]
 **Flag Richiesti:**
 - `--name <string>` - Nome per il container registry
 - `--region <string>` - Codice regione (es. `ITBG-Bergamo`)
-- `--public-ip-uri <string>` - URI IP pubblico (es. `/projects/{project-id}/providers/Aruba.Network/elasticIps/{elasticip-id}`)
-- `--vpc-uri <string>` - URI VPC (es. `/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}`)
-- `--subnet-uri <string>` - URI Subnet (es. `/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}`)
-- `--security-group-uri <string>` - URI security group
-- `--block-storage-uri <string>` - URI block storage
+- `--public-ip-id <string>` - ID Elastic IP
+- `--vpc-id <string>` - ID VPC
+- `--subnet-id <string>` - ID Subnet
+- `--security-group-id <string>` - ID security group
+- `--block-storage-id <string>` - ID block storage
 
 **Flag Opzionali:**
 - `--project-id <string>` - ID progetto (usa il contesto se non specificato)
 - `--tags <stringSlice>` - Tag (separati da virgola)
-- `--billing-period <string>` - Periodo di fatturazione: Hour, Month, Year (opzionale)
-- `--admin-username <string>` - Nome utente amministratore (opzionale)
-- `--concurrent-users <string>` - Numero di utenti concorrenti (opzionale)
+- `--billing-period <string>` - Periodo di fatturazione: Hour, Month, Year (default: Hour)
+- `--admin-username <string>` - Nome utente amministratore
+- `--concurrent-users <string>` - Piano utenti concorrenti (es. `Small`, o valore numerico come `20`)
 
 **Esempio:**
 ```bash
 acloud container containerregistry create \
   --name "my-registry" \
   --region "ITBG-Bergamo" \
-  --public-ip-uri "/projects/{project-id}/providers/Aruba.Network/elasticIps/{elasticip-id}" \
-  --vpc-uri "/projects/{project-id}/providers/Aruba.Network/vpcs/{vpc-id}" \
-  --subnet-uri "/projects/{project-id}/providers/Aruba.Network/subnets/{subnet-id}" \
-  --security-group-uri "/projects/{project-id}/providers/Aruba.Network/securityGroups/{sg-id}" \
-  --block-storage-uri "/projects/{project-id}/providers/Aruba.Storage/volumes/{volume-id}" \
-  --billing-period "Month" \
+  --public-ip-id "<eip-id>" \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --security-group-id "<sg-id>" \
+  --block-storage-id "<vol-id>" \
+  --admin-username "adminuser" \
+  --concurrent-users "Small" \
+  --billing-period "Hour" \
   --tags "production,registry"
 ```
+
+**Nota:** Il security group deve consentire traffico ingress TCP/443 (HTTPS) e traffico egress per il corretto funzionamento del registry.
 
 ### `list`
 

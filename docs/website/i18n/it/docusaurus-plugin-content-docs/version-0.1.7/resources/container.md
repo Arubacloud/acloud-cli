@@ -42,11 +42,11 @@ acloud container containerregistry get <registry-id>
 acloud container containerregistry create \
   --name "my-registry" \
   --region "ITBG-Bergamo" \
-  --public-ip-uri "/projects/{id}/providers/Aruba.Network/elasticIps/{eip-id}" \
-  --vpc-uri "/projects/{id}/providers/Aruba.Network/vpcs/{vpc-id}" \
-  --subnet-uri "/projects/{id}/providers/Aruba.Network/subnets/{subnet-id}" \
-  --security-group-uri "/projects/{id}/providers/Aruba.Network/securityGroups/{sg-id}" \
-  --block-storage-uri "/projects/{id}/providers/Aruba.Storage/volumes/{volume-id}"
+  --public-ip-id "<eip-id>" \
+  --vpc-id "<vpc-id>" \
+  --subnet-id "<subnet-id>" \
+  --security-group-id "<sg-id>" \
+  --block-storage-id "<volume-id>"
 
 # Aggiorna un container registry
 acloud container containerregistry update <registry-id> --name "new-name"
@@ -103,12 +103,12 @@ acloud container kaas update <cluster-id> \
    acloud container containerregistry create \
      --name "my-registry" \
      --region "ITBG-Bergamo" \
-     --public-ip-uri "/projects/{id}/providers/Aruba.Network/elasticIps/{eip-id}" \
-     --vpc-uri "/projects/{id}/providers/Aruba.Network/vpcs/{vpc-id}" \
-     --subnet-uri "/projects/{id}/providers/Aruba.Network/subnets/{subnet-id}" \
-     --security-group-uri "/projects/{id}/providers/Aruba.Network/securityGroups/{sg-id}" \
-     --block-storage-uri "/projects/{id}/providers/Aruba.Storage/volumes/{volume-id}" \
-     --billing-period "Month"
+     --public-ip-id "<eip-id>" \
+     --vpc-id "<vpc-id>" \
+     --subnet-id "<subnet-id>" \
+     --security-group-id "<sg-id>" \
+     --block-storage-id "<volume-id>" \
+     --billing-period Hour
    ```
 
 3. **Attendi che il registry sia pronto** e controlla lo stato:
