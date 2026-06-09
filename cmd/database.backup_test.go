@@ -10,6 +10,7 @@ import (
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 func TestDBBackupListCmd(t *testing.T) {
@@ -206,6 +207,29 @@ func TestDBBackupCreateCmd(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "dbaas-id",
+		},
+		{
+			name: "success with --zone",
+			args: []string{
+				"database", "backup", "create",
+				"--project-id", "proj-123",
+				"--name", "my-backup",
+				"--region", "ITBG-Bergamo",
+				"--zone", "ITBG-1",
+				"--dbaas-id", "dbaas-001",
+				"--database-name", "mydb",
+			},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "bkp-zone", "my-backup"
+				srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "my-backup") {
+					t.Errorf("expected name in output, got: %s", out)
+				}
+			},
 		},
 		{
 			name: "server error propagates",
@@ -730,6 +754,27 @@ func TestDatabaseDBaaSBackupDelete_APIError(t *testing.T) {
 	}
 }
 
+// TestDatabaseDBaaSBackupCreateArgs_ParseZoneFlagError covers the GetString("zone") error
+// branch in ParseFromCobraCommand by using a command where "zone" is not registered.
+func TestDatabaseDBaaSBackupCreateArgs_ParseZoneFlagError(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("project-id", "proj-123", "")
+	cmd.Flags().String("name", "my-backup", "")
+	cmd.Flags().String("region", "ITBG-Bergamo", "")
+	// "zone" intentionally omitted so GetString("zone") returns an error
+	cmd.Flags().String("dbaas-id", "dbaas-001", "")
+	cmd.Flags().String("database-name", "mydb", "")
+	cmd.Flags().String("billing-period", "Hour", "")
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	_ = cmd.Flags().Set("project-id", "proj-123")
+
+	args := &DatabaseDBaaSBackupCreateArgs{}
+	err := args.ParseFromCobraCommand(cmd)
+	if err == nil {
+		t.Fatal("expected error when zone flag is not registered")
+	}
+}
+
 // TestDatabaseDBaaSBackupCreateArgs_ConstructorWrapsErrors verifies that the constructor
 // wraps validation failures with ErrValidationFailed.
 func TestDatabaseDBaaSBackupCreateArgs_ConstructorWrapsErrors(t *testing.T) {
@@ -774,6 +819,27 @@ func TestDatabaseDBaaSBackupCreate_WithTagsAndRegion(t *testing.T) {
 		}
 	})
 	if !strings.Contains(out, "bkp-tags") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// TestDatabaseDBaaSBackupCreate_WithZone verifies that an explicit --zone value is forwarded to the builder.
+func TestDatabaseDBaaSBackupCreate_WithZone(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "bkp-zone", "my-backup"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/backups", jsonResponse(200, types.BackupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+
+	out := captureStdout(func() {
+		args := validDatabaseDBaaSBackupCreateArgs()
+		args.Zone = "ITBG-1"
+		err := DatabaseDBaaSBackupCreate(context.Background(), srv.Client(), args)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bkp-zone") {
 		t.Errorf("expected ID in output, got: %s", out)
 	}
 }
