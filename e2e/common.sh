@@ -213,6 +213,19 @@ gen_ephemeral_pubkey() {
     cat "${path}.pub"
 }
 
+# --- Array helpers -------------------------------------------------------
+# Remove every exact-match element from a named array.
+# Usage: array_remove ARRAY_NAME value
+array_remove() {
+    local -n _arr_ref=$1
+    local _val=$2
+    local _new=()
+    for _e in "${_arr_ref[@]+"${_arr_ref[@]}"}"; do
+        [[ "$_e" != "$_val" ]] && _new+=("$_e")
+    done
+    _arr_ref=("${_new[@]+"${_new[@]}"}")
+}
+
 # --- Project-ID extraction from any resource URI -------------------------
 # URIs look like: /projects/<24hex>/providers/...
 resolve_project_id_from_uri() {

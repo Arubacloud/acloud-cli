@@ -827,7 +827,7 @@ test_vpc_peering_route() {
     echo -e "${GREEN}[DELETE]${NC} Deleting VPC Peering Route..."
     $ACLOUD_CMD network vpcpeeringroute delete "$VPC_ID" "$PEERING_ID" "$route_id" --yes 2>&1 || true
     # Remove from cleanup list since we already deleted it inline
-    CREATED_PEERING_ROUTES=("${CREATED_PEERING_ROUTES[@]/$route_id}")
+    array_remove CREATED_PEERING_ROUTES "$route_id"
     echo ""
 
     echo -e "${GREEN}✓ VPC Peering Route test completed successfully!${NC}\n"
@@ -1106,7 +1106,7 @@ test_vpn_route() {
 
     echo -e "${GREEN}[DELETE]${NC} Deleting VPN Route..."
     if $ACLOUD_CMD network vpnroute delete "$VPN_TUNNEL_ID" "$vpn_route_id" --yes 2>&1; then
-        CREATED_VPN_ROUTES=("${CREATED_VPN_ROUTES[@]/$vpn_route_id}")
+        array_remove CREATED_VPN_ROUTES "$vpn_route_id"
     fi
     echo ""
 
@@ -1116,7 +1116,7 @@ test_vpn_route() {
     local subnet_del_elapsed=0
     while [ "$subnet_del_elapsed" -lt 120 ]; do
         if $ACLOUD_CMD network subnet delete "$VPC_ID" "$route_subnet_id" --yes 2>&1; then
-            CREATED_SUBNETS=("${CREATED_SUBNETS[@]/$route_subnet_id}")
+            array_remove CREATED_SUBNETS "$route_subnet_id"
             echo "  → Cloud subnet $route_subnet_id deleted"
             break
         fi
