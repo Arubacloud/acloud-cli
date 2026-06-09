@@ -10,6 +10,7 @@ import (
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 func TestDBBackupListCmd(t *testing.T) {
@@ -750,6 +751,27 @@ func TestDatabaseDBaaSBackupDelete_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "deleting backup") {
 		t.Errorf("error %q does not contain 'deleting backup'", err.Error())
+	}
+}
+
+// TestDatabaseDBaaSBackupCreateArgs_ParseZoneFlagError covers the GetString("zone") error
+// branch in ParseFromCobraCommand by using a command where "zone" is not registered.
+func TestDatabaseDBaaSBackupCreateArgs_ParseZoneFlagError(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("project-id", "proj-123", "")
+	cmd.Flags().String("name", "my-backup", "")
+	cmd.Flags().String("region", "ITBG-Bergamo", "")
+	// "zone" intentionally omitted so GetString("zone") returns an error
+	cmd.Flags().String("dbaas-id", "dbaas-001", "")
+	cmd.Flags().String("database-name", "mydb", "")
+	cmd.Flags().String("billing-period", "Hour", "")
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	_ = cmd.Flags().Set("project-id", "proj-123")
+
+	args := &DatabaseDBaaSBackupCreateArgs{}
+	err := args.ParseFromCobraCommand(cmd)
+	if err == nil {
+		t.Fatal("expected error when zone flag is not registered")
 	}
 }
 
