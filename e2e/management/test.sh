@@ -214,7 +214,7 @@ test_project() {
     DELETE_EXIT=$?
     echo "$DELETE_OUTPUT"
     if [ $DELETE_EXIT -eq 0 ]; then
-        CREATED_PROJECTS=("${CREATED_PROJECTS[@]/$crud_project_id}")
+        array_remove CREATED_PROJECTS "$crud_project_id"
         echo -e "${GREEN}✓ Project CRUD test completed successfully!${NC}\n"
     else
         fail "DELETE project $crud_project_id failed (exit $DELETE_EXIT)"

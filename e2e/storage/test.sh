@@ -443,7 +443,7 @@ test_restore() {
     DELETE_OUTPUT=$($ACLOUD_CMD storage restore delete "$backup_id" "$restore_id" --yes 2>&1)
     if [ $? -eq 0 ]; then
         echo "$DELETE_OUTPUT"
-        CREATED_RESTORES=("${CREATED_RESTORES[@]/$restore_id}")
+        array_remove CREATED_RESTORES "$restore_id"
     else
         echo -e "${YELLOW}DELETE failed — cleanup trap will retry:${NC}"
         echo "$DELETE_OUTPUT" | head -3
