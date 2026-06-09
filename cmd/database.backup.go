@@ -21,6 +21,7 @@ func init() {
 	backupCreateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	backupCreateCmd.Flags().String("name", "", "Backup name (required)")
 	backupCreateCmd.Flags().String("region", "", "Region code (required)")
+	backupCreateCmd.Flags().String("zone", "", "Availability zone (e.g. ITBG-1); defaults to region when omitted")
 	backupCreateCmd.Flags().String("dbaas-id", "", "DBaaS instance ID (required)")
 	backupCreateCmd.Flags().String("database-name", "", "Database name (required)")
 	backupCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
@@ -95,7 +96,7 @@ The backup will be stored and can be restored later.
 
 Billing period: Hour (default), Month, or Year.`,
 	Example: `  acloud database backup create \
-    --name my-backup --region ITBG-Bergamo \
+    --name my-backup --region ITBG-Bergamo --zone ITBG-1 \
     --dbaas-id <dbaas-id> \
     --database-name myapp_db`,
 	Args: cobra.NoArgs,
@@ -132,6 +133,7 @@ type DatabaseDBaaSBackupCreateArgs struct {
 	ProjectID     string
 	Name          string
 	Region        aruba.Region
+	Zone          string
 	DBaaSID       string
 	DatabaseName  string
 	BillingPeriod aruba.BillingPeriod
@@ -228,6 +230,9 @@ func (a *DatabaseDBaaSBackupCreateArgs) ParseFromCobraCommand(cmd *cobra.Command
 	if s, err := cmd.Flags().GetString("region"); err == nil {
 		a.Region = aruba.Region(s)
 	} else {
+		errs = append(errs, err)
+	}
+	if a.Zone, err = cmd.Flags().GetString("zone"); err != nil {
 		errs = append(errs, err)
 	}
 	if a.DBaaSID, err = cmd.Flags().GetString("dbaas-id"); err != nil {
@@ -365,6 +370,10 @@ func DatabaseDBaaSBackupCreate(ctx context.Context, client aruba.Client, args Da
 		FromDatabase(databaseRef(args.ProjectID, args.DBaaSID, args.DatabaseName)).
 		BilledBy(args.BillingPeriod).
 		RetaggedAs(args.Tags...)
+
+	if args.Zone != "" {
+		bkp.InZone(aruba.Zone(args.Zone))
+	}
 
 	created, err := client.FromDatabase().Backups().Create(ctx, bkp)
 	if err != nil {
