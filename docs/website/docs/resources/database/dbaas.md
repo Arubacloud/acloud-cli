@@ -155,5 +155,6 @@ acloud database dbaas delete 69455aa70d0972656501d45d --yes
 
 - [DBaaS Databases](dbaas.database.md) - Manage databases within DBaaS instances
 - [DBaaS Users](dbaas.user.md) - Manage users for DBaaS instances
+- [DBaaS Grants](dbaas.grant.md) - Control user access to databases
 - [Database Backups](backup.md) - Create and manage database backups
 

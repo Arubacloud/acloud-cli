@@ -71,25 +71,20 @@ Choose a subnet with `STATUS` as `Active` and note its `ID` and `CIDR`. If no su
 
 ---
 
-## Step 3: Extract the Subnet URI
+## Step 3: Confirm the Subnet ID
 
-Once you have chosen a subnet, extract its URI for use in the provisioning command. Run:
+Note the `ID` of the chosen subnet from the list output. You will pass this directly to the cloud server create command using `--subnet-id`.
 
 ```bash
-acloud network subnet get <vpc-id> <subnet-id> | grep URI
+acloud network subnet get <vpc-id> <subnet-id>
 ```
 
 Example:
 ```bash
-acloud network subnet get 69495ef64d0cdc87949b71ec 694ba1737712ac0032dbe50a | grep URI
+acloud network subnet get 69495ef64d0cdc87949b71ec 694ba1737712ac0032dbe50a
 ```
 
-Example output:
-```
-URI:             /projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec/subnets/694ba1737712ac0032dbe50a
-```
-
-> **Note:** Save this URI for the cloud server provisioning step.
+> **Note:** Note the subnet `ID`. Only proceed if the subnet `STATUS` is `Active`.
 
 ---
 
@@ -115,25 +110,20 @@ Choose a security group with `STATUS` as `Active` and note its `ID`. If no suita
 
 ---
 
-## Step 5: Extract the Elastic IP URI (if using public access)
+## Step 5: Note the Elastic IP ID (if using public access)
 
-If you chose an Elastic IP, extract its URI for use in the provisioning command. Run:
+If you want public access for your server, note the Elastic IP `ID` from `acloud network elasticip list`. You can verify it with:
 
 ```bash
-acloud network elasticip get <elasticip-id> | grep URI
+acloud network elasticip get <elasticip-id>
 ```
 
 Example:
 ```bash
-acloud network elasticip get 694bb7897712ac0032dbe60c | grep URI
+acloud network elasticip get 694bb7897712ac0032dbe60c
 ```
 
-Example output:
-```
-URI:             /projects/68398923fb2cb026400d4d31/providers/Aruba.Network/elasticIps/694bb7897712ac0032dbe60c
-```
-
-> **Note:** Save this URI for the cloud server provisioning step. Skip this step if you do not need public access.
+> **Note:** Note the Elastic IP `ID`. Skip this step if you do not need public access. You can associate an Elastic IP after server creation as well.
 
 ---
 
@@ -234,43 +224,25 @@ Example output:
 URI:             /projects/68398923fb2cb026400d4d31/providers/Aruba.Compute/keyPairs/69007ebf4e7d691466d8621e
 ```
 
-> **Note:** Save this URI for the `--keypair-uri` flag in the next step.
+> **Note:** Note the keypair `ID` (e.g., `69007ebf4e7d691466d8621e`). Pass it to `--keypair-id` in the create command.
 
 ---
 
-## Step 8: Extract the Boot Disk URI
+## Step 8: Confirm Boot Disk ID and Status
 
-After creating your bootable block storage, extract its URI to use as the --boot-disk-uri when provisioning your cloud server.
-
-Run:
+Note the `ID` of your bootable block storage. The block storage must be in `NotUsed` status before it can be used as a boot disk.
 
 ```bash
-acloud storage blockstorage get <volume-id> | grep URI
-```
-
-Example:
-```bash
-acloud storage blockstorage get 697b3a0dce7dfeef9153256a | grep URI
+acloud storage blockstorage list
 ```
 
 Example output:
 ```
-URI:             /projects/68398923fb2cb026400d4d31/providers/Aruba.Storage/blockStorages/697b3a0dce7dfeef9153256a
+NAME         ID                         SIZE(GB)  REGION         ZONE  TYPE         STATUS
+boot-ubuntu  697b3a0dce7dfeef9153256a   20        ITBG-Bergamo         Performance  NotUsed
 ```
 
-> **Note:** Save this URI for the --boot-disk-uri flag in the next step.
-
-> **Note:** The block storage must be in `NotUsed` status before it can be used as a boot disk for a cloud server. You can check the status with:
->
-> ```bash
-> acloud storage blockstorage list
-> ```
->
-> Example output:
-> ```
-> NAME         ID                         SIZE(GB)  REGION         ZONE  TYPE         STATUS
-> boot-ubuntu  697b3a0dce7dfeef9153256a   20        ITBG-Bergamo         Performance  NotUsed
-> ```
+> **Note:** Note the boot disk `ID`. Only proceed when the status is `NotUsed` or `Active`.
 
 ---
 
@@ -295,7 +267,9 @@ Replace `<hashed-password>` with a valid hashed password (see cloud-init docs fo
 
 ---
 
-## Step 10: Create the Cloud Server - Command
+## Step 10: Create the Cloud Server
+
+Use the IDs collected in the previous steps to create the cloud server:
 
 ```bash
 acloud compute cloudserver create \
@@ -303,29 +277,26 @@ acloud compute cloudserver create \
   --region "ITBG-Bergamo" \
   --zone "ITBG-1" \
   --flavor "CSO4A8" \
-  --boot-disk-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Storage/blockStorages/697b3a0dce7dfeef9153256a" \
-  --vpc-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec" \
-  --subnet-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b71ec/subnets/694ba1737712ac0032dbe50a" \
-  --security-group-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Network/vpcs/69495ef64d0cdc87949b75f9" \
-  --keypair-uri "/projects/68398923fb2cb026400d4d31/providers/Aruba.Compute/keyPairs/69007ebf4e7d691466d8621e" \
+  --boot-disk-id "697b3a0dce7dfeef9153256a" \
+  --vpc-id "69495ef64d0cdc87949b71ec" \
+  --subnet-id "694ba1737712ac0032dbe50a" \
+  --security-group-id "694b05ac4d0cdc87949b75f9" \
+  --keypair-id "69007ebf4e7d691466d8621e" \
   --user-data-file "cloud-init.yaml" \
+  --billing-period Hour \
   --tags "production"
-
 ```
 
 Example output:
 ```
 ID                             NAME         FLAVOR    CPU   RAM(GB)   HD(GB)   REGION
-my-server                      my-server    CSO4A8    4     8         0        ITBG-Bergamo
+697c62605b79733376b3386a       my-server    CSO4A8    4     8         0        ITBG-Bergamo
 ```
 
-- Replace the values above with your actual project, VPC, subnet, security group, keypair, and zone values as needed.
+- Replace the IDs above with your actual VPC, subnet, security group, keypair, and boot disk IDs.
 - The `--user-data-file` flag is optional and can be omitted if not needed.
-- You can specify multiple subnets or security groups by repeating the flag or using comma-separated values.
-
-- All networking flags (`--vpc-uri`, `--subnet-uri`, `--security-group-uri`) and the `--zone` flag are required.
-- The server will be provisioned in the specified region and attached to the provided network resources.
-<!-- For more details, see the documentation for cloud server creation. (Link removed: file not found) -->
+- You can specify multiple subnets or security groups using comma-separated values.
+- All networking flags (`--vpc-id`, `--subnet-id`, `--security-group-id`) and the `--zone` flag are required.
 
 ---
 
