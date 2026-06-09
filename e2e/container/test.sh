@@ -372,7 +372,7 @@ test_containerregistry() {
 
     echo "Waiting for registry $REGISTRY_ID to be Active..."
     local registry_ready=0
-    wait_for_status "$ACLOUD_CMD container containerregistry get $REGISTRY_ID" '^(Active|Ready)$' 600 && registry_ready=1
+    wait_for_status "$ACLOUD_CMD container containerregistry get $REGISTRY_ID" '^(Active|Ready)$' 900 && registry_ready=1
     echo ""
 
     echo -e "${GREEN}[GET]${NC} Getting registry details..."
@@ -387,7 +387,7 @@ test_containerregistry() {
             --concurrent-users 20 2>&1 || true
         echo ""
     else
-        echo -e "${YELLOW}[UPDATE]${NC} Skipping — registry did not reach Active after 600s."
+        skip "[UPDATE] container registry: did not reach Active after 900s — update step skipped"
         echo ""
     fi
 
@@ -433,6 +433,9 @@ else
 fi
 echo ""
 
+if [ "$SKIPS" -gt 0 ]; then
+    echo -e "${YELLOW}⚠ Skipped steps: $SKIPS${NC}"
+fi
 if [ "$FAILURES" -eq 0 ]; then
     echo -e "${GREEN}=== Container E2E: all checks passed ===${NC}"
     exit 0
