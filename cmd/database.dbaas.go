@@ -603,6 +603,28 @@ func DatabaseDBaaSUpdate(ctx context.Context, client aruba.Client, args Database
 		return fmt.Errorf("DBaaS instance not found")
 	}
 
+	// The SDK fromResponse does not fully back-populate request-side fields, causing
+	// two round-trip failures on PUT:
+	//
+	//   1. Engine.ID: fromResponse sets d.engine from Engine.Type (e.g. "mysql"), but
+	//      toRequest() emits it as Engine.ID. The API catalog lookup requires the
+	//      catalog ID (e.g. "mysql-8.0") → 400 "Product not found in catalog".
+	//
+	//   2. DataCenter (zone): fromResponse never sets d.zone, so toRequest() omits
+	//      "dataCenter" from the PUT body. The API interprets an absent zone as a
+	//      modification of an immutable field → 400 "DataCenter cannot be modified".
+	//
+	// Both fields are available in the GET response and must be re-injected before
+	// calling Update.
+	if raw := dbaas.Raw(); raw.Properties.Engine != nil {
+		if raw.Properties.Engine.ID != nil {
+			dbaas.OfEngine(aruba.DatabaseEngine(*raw.Properties.Engine.ID))
+		}
+		if raw.Properties.Engine.DataCenter != nil {
+			dbaas.InZone(aruba.Zone(*raw.Properties.Engine.DataCenter))
+		}
+	}
+
 	if args.Name != "" {
 		dbaas.Named(args.Name)
 	}
