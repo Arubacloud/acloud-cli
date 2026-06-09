@@ -450,15 +450,18 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 			},
 		},
 		{
-			name: "engine ID re-populated from response — avoids 'Product not found in catalog'",
+			// Regression: fromResponse sets d.engine from Engine.Type ("mysql") instead of
+			// the catalog ID, and never populates d.zone. Both cause 400 on PUT — fix
+			// re-injects Engine.ID and Engine.DataCenter before calling Update.
+			name: "engine ID and zone re-populated from response — avoids catalog 400",
 			args: []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123", "--tags", "updated"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-001", "my-dbaas"
-				engineID, engineType := "mysql-8.0", "mysql"
+				engineID, engineType, engineDC := "mysql-8.0", "mysql", "ITBG-1"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Properties: types.DBaaSPropertiesResponse{
-						Engine: &types.DBaaSEngineResponse{ID: &engineID, Type: &engineType},
+						Engine: &types.DBaaSEngineResponse{ID: &engineID, Type: &engineType, DataCenter: &engineDC},
 					},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
