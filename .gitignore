@@ -35,8 +35,12 @@ go.work.sum
 *~
 .DS_Store
 
-# AI agent tools (user-local config/cache, not project docs)
-.claude/
+# AI agent tools — ignore user-local state but track committed project skills
+.claude/settings.json
+.claude/settings.local.json
+.claude/memory/
+.claude/todos/
+.claude/projects/
 .cursor/
 .cursorignore
 .cursorrules
