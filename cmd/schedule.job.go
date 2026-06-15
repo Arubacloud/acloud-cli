@@ -40,6 +40,7 @@ func init() {
 	jobCreateCmd.MarkFlagRequired("name")
 	jobCreateCmd.MarkFlagRequired("region")
 	jobCreateCmd.MarkFlagRequired("job-type")
+	jobCreateCmd.MarkFlagRequired("step-resource-uri")
 
 	jobGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -419,6 +420,9 @@ func (a *ScheduleJobCreateArgs) Validate() error {
 	}
 	if !slices.Contains(validJobTypes, a.JobType) {
 		errs = append(errs, fmt.Errorf("--job-type %q: must be one of %v", a.JobType, validJobTypes))
+	}
+	if a.StepResourceURI == "" {
+		errs = append(errs, errors.New("--step-resource-uri is required"))
 	}
 
 	// Mutually exclusive schedule modes.

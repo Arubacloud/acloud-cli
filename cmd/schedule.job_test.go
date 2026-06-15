@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -160,6 +162,7 @@ func TestJobCreateCmd(t *testing.T) {
 		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
+		"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 	}
 	tests := []struct {
 		name        string
@@ -195,6 +198,12 @@ func TestJobCreateCmd(t *testing.T) {
 			args:        removeFlag(baseShotArgs, "--job-type", "OneShot"),
 			wantErr:     true,
 			errContains: "job-type",
+		},
+		{
+			name:        "missing required flag --step-resource-uri",
+			args:        removeFlag(baseShotArgs, "--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001"),
+			wantErr:     true,
+			errContains: "step-resource-uri",
 		},
 		{
 			name: "server error propagates",
@@ -389,6 +398,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"--job-type", "Recurring",
 				"--cron", "0 * * * *",
 				"--execute-until", "2027-01-01T00:00:00Z",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 			},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "job-new", "my-recurring-job"
@@ -406,6 +416,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"--region", "ITBG-Bergamo",
 				"--job-type", "Recurring",
 				"--execute-until", "2027-01-01T00:00:00Z",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 			},
 			wantErr:     true,
 			errContains: "cron",
@@ -419,6 +430,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"--region", "ITBG-Bergamo",
 				"--job-type", "Recurring",
 				"--cron", "0 * * * *",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 			},
 			wantErr:     true,
 			errContains: "execute-until",
@@ -432,6 +444,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"--region", "ITBG-Bergamo",
 				"--job-type", "Invalid",
 				"--schedule-at", "2026-06-01T10:00:00Z",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 			},
 			wantErr:     true,
 			errContains: "job-type",
@@ -444,6 +457,7 @@ func TestJobCreateCmd_Recurring(t *testing.T) {
 				"--name", "my-job",
 				"--region", "ITBG-Bergamo",
 				"--job-type", "OneShot",
+				"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 			},
 			wantErr:     true,
 			errContains: "schedule-at",
@@ -493,6 +507,7 @@ func TestJobCreateCmd_Disabled(t *testing.T) {
 		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
+		"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 		"--enabled=false",
 	})
 	if err != nil {
@@ -509,6 +524,7 @@ func TestJobCreateCmd_InvalidScheduleAt(t *testing.T) {
 		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "not-a-date",
+		"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid --schedule-at, got nil")
@@ -528,6 +544,7 @@ func TestJobCreateCmd_InvalidExecuteUntil(t *testing.T) {
 		"--job-type", "Recurring",
 		"--cron", "0 0 * * *",
 		"--execute-until", "not-a-date",
+		"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid --execute-until, got nil")
@@ -561,6 +578,7 @@ func TestJobCreateCmd_WithEnabledAndLocation(t *testing.T) {
 		"--region", "ITBG-Bergamo",
 		"--job-type", "OneShot",
 		"--schedule-at", "2026-06-01T10:00:00Z",
+		"--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -683,7 +701,7 @@ func TestJobUpdateCmd_WithEnabledAndTags(t *testing.T) {
 func TestScheduleJobCreateRun_ValidationError(t *testing.T) {
 	// --name "x" is too short (< 3 chars) — triggers ErrValidationFailed
 	srv := newArubaTestServer(t)
-	err := runCmd(srv.Client(), []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z"})
+	err := runCmd(srv.Client(), []string{"schedule", "job", "create", "--project-id", "proj-123", "--name", "x", "--region", "ITBG-Bergamo", "--job-type", "OneShot", "--schedule-at", "2026-06-01T10:00:00Z", "--step-resource-uri", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001"})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -715,13 +733,55 @@ func TestScheduleJobListRun_NoProjectID(t *testing.T) {
 
 func validScheduleJobCreateArgs() ScheduleJobCreateArgs {
 	return ScheduleJobCreateArgs{
-		ProjectID: "proj-123",
-		Name:      "my-job",
-		Region:    aruba.RegionITBGBergamo,
-		JobType:   aruba.JobTypeOneShot,
-		Enabled:   true,
-		Tags:      []string{},
-		ShotTime:  "2026-06-01T10:00:00Z",
+		ProjectID:       "proj-123",
+		Name:            "my-job",
+		Region:          aruba.RegionITBGBergamo,
+		JobType:         aruba.JobTypeOneShot,
+		Enabled:         true,
+		Tags:            []string{},
+		ShotTime:        "2026-06-01T10:00:00Z",
+		StepResourceURI: "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001",
+	}
+}
+
+func TestJobCreateCmd_RequestBodyContainsSteps(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "job-001", "my-job"
+	stepURI := "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-001"
+	stepAction := "/actions/powerOff"
+
+	var capturedBody []byte
+	srv.OnPost("/projects/proj-123/providers/Aruba.Schedule/jobs", func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		jsonResponse(200, types.JobResponse{
+			Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		})(w, r)
+	})
+
+	err := runCmd(srv.Client(), []string{
+		"schedule", "job", "create",
+		"--project-id", "proj-123",
+		"--name", "my-job",
+		"--region", "ITBG-Bergamo",
+		"--job-type", "OneShot",
+		"--schedule-at", "2026-06-01T10:00:00Z",
+		"--step-resource-uri", stepURI,
+		"--step-action-uri", stepAction,
+		"--step-http-verb", "POST",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	body := string(capturedBody)
+	if !strings.Contains(body, "\"steps\"") {
+		t.Fatalf("request body missing steps array: %s", body)
+	}
+	if !strings.Contains(body, stepURI) {
+		t.Fatalf("request body missing step resource URI %q: %s", stepURI, body)
+	}
+	if !strings.Contains(body, stepAction) {
+		t.Fatalf("request body missing step action URI %q: %s", stepAction, body)
 	}
 }
 
