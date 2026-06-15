@@ -1,6 +1,6 @@
 package main
 
-import "acloud/cmd"
+import "github.com/Arubacloud/acloud-cli/cmd"
 
 // Version is set at build time via ldflags
 var Version string

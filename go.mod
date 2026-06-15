@@ -1,4 +1,4 @@
-module acloud
+module github.com/Arubacloud/acloud-cli
 
 go 1.25.0
 
