@@ -37,6 +37,7 @@ Issues are grouped by severity. Address Critical items before new features ship;
 | TD-030 | sdk-go v1.0.4 added `cidr` JSON field handling to `SubnetCIDROrRef.UnmarshalJSON`, fixing the field-path mismatch that caused `vpnroute get/list` to always show a blank Cloud Subnet. CLI migrated all four output blocks from `raw.Properties.CloudSubnet.CIDR` to `route.CloudSubnet()` and from `raw.Properties.OnPremSubnet` to `route.OnPremSubnet()`. Closed #135 / #130. |
 | TD-025 | sdk-go v1.0.4 clarified `SubnetInfoCommon` as a routing reference (subnet must already exist; `cidr` must be unique per tunnel). Updated `--subnet-cidr`/`--subnet-name` flag descriptions and `vpntunnel create` Long doc to match. Closed #73. |
 | TD-038 | All 137 Cobra `RunE` handlers decomposed into `<Family><Resource><Action>Args` struct + `ParseFromCobraCommand` + `Validate()` + pure `<Action>` operation function + thin `<Action>Run` wiring. `Validate()` methods cover typed-enum value-sets via `slices.Contains`. `ErrParsingFailed` / `ErrValidationFailed` sentinels added to `cmd/args.go`; cross-resource valid-value slices in `cmd/enums.go`. Closes the testability gap left by PR #138. |
+| TD-031 | `schedule job create` now enforces `--step-resource-uri` as required, validates it in `ScheduleJobCreateArgs.Validate()`, and wires step payloads via `aruba.NewJobStep()` + `job.WithSteps(step)`. Regression test captures POST body and asserts non-empty `steps[]` content. Closed #170. |
 
 ---
 
@@ -62,21 +63,6 @@ The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.
 **Diagnosis:** Run `acloud --debug compute cloudserver update <id> --tags foo` and inspect `[DEBUG] response body:` to confirm which field(s) the API rejects.
 
 **Fix:** Map `networkInterfaces[].subnet` → `subnetRefs` and identify security-group URIs in `linkedResources[]` in the CLI update handler (or upstream in SDK `fromResponse`). Re-inject before calling `Update`. See #125.
-
----
-
-### TD-031 · Schedule job create does not send `steps[]` — API rejects with 400
-
-`acloud schedule job create` always returns HTTP 400 because the payload contains no
-`steps[]`. The `--step-resource-uri` / `--step-action-uri` / `--step-http-verb` /
-`--step-name` flags are declared in `init()` but the `RunE` never reads them and the
-SDK builder had no `AddStep` / `WithStep` method in v0.3.0. sdk-go v1.0.0 added
-`Job.Steps()` (a read accessor) but it is unclear whether a write/builder API was
-added. Check `aruba.Job` in v1.0.0 for `AddStep`/`WithStep` before implementing.
-
-**Fix:** If v1.0.0 added a step builder, read the four flags and append the step before
-calling `Create`. Otherwise, the command should return a clear "not yet implemented"
-error rather than silently emitting an invalid payload.
 
 ---
 
