@@ -455,3 +455,94 @@ func TestDBaaSDatabaseCreateCmd_WithCreationDate(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ─── Layer 1: Validate ───────────────────────────────────────────────────────
+
+func TestDatabaseDBaaSDatabaseCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        DatabaseDBaaSDatabaseCreateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", args: DatabaseDBaaSDatabaseCreateArgs{DBaaSID: "d-001", Name: "mydb"}, wantErr: false},
+		{name: "missing dbaas-id", args: DatabaseDBaaSDatabaseCreateArgs{Name: "mydb"}, wantErr: true, errContains: "DBaaS ID"},
+		{name: "name too short", args: DatabaseDBaaSDatabaseCreateArgs{DBaaSID: "d-001", Name: "ab"}, wantErr: true, errContains: "--name must be at least 3"},
+		{name: "name too long", args: DatabaseDBaaSDatabaseCreateArgs{DBaaSID: "d-001", Name: string(make([]byte, 65))}, wantErr: true, errContains: "--name must be at most 64"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSDatabaseGetArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSDatabaseGetArgs{DBaaSID: "d-001", DatabaseName: "mydb"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSDatabaseGetArgs{DatabaseName: "mydb"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noName := DatabaseDBaaSDatabaseGetArgs{DBaaSID: "d-001"}
+	if err := noName.Validate(); err == nil {
+		t.Fatal("expected error for missing DatabaseName")
+	}
+}
+
+func TestDatabaseDBaaSDatabaseUpdateArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSDatabaseUpdateArgs{DBaaSID: "d-001", DatabaseName: "mydb", Name: "new"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSDatabaseUpdateArgs{DatabaseName: "mydb", Name: "new"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noDBName := DatabaseDBaaSDatabaseUpdateArgs{DBaaSID: "d-001", Name: "new"}
+	if err := noDBName.Validate(); err == nil {
+		t.Fatal("expected error for missing DatabaseName")
+	}
+	noNewName := DatabaseDBaaSDatabaseUpdateArgs{DBaaSID: "d-001", DatabaseName: "mydb"}
+	if err := noNewName.Validate(); err == nil {
+		t.Fatal("expected error for missing Name")
+	}
+}
+
+func TestDatabaseDBaaSDatabaseDeleteArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSDatabaseDeleteArgs{DBaaSID: "d-001", DatabaseName: "mydb"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSDatabaseDeleteArgs{DatabaseName: "mydb"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noName := DatabaseDBaaSDatabaseDeleteArgs{DBaaSID: "d-001"}
+	if err := noName.Validate(); err == nil {
+		t.Fatal("expected error for missing DatabaseName")
+	}
+}
+
+func TestDatabaseDBaaSDatabaseListArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSDatabaseListArgs{DBaaSID: "d-001"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	empty := DatabaseDBaaSDatabaseListArgs{}
+	if err := empty.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+}

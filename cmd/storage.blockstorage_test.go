@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -511,5 +512,79 @@ func TestBlockStorageCreateCmd_WithSnapshotID(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ─── Layer 1: Validate ───────────────────────────────────────────────────────
+
+func validStorageBlockStorageCreateArgs() StorageBlockStorageCreateArgs {
+	return StorageBlockStorageCreateArgs{
+		ProjectID: "proj-123",
+		Name:      "my-volume",
+		Region:    aruba.RegionITBGBergamo,
+		SizeGB:    50,
+	}
+}
+
+func TestStorageBlockStorageCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*StorageBlockStorageCreateArgs)
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", wantErr: false},
+		{name: "name too short", mutate: func(a *StorageBlockStorageCreateArgs) { a.Name = "ab" }, wantErr: true, errContains: "--name must be at least 3"},
+		{name: "name too long", mutate: func(a *StorageBlockStorageCreateArgs) { a.Name = string(make([]byte, 65)) }, wantErr: true, errContains: "--name must be at most 64"},
+		{name: "invalid region", mutate: func(a *StorageBlockStorageCreateArgs) { a.Region = aruba.Region("ZZ-Invalid") }, wantErr: true, errContains: "--region"},
+		{name: "size zero", mutate: func(a *StorageBlockStorageCreateArgs) { a.SizeGB = 0 }, wantErr: true, errContains: "--size"},
+		{name: "size negative", mutate: func(a *StorageBlockStorageCreateArgs) { a.SizeGB = -1 }, wantErr: true, errContains: "--size"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := validStorageBlockStorageCreateArgs()
+			if tc.mutate != nil {
+				tc.mutate(&args)
+			}
+			err := args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestStorageBlockStorageUpdateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        StorageBlockStorageUpdateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid with name", args: StorageBlockStorageUpdateArgs{Name: "new-name"}, wantErr: false},
+		{name: "valid with tags changed", args: StorageBlockStorageUpdateArgs{TagsChanged: true}, wantErr: false},
+		{name: "no fields provided", args: StorageBlockStorageUpdateArgs{}, wantErr: true, errContains: "at least one"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
