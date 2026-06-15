@@ -569,6 +569,39 @@ func TestConfigSet_Operation_UpdatesExistingConfig(t *testing.T) {
 	}
 }
 
+func TestConfigSet_Operation_UsesEnvClientSecret(t *testing.T) {
+	defer withTempHome(t)()
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "env-op-secret")
+	defer os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+
+	err := ConfigSet(context.Background(), ConfigSetArgs{ClientID: "env-op-id"})
+	if err != nil {
+		t.Fatalf("ConfigSet() error: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.ClientSecret != "env-op-secret" {
+		t.Errorf("ClientSecret = %q, want env-op-secret", loaded.ClientSecret)
+	}
+}
+
+func TestConfigSet_Operation_MissingClientSecret_NonInteractive(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	err := ConfigSet(context.Background(), ConfigSetArgs{ClientID: "id-without-secret"})
+	if err == nil {
+		t.Fatal("expected error when no secret is available in non-interactive mode")
+	}
+	if !strings.Contains(err.Error(), "set ACLOUD_CLIENT_SECRET") {
+		t.Errorf("expected ACLOUD_CLIENT_SECRET guidance, got: %v", err)
+	}
+}
+
 func TestConfigShow_Operation_WithConfig(t *testing.T) {
 	defer withTempHome(t)()
 	os.Unsetenv("ACLOUD_CLIENT_ID")
