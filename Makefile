@@ -125,7 +125,9 @@ vet: ## Run go vet
 	@go vet ./...
 	@echo "$(GREEN)Vet complete$(NC)"
 
-lint: fmt vet ## Run all linters (fmt + vet)
+lint: fmt vet ## Run all linters (fmt + vet + golangci-lint)
+	@echo "$(GREEN)Running golangci-lint...$(NC)"
+	@golangci-lint run
 	@echo "$(GREEN)Linting complete$(NC)"
 
 lint-check: ## Check if code needs formatting (for CI)
@@ -264,6 +266,6 @@ dev-setup: deps build ## Complete development setup
 pre-commit: fmt vet test-short ## Run pre-commit checks (fmt, vet, tests)
 	@echo "$(GREEN)Pre-commit checks passed!$(NC)"
 
-ci: lint-check mod-verify test-skip-client ## Run CI checks (lint, mod verify, tests without credentials)
+ci: lint-check lint mod-verify test-skip-client ## Run CI checks (lint, mod verify, tests without credentials)
 	@echo "$(GREEN)CI checks passed!$(NC)"
 

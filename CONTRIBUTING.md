@@ -19,7 +19,14 @@ Thank you for your interest in contributing to acloud-cli! This document provide
 
 - **Go 1.24.2 or higher** - [Download Go](https://golang.org/dl/)
 - **Git** - For version control
+- **golangci-lint** - Required by `make lint` and CI static analysis
 - **Aruba Cloud API credentials** - For testing (Client ID and Client Secret)
+
+Install golangci-lint:
+
+```bash
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+```
 
 ### Getting Started
 

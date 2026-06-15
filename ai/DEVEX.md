@@ -10,7 +10,7 @@ make build-all          # Build for all platforms (Windows, Linux, macOS Intel/A
 ## Lint & Format
 
 ```bash
-make lint               # Run fmt + vet
+make lint               # Run fmt + vet + golangci-lint
 make lint-check         # CI-mode formatting check (fails if code needs formatting)
 ```
 

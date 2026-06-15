@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - exhaustive
+    - gosec
+    - revive
+    - staticcheck
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (*github.com/spf13/cobra.Command).MarkFlagRequired
+      - (*github.com/spf13/cobra.Command).MarkPersistentFlagRequired
+  exhaustive:
+    default-signifies-exhaustive: true
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: increment-decrement
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: unreachable-code
+      - name: var-declaration
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - path: cmd/config.go
+      linters:
+        - gosec
+      text: "G101: Potential hardcoded credentials"
