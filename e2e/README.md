@@ -25,7 +25,7 @@ Before running the tests, ensure you have:
 
 1. **Configured CLI credentials:**
    ```bash
-   acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+   ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
    ```
 
 2. **Set required environment variables** (see each test script for specific requirements):

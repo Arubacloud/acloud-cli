@@ -38,7 +38,7 @@ var configCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set configuration values",
-	Long:  `Set configuration values for acloud, such as clientId and clientSecret.`,
+	Long:  `Set configuration values for acloud. Pass clientId as a flag; clientSecret is read from ACLOUD_CLIENT_SECRET or prompted securely.`,
 	RunE:  ConfigSetRun,
 }
 
@@ -57,7 +57,6 @@ func init() {
 
 	// Flags for config set command
 	configSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID (required)")
-	configSetCmd.Flags().String("client-secret", "", "Aruba Cloud API client secret (required)")
 	configSetCmd.Flags().String("base-url", "", "Base URL for Aruba Cloud API (optional, default: https://api.arubacloud.com)")
 	configSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication (optional, default: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token)")
 }
@@ -167,9 +166,6 @@ func (a *ConfigSetArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
 	if a.ClientID, err = cmd.Flags().GetString("client-id"); err != nil {
 		errs = append(errs, err)
 	}
-	if a.ClientSecret, err = cmd.Flags().GetString("client-secret"); err != nil {
-		errs = append(errs, err)
-	}
 	if a.BaseURL, err = cmd.Flags().GetString("base-url"); err != nil {
 		errs = append(errs, err)
 	}
@@ -198,11 +194,16 @@ func ConfigSet(_ context.Context, args ConfigSetArgs) error {
 	if config.ClientID == "" && args.ClientID == "" {
 		return fmt.Errorf("--client-id is required")
 	}
+	// ACLOUD_CLIENT_SECRET is accepted for automation and takes precedence over prompt.
+	if args.ClientSecret == "" {
+		args.ClientSecret = os.Getenv("ACLOUD_CLIENT_SECRET")
+	}
+
 	// If no client-secret is available, prompt interactively.
 	if config.ClientSecret == "" && args.ClientSecret == "" {
 		prompted, err := readSecret("Enter client secret: ")
 		if err != nil {
-			return fmt.Errorf("--client-secret is required: %w", err)
+			return fmt.Errorf("client secret is required (set ACLOUD_CLIENT_SECRET or provide interactive input): %w", err)
 		}
 		args.ClientSecret = prompted
 	}

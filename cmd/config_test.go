@@ -327,7 +327,7 @@ func TestConfigSetCmd_Success(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
 	os.Unsetenv("ACLOUD_CLIENT_ID")
-	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
 	defer func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
@@ -335,7 +335,7 @@ func TestConfigSetCmd_Success(t *testing.T) {
 		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
 	}()
 
-	out, err := runCmdCapture(nil, []string{"config", "set", "--client-id", "test-id", "--client-secret", "test-secret"})
+	out, err := runCmdCapture(nil, []string{"config", "set", "--client-id", "test-id"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestConfigSetCmd_MissingClientID(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
 	os.Unsetenv("ACLOUD_CLIENT_ID")
-	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
 	defer func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
@@ -361,12 +361,32 @@ func TestConfigSetCmd_MissingClientID(t *testing.T) {
 		os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
 	}()
 
-	_, err := runCmdCapture(nil, []string{"config", "set", "--client-secret", "test-secret"})
+	_, err := runCmdCapture(nil, []string{"config", "set"})
 	if err == nil {
 		t.Fatal("expected error for missing --client-id")
 	}
 	if !strings.Contains(err.Error(), "client-id") {
 		t.Errorf("expected client-id mention in error, got: %s", err.Error())
+	}
+}
+
+func TestConfigSetCmd_ClientSecretFlagRejected(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	_, err := runCmdCapture(nil, []string{"config", "set", "--client-id", "test-id", "--client-secret", "test-secret"})
+	if err == nil {
+		t.Fatal("expected error for unknown --client-secret flag")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %s", err.Error())
 	}
 }
 

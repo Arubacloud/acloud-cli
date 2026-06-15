@@ -122,7 +122,7 @@ func GetArubaClient() (aruba.Client, error) {
 	}
 
 	if config.ClientID == "" || config.ClientSecret == "" {
-		return nil, fmt.Errorf("client ID or client secret not configured. Set ACLOUD_CLIENT_ID / ACLOUD_CLIENT_SECRET env vars or run 'acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET'")
+		return nil, fmt.Errorf("client ID or client secret not configured. Set ACLOUD_CLIENT_ID / ACLOUD_CLIENT_SECRET env vars or run 'acloud config set --client-id YOUR_CLIENT_ID'")
 	}
 
 	// Get base URL and token issuer URL from config, or use defaults
@@ -320,7 +320,7 @@ func confirmDelete(resourceType, id string) (bool, error) {
 func readSecret(prompt string) (string, error) {
 	fi, err := os.Stdin.Stat()
 	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
-		return "", fmt.Errorf("cannot read secret interactively: stdin is not a terminal; pass the flag explicitly instead")
+		return "", fmt.Errorf("cannot read secret interactively: stdin is not a terminal; set ACLOUD_CLIENT_SECRET instead")
 	}
 	fmt.Fprint(os.Stderr, prompt)
 	secret, err := term.ReadPassword(int(os.Stdin.Fd()))

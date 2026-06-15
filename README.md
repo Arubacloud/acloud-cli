@@ -108,11 +108,11 @@ acloud --version
 # Prompts for the secret with echo disabled (recommended)
 acloud config set --client-id YOUR_CLIENT_ID
 
-# Or pass both flags (suitable for CI/CD — prefer environment variables instead)
-acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+# CI/CD: provide secret via environment variable
+ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
 ```
 
-> **Security note**: Avoid passing `--client-secret` in interactive sessions — it will appear in your shell history.
+> **Security note**: The CLI does not accept `--client-secret` as a flag to avoid exposure in process lists and shell history.
 
 Credentials are stored in `~/.acloud.yaml`.
 
