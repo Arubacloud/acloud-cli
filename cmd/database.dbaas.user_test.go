@@ -446,3 +446,94 @@ func TestDBaaSUserCreateCmd_WithCreationDate(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ─── Layer 1: Validate ───────────────────────────────────────────────────────
+
+func TestDatabaseDBaaSUserCreateArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        DatabaseDBaaSUserCreateArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", args: DatabaseDBaaSUserCreateArgs{DBaaSID: "d-001", Username: "alice", Password: "s3cr3t"}, wantErr: false},
+		{name: "missing dbaas-id", args: DatabaseDBaaSUserCreateArgs{Username: "alice", Password: "s3cr3t"}, wantErr: true, errContains: "DBaaS ID"},
+		{name: "missing username", args: DatabaseDBaaSUserCreateArgs{DBaaSID: "d-001", Password: "s3cr3t"}, wantErr: true, errContains: "--username"},
+		{name: "missing password", args: DatabaseDBaaSUserCreateArgs{DBaaSID: "d-001", Username: "alice"}, wantErr: true, errContains: "--password"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDatabaseDBaaSUserGetArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSUserGetArgs{DBaaSID: "d-001", Username: "alice"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSUserGetArgs{Username: "alice"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noUser := DatabaseDBaaSUserGetArgs{DBaaSID: "d-001"}
+	if err := noUser.Validate(); err == nil {
+		t.Fatal("expected error for missing Username")
+	}
+}
+
+func TestDatabaseDBaaSUserUpdateArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSUserUpdateArgs{DBaaSID: "d-001", Username: "alice", Password: "new"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSUserUpdateArgs{Username: "alice", Password: "new"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noUser := DatabaseDBaaSUserUpdateArgs{DBaaSID: "d-001", Password: "new"}
+	if err := noUser.Validate(); err == nil {
+		t.Fatal("expected error for missing Username")
+	}
+	noPwd := DatabaseDBaaSUserUpdateArgs{DBaaSID: "d-001", Username: "alice"}
+	if err := noPwd.Validate(); err == nil {
+		t.Fatal("expected error for missing Password")
+	}
+}
+
+func TestDatabaseDBaaSUserDeleteArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSUserDeleteArgs{DBaaSID: "d-001", Username: "alice"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	noDB := DatabaseDBaaSUserDeleteArgs{Username: "alice"}
+	if err := noDB.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+	noUser := DatabaseDBaaSUserDeleteArgs{DBaaSID: "d-001"}
+	if err := noUser.Validate(); err == nil {
+		t.Fatal("expected error for missing Username")
+	}
+}
+
+func TestDatabaseDBaaSUserListArgs_Validate(t *testing.T) {
+	valid := DatabaseDBaaSUserListArgs{DBaaSID: "d-001"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	empty := DatabaseDBaaSUserListArgs{}
+	if err := empty.Validate(); err == nil {
+		t.Fatal("expected error for missing DBaaSID")
+	}
+}
