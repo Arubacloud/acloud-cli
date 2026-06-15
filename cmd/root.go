@@ -632,12 +632,6 @@ func rowsToRecords(headers []TableColumn, rows [][]string) []yaml.Node {
 	return records
 }
 
-// PrintTable is a compatibility shim that delegates to PrintOutput with no rich object.
-// New code should call PrintOutput directly to pass the full SDK response object.
-func PrintTable(headers []TableColumn, rows [][]string) {
-	PrintOutput(nil, headers, rows)
-}
-
 // extractIDFromURI returns the last path segment of a URI string.
 // e.g. "/projects/p-1/providers/Aruba.Network/elasticIps/eip-42" → "eip-42"
 func extractIDFromURI(uri string) string {

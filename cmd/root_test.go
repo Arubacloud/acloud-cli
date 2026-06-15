@@ -207,7 +207,7 @@ func TestPrintTable(t *testing.T) {
 	}
 
 	// Should not panic
-	PrintTable(headers, rows)
+	PrintOutput(nil, headers, rows)
 }
 
 func TestPrintTable_EmptyRows(t *testing.T) {
@@ -219,7 +219,7 @@ func TestPrintTable_EmptyRows(t *testing.T) {
 	rows := [][]string{}
 
 	// Should not panic with empty rows
-	PrintTable(headers, rows)
+	PrintOutput(nil, headers, rows)
 }
 
 func TestPrintTable_LongValues(t *testing.T) {
@@ -232,7 +232,7 @@ func TestPrintTable_LongValues(t *testing.T) {
 	}
 
 	// Should truncate long values
-	PrintTable(headers, rows)
+	PrintOutput(nil, headers, rows)
 }
 
 func TestPrintTable_MismatchedColumns(t *testing.T) {
@@ -247,7 +247,7 @@ func TestPrintTable_MismatchedColumns(t *testing.T) {
 	}
 
 	// Should not panic with mismatched columns
-	PrintTable(headers, rows)
+	PrintOutput(nil, headers, rows)
 }
 
 func TestNormalizeHeaderKey(t *testing.T) {
@@ -331,7 +331,7 @@ func TestPrintTable_TableJSONFormat(t *testing.T) {
 
 	out := captureStdout(func() {
 		rootCmd.PersistentFlags().Set("output", "table-json")
-		PrintTable(headers, rows)
+		PrintOutput(nil, headers, rows)
 		rootCmd.PersistentFlags().Set("output", "table")
 	})
 
@@ -359,7 +359,7 @@ func TestPrintTable_TableJSONFormat_Empty(t *testing.T) {
 
 	out := captureStdout(func() {
 		rootCmd.PersistentFlags().Set("output", "table-json")
-		PrintTable(headers, rows)
+		PrintOutput(nil, headers, rows)
 		rootCmd.PersistentFlags().Set("output", "table")
 	})
 
@@ -385,7 +385,7 @@ func TestPrintTable_TableYAMLFormat(t *testing.T) {
 
 	out := captureStdout(func() {
 		rootCmd.PersistentFlags().Set("output", "table-yaml")
-		PrintTable(headers, rows)
+		PrintOutput(nil, headers, rows)
 		rootCmd.PersistentFlags().Set("output", "table")
 	})
 
@@ -468,7 +468,7 @@ func TestPrintOutput_AliasStdJSON(t *testing.T) {
 
 	out := captureStdout(func() {
 		rootCmd.PersistentFlags().Set("output", "std-json")
-		PrintTable(headers, rows)
+		PrintOutput(nil, headers, rows)
 		rootCmd.PersistentFlags().Set("output", "table")
 	})
 
