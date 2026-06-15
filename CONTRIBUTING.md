@@ -43,7 +43,7 @@ go mod download
 go build -o acloud
 
 # Configure credentials
-./acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET ./acloud config set --client-id YOUR_CLIENT_ID
 ```
 
 4. **Build and test**

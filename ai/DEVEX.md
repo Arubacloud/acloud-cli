@@ -58,3 +58,23 @@ Install GoReleaser: `go install github.com/goreleaser/goreleaser/v2@latest`
 - Set `ACLOUD_TEST_SKIP_CLIENT=true` to skip tests that require live API credentials (used in CI).
 - E2E tests are bash scripts under `e2e/` organized by resource category.
 - Test files: `<file>_test.go` for standard tests; `<file>_test_enhanced.go` for extended fixtures/scenarios.
+
+## AI Agent Pre-PR Gate
+
+When an AI agent (Copilot/Claude) prepares a PR, it must complete this gate **before** opening a new issue branch or moving to the next issue:
+
+1. Run local tests for touched packages and full repository tests:
+    ```bash
+    go test ./... -count=1
+    ```
+2. Generate coverage and verify touched code paths are exercised:
+    ```bash
+    go test ./cmd -covermode=count -coverprofile=/tmp/cmd.cover.out
+    go tool cover -func=/tmp/cmd.cover.out
+    ```
+3. After pushing and opening the PR, verify check status and wait for completion:
+    ```bash
+    gh pr checks <PR_NUMBER> --repo Arubacloud/acloud-cli
+    ```
+4. If `codecov/patch` is failing, add targeted tests for changed lines and push again.
+5. Do not start the next issue until `codecov/patch` and required checks are green (or maintainer explicitly approves an exception).

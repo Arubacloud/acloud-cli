@@ -120,12 +120,12 @@ The Aruba Cloud CLI requires API credentials to authenticate with Aruba Cloud se
    # Enter client secret: (hidden input, does not appear in shell history)
    ```
 
-   For CI/automation where shell history is not a concern, both flags may be passed together:
+  For CI/automation, set the secret via environment variable:
    ```bash
-   acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+  ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
    ```
 
-   > **Security note**: Avoid passing `--client-secret` interactively — it will appear in your shell history. Omitting the flag causes the CLI to prompt for it with echo disabled.
+  > **Security note**: `--client-secret` is intentionally not supported to avoid exposing secrets in process lists and shell history.
 
 3. **Verify configuration**:
    ```bash
@@ -151,14 +151,14 @@ The CLI configuration allows you to manage API credentials and optional settings
 
 **Required Settings:**
 
-`--client-id` is required. `--client-secret` may be passed on the command line or omitted to be prompted securely with echo disabled (recommended for interactive use):
+`--client-id` is required. `clientSecret` is sourced from `ACLOUD_CLIENT_SECRET` (automation) or prompted securely with echo disabled (interactive):
 
 ```bash
 # Recommended: secret entered via hidden prompt (does not appear in shell history)
 acloud config set --client-id YOUR_CLIENT_ID
 
-# CI/automation: pass both flags on the command line
-acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+# CI/automation: provide secret via environment variable
+ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
 ```
 
 **Optional Settings:**
@@ -176,9 +176,9 @@ acloud config set --token-issuer-url "https://login.aruba.it/auth/realms/cmp-new
 You can also set all values at once:
 
 ```bash
+ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET \
 acloud config set \
   --client-id YOUR_CLIENT_ID \
-  --client-secret YOUR_CLIENT_SECRET \
   --base-url "https://api.arubacloud.com" \
   --token-issuer-url "https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token"
 ```
@@ -223,16 +223,16 @@ You can update individual settings without affecting others:
 
 ```bash
 # Update only the client secret
-acloud config set --client-secret NEW_SECRET
+ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id YOUR_CLIENT_ID
 
 # Update only the base URL
 acloud config set --base-url "https://custom-api.example.com"
 ```
 
-**Note**: Both `--client-id` and `--client-secret` must always be present in the configuration. If you're updating one, make sure the other is already set or provide both. When updating the secret interactively, omit `--client-secret` to be prompted with echo disabled:
+**Note**: Both `clientId` and `clientSecret` must always be present in the configuration. If you're updating one, make sure the other is already set in config/environment. For interactive secret updates, run with `--client-id` and provide the secret when prompted:
 
 ```bash
-acloud config set --client-secret   # prompted securely
+acloud config set --client-id YOUR_CLIENT_ID   # prompted securely
 ```
 
 ## Context Management

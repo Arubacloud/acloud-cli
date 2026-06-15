@@ -257,7 +257,7 @@ check-env: ## Check development environment
 dev-setup: deps build ## Complete development setup
 	@echo "$(GREEN)Development environment ready!$(NC)"
 	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "  1. Configure credentials: ./$(BINARY_NAME) config set --client-id <id> --client-secret <secret>"
+	@echo "  1. Configure credentials: ACLOUD_CLIENT_SECRET=<secret> ./$(BINARY_NAME) config set --client-id <id>"
 	@echo "  2. Run tests: make test"
 	@echo "  3. Run E2E tests: make e2e-test"
 
