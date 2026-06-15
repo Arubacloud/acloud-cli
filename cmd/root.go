@@ -307,9 +307,7 @@ func confirmDelete(resourceType, id string) (bool, error) {
 	}
 	fmt.Printf("Are you sure you want to delete %s %s? (yes/no): ", resourceType, id)
 	var response string
-	if _, err := fmt.Scanln(&response); err != nil {
-		return false, fmt.Errorf("reading confirmation: %w", err)
-	}
+	fmt.Scanln(&response) //nolint:errcheck // interactive stdin read; failure leaves response empty, triggering cancel
 	if response != "yes" && response != "y" {
 		fmt.Println("Delete cancelled")
 		return false, nil

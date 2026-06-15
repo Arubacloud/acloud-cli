@@ -16,6 +16,7 @@ linters-settings:
     exclude-functions:
       - (*github.com/spf13/cobra.Command).MarkFlagRequired
       - (*github.com/spf13/cobra.Command).MarkPersistentFlagRequired
+      - fmt.Scanln
   exhaustive:
     default-signifies-exhaustive: true
   revive:
