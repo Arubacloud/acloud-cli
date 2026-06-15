@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -412,8 +414,75 @@ func TestConfigShowCmd(t *testing.T) {
 	if !strings.Contains(out, "show-id") {
 		t.Errorf("expected client ID in output, got: %s", out)
 	}
-	if !strings.Contains(out, "********") {
+	if !strings.Contains(out, "***") {
 		t.Errorf("expected redacted secret in output, got: %s", out)
+	}
+	if strings.Contains(out, "show-secret") {
+		t.Errorf("plaintext secret leaked in output: %s", out)
+	}
+}
+
+func TestConfigShowCmd_JSONMasksClientSecret(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	if err := SaveConfig(&Config{ClientID: "show-id", ClientSecret: "show-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	out, err := runCmdCapture(nil, []string{"config", "show", "--output", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out, "show-secret") {
+		t.Fatalf("plaintext secret leaked in JSON output: %s", out)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("expected valid JSON output, got error: %v\noutput: %s", err, out)
+	}
+	if got["clientSecret"] != maskedClientSecret {
+		t.Fatalf("clientSecret = %v, want %q", got["clientSecret"], maskedClientSecret)
+	}
+}
+
+func TestConfigShowCmd_YAMLMasksClientSecret(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("USERPROFILE", tmpDir)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	if err := SaveConfig(&Config{ClientID: "show-id", ClientSecret: "show-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	out, err := runCmdCapture(nil, []string{"config", "show", "--output", "yaml"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(out, "show-secret") {
+		t.Fatalf("plaintext secret leaked in YAML output: %s", out)
+	}
+
+	var got map[string]any
+	if err := yaml.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("expected valid YAML output, got error: %v\noutput: %s", err, out)
+	}
+	if got["clientSecret"] != maskedClientSecret {
+		t.Fatalf("clientSecret = %v, want %q", got["clientSecret"], maskedClientSecret)
 	}
 }
 
@@ -621,8 +690,11 @@ func TestConfigShow_Operation_WithConfig(t *testing.T) {
 	if !strings.Contains(out, "show-op-id") {
 		t.Errorf("expected client ID in output, got: %s", out)
 	}
-	if !strings.Contains(out, "********") {
+	if !strings.Contains(out, "***") {
 		t.Errorf("expected redacted secret in output, got: %s", out)
+	}
+	if strings.Contains(out, "show-secret") {
+		t.Errorf("plaintext secret leaked in output: %s", out)
 	}
 	if !strings.Contains(out, DefaultBaseURL+" (default)") {
 		t.Errorf("expected default base URL label, got: %s", out)

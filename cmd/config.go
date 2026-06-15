@@ -14,17 +14,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config represents the application configuration
+// Config represents the runtime application configuration.
 type Config struct {
+	ClientID       string
+	ClientSecret   string
+	BaseURL        string
+	TokenIssuerURL string
+}
+
+// configFile is the persisted representation stored in ~/.acloud.yaml.
+type configFile struct {
 	ClientID       string `yaml:"clientId"`
 	ClientSecret   string `yaml:"clientSecret"`
 	BaseURL        string `yaml:"baseUrl,omitempty"`
 	TokenIssuerURL string `yaml:"tokenIssuerUrl,omitempty"`
 }
 
+type configShowDisplay struct {
+	ClientID       string `json:"clientId" yaml:"clientId"`
+	ClientSecret   string `json:"clientSecret" yaml:"clientSecret"`
+	BaseURL        string `json:"baseUrl" yaml:"baseUrl"`
+	TokenIssuerURL string `json:"tokenIssuerUrl" yaml:"tokenIssuerUrl"`
+}
+
 const (
 	DefaultBaseURL        = "https://api.arubacloud.com"
 	DefaultTokenIssuerURL = "https://mylogin.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token"
+	maskedClientSecret    = "***"
 )
 
 // configCmd represents the config command
@@ -101,9 +117,11 @@ func LoadConfig() (*Config, error) {
 		return config, nil
 	}
 
-	if err2 := yaml.Unmarshal(data, config); err2 != nil {
+	fileCfg := &configFile{}
+	if err2 := yaml.Unmarshal(data, fileCfg); err2 != nil {
 		return nil, fmt.Errorf("config file %s is corrupted (%w). Delete it and run 'acloud config set' to reconfigure", configPath, err2)
 	}
+	*config = configFromFile(fileCfg)
 
 	// Env vars override file values — useful for CI/CD and e2e tests.
 	if v := os.Getenv("ACLOUD_CLIENT_ID"); v != "" {
@@ -129,12 +147,36 @@ func SaveConfig(config *Config) error {
 		return err
 	}
 
-	data, err := yaml.Marshal(config)
+	data, err := yaml.Marshal(fileFromConfig(config))
 	if err != nil {
 		return err
 	}
 
 	return os.WriteFile(configPath, data, FilePermConfig)
+}
+
+func configFromFile(fileCfg *configFile) Config {
+	if fileCfg == nil {
+		return Config{}
+	}
+	return Config{
+		ClientID:       fileCfg.ClientID,
+		ClientSecret:   fileCfg.ClientSecret,
+		BaseURL:        fileCfg.BaseURL,
+		TokenIssuerURL: fileCfg.TokenIssuerURL,
+	}
+}
+
+func fileFromConfig(config *Config) configFile {
+	if config == nil {
+		return configFile{}
+	}
+	return configFile{
+		ClientID:       config.ClientID,
+		ClientSecret:   config.ClientSecret,
+		BaseURL:        config.BaseURL,
+		TokenIssuerURL: config.TokenIssuerURL,
+	}
 }
 
 // ─── Config Set ───────────────────────────────────────────────────────────────
@@ -280,11 +322,28 @@ func ConfigShow(_ context.Context, _ ConfigShowArgs) error {
 		fmt.Println("No configuration found. Please run 'acloud config set' to create one.")
 		return nil
 	}
+	display := configShowDisplayFromConfig(config)
+
+	if resolveOutputFormat() == OutputFormatJSON || resolveOutputFormat() == OutputFormatYAML {
+		PrintOutput(display, nil, nil)
+		return nil
+	}
+	if resolveOutputFormat() == OutputFormatTableJSON || resolveOutputFormat() == OutputFormatTableYAML {
+		headers := []TableColumn{
+			{Header: "CLIENT_ID", Width: 24},
+			{Header: "CLIENT_SECRET", Width: 16},
+			{Header: "BASE_URL", Width: 40},
+			{Header: "TOKEN_ISSUER_URL", Width: 40},
+		}
+		rows := [][]string{{display.ClientID, display.ClientSecret, display.BaseURL, display.TokenIssuerURL}}
+		PrintOutput(nil, headers, rows)
+		return nil
+	}
 
 	fmt.Println("Current configuration:")
 	fmt.Printf("  Client ID: %s\n", config.ClientID)
 	if config.ClientSecret != "" {
-		fmt.Println("  Client Secret: ********")
+		fmt.Printf("  Client Secret: %s\n", maskedClientSecret)
 	} else {
 		fmt.Println("  Client Secret: (not set)")
 	}
@@ -299,6 +358,28 @@ func ConfigShow(_ context.Context, _ ConfigShowArgs) error {
 	}
 	fmt.Printf("  Token Issuer URL: %s\n", tokenIssuerURL)
 	return nil
+}
+
+func configShowDisplayFromConfig(config *Config) configShowDisplay {
+	secret := "(not set)"
+	if config.ClientSecret != "" {
+		secret = maskedClientSecret
+	}
+	baseURL := config.BaseURL
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
+	}
+	tokenIssuerURL := config.TokenIssuerURL
+	if tokenIssuerURL == "" {
+		tokenIssuerURL = DefaultTokenIssuerURL
+	}
+
+	return configShowDisplay{
+		ClientID:       config.ClientID,
+		ClientSecret:   secret,
+		BaseURL:        baseURL,
+		TokenIssuerURL: tokenIssuerURL,
+	}
 }
 
 // ConfigShowRun is the RunE wiring for the config show command.
