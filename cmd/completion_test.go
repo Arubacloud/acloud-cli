@@ -659,3 +659,116 @@ func TestCompleteSnapshotID_NoProjectID(t *testing.T) {
 		t.Errorf("expected nil completions, got %v", comps)
 	}
 }
+
+// ─── prefix-filter coverage (#184) ──────────────────────────────────────────
+
+// TestCompleteBlockStorageID_PrefixFilter verifies that completeBlockStorageID
+// only returns IDs that start with the provided prefix.
+func TestCompleteBlockStorageID_PrefixFilter(t *testing.T) {
+	vol1, vol2 := "aaa-001", "bbb-002"
+	name1, name2 := "vol-aaa", "vol-bbb"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
+		Values: []types.BlockStorageResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &vol1, Name: &name1}},
+			{Metadata: types.ResourceMetadataResponse{ID: &vol2, Name: &name2}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeBlockStorageID(makeProjectCmd("proj-123"), nil, "aaa")
+	if len(completions) != 1 {
+		t.Fatalf("prefix 'aaa': expected 1 completion, got %d: %v", len(completions), completions)
+	}
+	if completions[0][:7] != "aaa-001" {
+		t.Errorf("expected completion starting with aaa-001, got %q", completions[0])
+	}
+}
+
+// TestCompleteVPCID_PrefixFilter verifies prefix filtering in the network family.
+func TestCompleteVPCID_PrefixFilter(t *testing.T) {
+	vpc1, vpc2 := "vpc-alpha", "vpc-beta"
+	n1, n2 := "alpha-vpc", "beta-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &vpc1, Name: &n1}},
+			{Metadata: types.ResourceMetadataResponse{ID: &vpc2, Name: &n2}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCID(makeProjectCmd("proj-123"), nil, "vpc-b")
+	if len(completions) != 1 {
+		t.Fatalf("prefix 'vpc-b': expected 1 completion, got %d: %v", len(completions), completions)
+	}
+	if completions[0][:8] != "vpc-beta" {
+		t.Errorf("expected completion starting with vpc-beta, got %q", completions[0])
+	}
+}
+
+// TestCompleteCloudServerID_PrefixNoMatch verifies that an unmatched prefix
+// returns an empty (not nil) slice.
+func TestCompleteCloudServerID_PrefixNoMatch(t *testing.T) {
+	csID, csName := "cs-001", "my-server"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerListResponse{
+		Values: []types.CloudServerResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &csID, Name: &csName}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeCloudServerID(makeProjectCmd("proj-123"), nil, "zzz")
+	if len(completions) != 0 {
+		t.Errorf("expected 0 completions for unmatched prefix, got %v", completions)
+	}
+}
+
+// ─── API-error coverage (#184) ───────────────────────────────────────────────
+
+// TestCompleteBlockStorageID_APIError verifies that an API error returns nil
+// completions rather than panicking or leaking errors.
+func TestCompleteBlockStorageID_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages",
+		errorResponse(500, "Internal Server Error", "storage unavailable"))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	comps, _ := completeBlockStorageID(makeProjectCmd("proj-123"), nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions on API error, got %v", comps)
+	}
+}
+
+// TestCompleteDBaaSID_APIError verifies the database family error path.
+func TestCompleteDBaaSID_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas",
+		errorResponse(503, "Service Unavailable", "db not ready"))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	comps, _ := completeDBaaSID(makeProjectCmd("proj-123"), nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions on API error, got %v", comps)
+	}
+}
+
+// TestCompleteKaaSID_APIError verifies the container family error path.
+func TestCompleteKaaSID_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas",
+		errorResponse(503, "Service Unavailable", "unavailable"))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	comps, _ := completeKaaSID(makeProjectCmd("proj-123"), nil, "")
+	if comps != nil {
+		t.Errorf("expected nil completions on API error, got %v", comps)
+	}
+}
