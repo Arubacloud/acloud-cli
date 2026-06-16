@@ -15,6 +15,16 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// TestMain clears XDG_CONFIG_HOME before any test in this package runs.
+// Tests that need a specific XDG directory set it explicitly via t.Setenv.
+// Without this, CI runners that have XDG_CONFIG_HOME pointing at a real config
+// dir cause _NoProjectID tests to find an actual context file, making them pass
+// the GetProjectID call when they expect it to fail.
+func TestMain(m *testing.M) {
+	os.Unsetenv("XDG_CONFIG_HOME")
+	os.Exit(m.Run())
+}
+
 // ─── httptest harness ─────────────────────────────────────────────────────────
 
 // arubaTestServer is an httptest-backed fake Aruba API. Tests register routes
