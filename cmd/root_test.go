@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -816,4 +817,56 @@ func TestPrintYAML_MarshalError(t *testing.T) {
 	if !strings.Contains(buf.String(), "error marshalling to JSON for YAML conversion") {
 		t.Errorf("expected marshal error message, got: %s", buf.String())
 	}
+}
+
+func TestNewCtx_DefaultTimeout(t *testing.T) {
+	resetCmdFlags(rootCmd)
+	ctx, cancel := newCtx()
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected deadline to be set")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > 31*time.Second {
+		t.Errorf("expected ~30s deadline, got %v remaining", remaining)
+	}
+}
+
+func TestNewCtx_CustomTimeout(t *testing.T) {
+	resetCmdFlags(rootCmd)
+	if err := rootCmd.PersistentFlags().Set("timeout", "2m"); err != nil {
+		t.Fatalf("set timeout flag: %v", err)
+	}
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	ctx, cancel := newCtx()
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected deadline to be set")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 100*time.Second || remaining > 121*time.Second {
+		t.Errorf("expected ~2m deadline, got %v remaining", remaining)
+	}
+}
+
+func TestNewCtx_InvalidTimeoutFallsBackTo30s(t *testing.T) {
+	resetCmdFlags(rootCmd)
+	if err := rootCmd.PersistentFlags().Set("timeout", "not-a-duration"); err == nil {
+		// cobra rejects invalid values at Set time; if accepted, test fallback
+		ctx, cancel := newCtx()
+		defer cancel()
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("expected deadline to be set")
+		}
+		remaining := time.Until(deadline)
+		if remaining > 31*time.Second {
+			t.Errorf("invalid duration should fall back to 30s, got %v", remaining)
+		}
+	}
+	// cobra rejects non-duration values for String flags at parse time; that's fine.
+	resetCmdFlags(rootCmd)
 }
