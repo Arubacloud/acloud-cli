@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -15,17 +14,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		os.Setenv("HOME", originalHome)
-		os.Setenv("USERPROFILE", originalUserProfile)
-	}()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 
 	// Test with non-existent config
 	config, err := LoadConfig()
@@ -38,17 +30,8 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestSaveConfig(t *testing.T) {
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		os.Setenv("HOME", originalHome)
-		os.Setenv("USERPROFILE", originalUserProfile)
-	}()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Create test config
 	testConfig := &Config{
@@ -62,10 +45,10 @@ func TestSaveConfig(t *testing.T) {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 
-	// Verify file exists
-	configPath := filepath.Join(tmpDir, ".acloud.yaml")
+	// Verify file exists at XDG path
+	configPath := filepath.Join(tmpDir, "acloud", "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		t.Fatal("SaveConfig() did not create config file")
+		t.Fatal("SaveConfig() did not create config file at XDG path")
 	}
 
 	// Load and verify
@@ -84,17 +67,8 @@ func TestSaveConfig(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		os.Setenv("HOME", originalHome)
-		os.Setenv("USERPROFILE", originalUserProfile)
-	}()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Get config path
 	configPath, err := GetConfigPath()
@@ -102,31 +76,24 @@ func TestConfigPath(t *testing.T) {
 		t.Fatalf("GetConfigPath() error = %v", err)
 	}
 
-	expectedPath := filepath.Join(tmpDir, ".acloud.yaml")
+	// XDG path: $XDG_CONFIG_HOME/acloud/config.yaml
+	expectedPath := filepath.Join(tmpDir, "acloud", "config.yaml")
 	if configPath != expectedPath {
 		t.Errorf("GetConfigPath() = %v, want %v", configPath, expectedPath)
 	}
 }
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("os.UserHomeDir() on Windows uses Win32 API, not HOME env var")
-	}
-	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE")
-	}
-
 	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
-
-	configPath := filepath.Join(tmpDir, ".acloud.yaml")
-	invalidYAML := "this is not valid yaml: ["
-	err := os.WriteFile(configPath, []byte(invalidYAML), 0600)
-	if err != nil {
-		t.Fatalf("Failed to write invalid YAML: %v", err)
+	// Write invalid YAML to the XDG path, creating the directory first.
+	xdgPath := filepath.Join(tmpDir, "acloud", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(xdgPath), 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(xdgPath, []byte("this is not valid yaml: ["), 0600); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	config, err := LoadConfig()
@@ -205,25 +172,15 @@ func TestSaveConfig_PartialConfig(t *testing.T) {
 }
 
 func TestGetConfigPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("os.UserHomeDir() on Windows uses Win32 API, not HOME env var")
-	}
-	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE")
-	}
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	configPath, err := GetConfigPath()
 	if err != nil {
 		t.Fatalf("GetConfigPath() error = %v", err)
 	}
 
-	expectedPath := filepath.Join(tmpDir, ".acloud.yaml")
+	expectedPath := filepath.Join(tmpDir, "acloud", "config.yaml")
 	if configPath != expectedPath {
 		t.Errorf("GetConfigPath() = %v, want %v", configPath, expectedPath)
 	}
@@ -354,6 +311,7 @@ func TestConfigSetCmd_MissingClientID(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 	os.Unsetenv("ACLOUD_CLIENT_ID")
 	os.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
 	defer func() {
@@ -492,6 +450,7 @@ func TestConfigShowCmd_NoConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 	defer func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
@@ -550,12 +509,19 @@ func withTempHome(t *testing.T) func() {
 	t.Helper()
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
+	origXDG := os.Getenv("XDG_CONFIG_HOME")
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("XDG_CONFIG_HOME") // ensure HOME/.config is used, not CI's XDG dir
 	return func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
+		if origXDG != "" {
+			os.Setenv("XDG_CONFIG_HOME", origXDG)
+		} else {
+			os.Unsetenv("XDG_CONFIG_HOME")
+		}
 	}
 }
 
@@ -715,5 +681,51 @@ func TestConfigShow_Operation_NoConfig(t *testing.T) {
 
 	if !strings.Contains(out, "No configuration found") {
 		t.Errorf("expected no-config message, got: %s", out)
+	}
+}
+
+func TestMigrateLegacyConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping migration test in short mode")
+	}
+	tmpHome := t.TempDir()
+	tmpXDG := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("XDG_CONFIG_HOME", tmpXDG)
+
+	// Write a legacy config at ~/.acloud.yaml
+	legacyPath := filepath.Join(tmpHome, ".acloud.yaml")
+	legacyYAML := "clientId: migrated-id\nclientSecret: migrated-secret\n"
+	if err := os.WriteFile(legacyPath, []byte(legacyYAML), 0600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	// Calling LoadConfig should trigger migration to XDG path
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() after migration: %v", err)
+	}
+	if cfg.ClientID != "migrated-id" {
+		t.Errorf("ClientID = %q, want migrated-id", cfg.ClientID)
+	}
+
+	// New XDG file must exist
+	newPath := filepath.Join(tmpXDG, "acloud", "config.yaml")
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		t.Error("migrateLegacyConfig() did not create XDG config file")
+	}
+}
+
+func TestGetConfigPath_XDGEnvVar(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	got, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath(): %v", err)
+	}
+	want := filepath.Join(tmpDir, "acloud", "config.yaml")
+	if got != want {
+		t.Errorf("GetConfigPath() = %q, want %q", got, want)
 	}
 }

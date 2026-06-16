@@ -77,13 +77,63 @@ func init() {
 	configSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication (optional, default: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token)")
 }
 
-// GetConfigPath returns the path to the config file
-func GetConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+// xdgConfigDir returns the XDG config home directory (#176).
+// Uses $XDG_CONFIG_HOME if set, otherwise falls back to $HOME/.config.
+func xdgConfigDir() (string, error) {
+	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
+		return d, nil
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, ".acloud.yaml"), nil
+	return filepath.Join(home, ".config"), nil
+}
+
+// GetConfigPath returns the XDG-compliant path to the config file (#176).
+// New path: $XDG_CONFIG_HOME/acloud/config.yaml (default: ~/.config/acloud/config.yaml).
+func GetConfigPath() (string, error) {
+	dir, err := xdgConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "acloud", "config.yaml"), nil
+}
+
+// legacyConfigPath returns the pre-XDG config path (~/.acloud.yaml).
+func legacyConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".acloud.yaml"), nil
+}
+
+// migrateLegacyConfig copies ~/.acloud.yaml → XDG path when the new file is
+// absent. Prints a one-time notice to stderr so the user is informed (#176).
+func migrateLegacyConfig() {
+	newPath, err := GetConfigPath()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return // new file already exists; nothing to do
+	}
+	oldPath, err := legacyConfigPath()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(oldPath)
+	if err != nil {
+		return // old file absent; normal first-run case
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), FilePermDirAll); err != nil {
+		return
+	}
+	if err := os.WriteFile(newPath, data, FilePermConfig); err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "notice: config migrated from %s to %s\n", oldPath, newPath)
 }
 
 // LoadConfig loads the configuration from the config file, with env var overrides.
@@ -91,7 +141,9 @@ func GetConfigPath() (string, error) {
 // ACLOUD_TOKEN_ISSUER_URL take precedence over the config file when set.
 // If the config file is missing but credentials are supplied via env vars,
 // the file is not required and no error is returned.
+// Migrates legacy ~/.acloud.yaml to the XDG path on first load (#176).
 func LoadConfig() (*Config, error) {
+	migrateLegacyConfig()
 	configPath, err := GetConfigPath()
 	if err != nil {
 		return nil, err
@@ -140,11 +192,16 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
-// SaveConfig saves the configuration to the config file
+// SaveConfig saves the configuration to the XDG config file, creating
+// the parent directory if it does not exist (#176).
 func SaveConfig(config *Config) error {
 	configPath, err := GetConfigPath()
 	if err != nil {
 		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configPath), FilePermDirAll); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
 	}
 
 	data, err := yaml.Marshal(fileFromConfig(config))
