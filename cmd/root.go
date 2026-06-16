@@ -86,6 +86,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
 	// Add global output format flag (TD-016)
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
+	// Add global timeout flag (#175)
+	rootCmd.PersistentFlags().String("timeout", "30s", "Timeout for API calls (e.g. 30s, 2m, 5m)")
 }
 
 // projectRef returns an opaque aruba.Ref for /projects/<projectID>. (TD-022)
@@ -215,9 +217,18 @@ func GetProjectID(cmd *cobra.Command) (string, error) {
 	return projectID, nil
 }
 
-// newCtx returns a context with a 30-second timeout for SDK calls (TD-006).
+// newCtx returns a context whose timeout is governed by the global --timeout flag
+// (default 30s). Invalid or missing flag values fall back to 30 s (TD-006, #175).
 func newCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 30*time.Second)
+	d := 30 * time.Second
+	if rootCmd != nil {
+		if raw, err := rootCmd.PersistentFlags().GetString("timeout"); err == nil && raw != "" {
+			if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+				d = parsed
+			}
+		}
+	}
+	return context.WithTimeout(context.Background(), d)
 }
 
 // fmtAPIError formats an SDK API error response into a Go error (TD-001/TD-003).
