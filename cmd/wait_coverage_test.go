@@ -15,9 +15,11 @@ import (
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-// waitCtx returns a context with a short deadline so polls don't block tests.
-func waitCtx() context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint:govet
+// waitCtx returns a context with a short deadline and registers cancel on t.
+func waitCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
 	return ctx
 }
 
@@ -39,7 +41,7 @@ func TestNetworkVPCCreate_Wait_ReachesActive(t *testing.T) {
 
 	args := validNetworkVPCCreateArgs()
 	args.Wait = true
-	if err := NetworkVPCCreate(waitCtx(), srv.Client(), args); err != nil {
+	if err := NetworkVPCCreate(waitCtx(t), srv.Client(), args); err != nil {
 		t.Errorf("NetworkVPCCreate with Wait=true: %v", err)
 	}
 }
@@ -61,7 +63,7 @@ func TestNetworkVPCCreate_Wait_FailureState(t *testing.T) {
 
 	args := validNetworkVPCCreateArgs()
 	args.Wait = true
-	if err := NetworkVPCCreate(waitCtx(), srv.Client(), args); err == nil {
+	if err := NetworkVPCCreate(waitCtx(t), srv.Client(), args); err == nil {
 		t.Error("expected error for Failed state, got nil")
 	}
 }
@@ -76,7 +78,7 @@ func TestNetworkVPCCreate_Wait_AsyncPath(t *testing.T) {
 	args := validNetworkVPCCreateArgs()
 	args.Wait = true
 	// No error expected — async path skips wait block when id==""
-	_ = NetworkVPCCreate(waitCtx(), srv.Client(), args)
+	_ = NetworkVPCCreate(waitCtx(t), srv.Client(), args)
 }
 
 func TestNetworkVPCUpdate_Wait_ReachesActive(t *testing.T) {
@@ -93,7 +95,7 @@ func TestNetworkVPCUpdate_Wait_ReachesActive(t *testing.T) {
 		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 
-	err := NetworkVPCUpdate(waitCtx(), srv.Client(), NetworkVPCUpdateArgs{
+	err := NetworkVPCUpdate(waitCtx(t), srv.Client(), NetworkVPCUpdateArgs{
 		ProjectID: "proj-123",
 		ID:        "vpc-w3",
 		Name:      "new-name",
@@ -122,7 +124,7 @@ func TestSecurityKMSCreate_Wait_ReachesActive(t *testing.T) {
 
 	args := validKMSCreateArgs()
 	args.Wait = true
-	if err := SecurityKMSCreate(waitCtx(), srv.Client(), args); err != nil {
+	if err := SecurityKMSCreate(waitCtx(t), srv.Client(), args); err != nil {
 		t.Errorf("SecurityKMSCreate with Wait=true: %v", err)
 	}
 }
@@ -141,7 +143,7 @@ func TestSecurityKMSUpdate_Wait_ReachesActive(t *testing.T) {
 		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 
-	err := SecurityKMSUpdate(waitCtx(), srv.Client(), SecurityKMSUpdateArgs{
+	err := SecurityKMSUpdate(waitCtx(t), srv.Client(), SecurityKMSUpdateArgs{
 		ProjectID: "proj-123",
 		ID:        "kms-w2",
 		Name:      "new-kms-name",
@@ -170,7 +172,7 @@ func TestStorageBlockStorageCreate_Wait_ReachesActive(t *testing.T) {
 
 	args := validStorageBlockStorageCreateArgs()
 	args.Wait = true
-	if err := StorageBlockStorageCreate(waitCtx(), srv.Client(), args); err != nil {
+	if err := StorageBlockStorageCreate(waitCtx(t), srv.Client(), args); err != nil {
 		t.Errorf("StorageBlockStorageCreate with Wait=true: %v", err)
 	}
 }
@@ -189,7 +191,7 @@ func TestStorageBlockStorageUpdate_Wait_ReachesActive(t *testing.T) {
 		Status:   types.ResourceStatusResponse{State: &state},
 	}))
 
-	err := StorageBlockStorageUpdate(waitCtx(), srv.Client(), StorageBlockStorageUpdateArgs{
+	err := StorageBlockStorageUpdate(waitCtx(t), srv.Client(), StorageBlockStorageUpdateArgs{
 		ProjectID: "proj-123",
 		ID:        "vol-w2",
 		Name:      "new-vol-name",
@@ -222,7 +224,7 @@ func TestContainerRegistryCreate_Wait_ReachesActive(t *testing.T) {
 
 	args := validContainerRegistryCreateArgs()
 	args.Wait = true
-	if err := ContainerContainerRegistryCreate(waitCtx(), srv.Client(), args); err != nil {
+	if err := ContainerContainerRegistryCreate(waitCtx(t), srv.Client(), args); err != nil {
 		t.Errorf("ContainerContainerRegistryCreate with Wait=true: %v", err)
 	}
 }
