@@ -64,6 +64,61 @@ func TestKMSListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "--output yaml emits valid YAML",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
+					Values: []types.KmsResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123", "--output", "yaml"},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "{}" || strings.TrimSpace(out) == "" {
+					t.Errorf("yaml output is empty or {}, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--output table-json emits valid JSON array",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
+					Values: []types.KmsResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123", "--output", "table-json"},
+			assertOut: func(t *testing.T, out string) {
+				var rows []map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+					t.Errorf("table-json output is not a valid JSON array: %v\noutput: %s", err, out)
+				}
+				if len(rows) == 0 {
+					t.Errorf("expected at least one row in table-json output, got none")
+				}
+			},
+		},
+		{
+			name: "--output table-yaml emits non-empty YAML",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "kms-001", "my-kms"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", jsonResponse(200, types.KmsListResponse{
+					Values: []types.KmsResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"security", "kms", "list", "--project-id", "proj-123", "--output", "table-yaml"},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "" {
+					t.Errorf("table-yaml output is empty, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms", errorResponse(500, "Internal Server Error", "boom"))

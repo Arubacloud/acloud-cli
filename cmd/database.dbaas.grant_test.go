@@ -61,6 +61,67 @@ func TestDBaaSGrantListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "--output json emits valid JSON",
+			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123", "--output", "json"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{
+					Values: []types.GrantResponse{makeGrantResp()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				var result map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &result); err != nil {
+					t.Errorf("output is not valid JSON: %v\noutput: %s", err, out)
+				}
+			},
+		},
+		{
+			name: "--output yaml emits non-empty YAML",
+			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123", "--output", "yaml"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{
+					Values: []types.GrantResponse{makeGrantResp()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "" {
+					t.Errorf("yaml output is empty, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--output table-json emits valid JSON array",
+			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123", "--output", "table-json"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{
+					Values: []types.GrantResponse{makeGrantResp()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				var rows []map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+					t.Errorf("table-json output is not a valid JSON array: %v\noutput: %s", err, out)
+				}
+				if len(rows) == 0 {
+					t.Errorf("expected at least one row in table-json output, got none")
+				}
+			},
+		},
+		{
+			name: "--output table-yaml emits non-empty YAML",
+			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123", "--output", "table-yaml"},
+			setupSrv: func(srv *arubaTestServer) {
+				srv.OnGet(grantListPath, jsonResponse(200, types.GrantListResponse{
+					Values: []types.GrantResponse{makeGrantResp()},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "" {
+					t.Errorf("table-yaml output is empty, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			args: []string{"database", "dbaas", "grant", "list", "dbaas-001", "mydb", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
