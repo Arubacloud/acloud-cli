@@ -285,12 +285,19 @@ func withTempHomeDir(t *testing.T) (cleanup func()) {
 	t.Helper()
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
+	origXDG := os.Getenv("XDG_CONFIG_HOME")
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("XDG_CONFIG_HOME") // ensure $HOME/.config is used, not a pre-set XDG dir
 	return func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
+		if origXDG != "" {
+			os.Setenv("XDG_CONFIG_HOME", origXDG)
+		} else {
+			os.Unsetenv("XDG_CONFIG_HOME")
+		}
 	}
 }
 

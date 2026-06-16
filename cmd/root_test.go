@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,36 +34,36 @@ func contains(s, substr string) bool {
 // setupMockConfig creates a temporary config file for testing
 func setupMockConfig(t *testing.T) (string, func()) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, ".acloud.yaml")
 
-	// Save original HOME
+	// Save originals and redirect HOME + XDG for full config isolation.
 	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE")
-	}
+	originalUserProfile := os.Getenv("USERPROFILE")
+	originalXDG := os.Getenv("XDG_CONFIG_HOME")
 
-	// Set HOME to temp directory
 	os.Setenv("HOME", tmpDir)
-	if os.Getenv("USERPROFILE") != "" {
-		os.Setenv("USERPROFILE", tmpDir)
-	}
+	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("XDG_CONFIG_HOME") // ensure HOME/.config is used, not CI's XDG dir
 
-	// Create mock config
+	// Create mock config (written to the now-XDG-resolved path).
 	config := &Config{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
 	}
-	err := SaveConfig(config)
-	if err != nil {
+	if err := SaveConfig(config); err != nil {
 		t.Fatalf("Failed to create mock config: %v", err)
 	}
 
-	// Cleanup function
+	// configPath is the XDG path; callers that care should use GetConfigPath().
+	configPath, _ := GetConfigPath()
+
 	cleanup := func() {
-		if originalHome != "" {
-			os.Setenv("HOME", originalHome)
+		os.Setenv("HOME", originalHome)
+		os.Setenv("USERPROFILE", originalUserProfile)
+		if originalXDG != "" {
+			os.Setenv("XDG_CONFIG_HOME", originalXDG)
+		} else {
+			os.Unsetenv("XDG_CONFIG_HOME")
 		}
-		// Clear client cache
 		resetClientState()
 	}
 
@@ -113,25 +112,11 @@ func TestGetArubaClient_Caching(t *testing.T) {
 }
 
 func TestGetArubaClient_NoConfig(t *testing.T) {
-	// Save original HOME
-	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE")
-	}
-
-	// Create temporary directory without config
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
-	if os.Getenv("USERPROFILE") != "" {
-		os.Setenv("USERPROFILE", tmpDir)
-	}
-	defer func() {
-		if originalHome != "" {
-			os.Setenv("HOME", originalHome)
-		}
-		// Clear client cache
-		resetClientState()
-	}()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // clear so HOME/.config is used
+	t.Cleanup(resetClientState)
 
 	client, err := GetArubaClient()
 	if err == nil {
@@ -141,9 +126,7 @@ func TestGetArubaClient_NoConfig(t *testing.T) {
 		t.Error("GetArubaClient() should return nil client when config doesn't exist")
 	}
 
-	// Verify error message
-	errMsg := err.Error()
-	if !contains(errMsg, "failed to load configuration") {
+	if !contains(err.Error(), "failed to load configuration") {
 		t.Errorf("Expected error about failed to load configuration, got: %v", err)
 	}
 }

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -115,46 +114,17 @@ func TestGetProjectID_FlagTakesPrecedence(t *testing.T) {
 }
 
 func TestGetProjectID_NoFlagNoContext(t *testing.T) {
-	// Save original home dir
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-	if originalHome == "" {
-		originalHome = originalUserProfile // Windows
-	}
-
-	// Create temporary directory for test
 	tmpDir := t.TempDir()
-
-	// Set both HOME and USERPROFILE to temp directory (for cross-platform compatibility)
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		if originalHome != "" {
-			os.Setenv("HOME", originalHome)
-		}
-		if originalUserProfile != "" {
-			os.Setenv("USERPROFILE", originalUserProfile)
-		}
-		// Clear client cache to avoid interference
-		resetClientState()
-	}()
-
-	// Ensure no context file exists in temp dir
-	contextPath := filepath.Join(tmpDir, ".acloud-context.yaml")
-	_ = os.Remove(contextPath) // Ignore error if file doesn't exist
-
-	// Also ensure no context file exists in actual home (in case of test pollution)
-	actualHome, _ := os.UserHomeDir()
-	if actualHome != "" && actualHome != tmpDir {
-		actualContextPath := filepath.Join(actualHome, ".acloud-context.yaml")
-		_ = os.Remove(actualContextPath) // Ignore error
-	}
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // clear so HOME/.config is used, not CI's XDG dir
+	t.Cleanup(resetClientState)
 
 	// Create command without project-id flag set
 	cmd := &cobra.Command{}
 	cmd.Flags().String("project-id", "", "Project ID")
 
-	// Should return error
+	// Should return error: no --project-id and no context file in empty tmpDir
 	projectID, err := GetProjectID(cmd)
 	if err == nil {
 		t.Error("GetProjectID() should return error when no flag and no context")

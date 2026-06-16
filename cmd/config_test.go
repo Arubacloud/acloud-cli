@@ -14,17 +14,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		os.Setenv("HOME", originalHome)
-		os.Setenv("USERPROFILE", originalUserProfile)
-	}()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 
 	// Test with non-existent config
 	config, err := LoadConfig()
@@ -318,6 +311,7 @@ func TestConfigSetCmd_MissingClientID(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 	os.Unsetenv("ACLOUD_CLIENT_ID")
 	os.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
 	defer func() {
@@ -456,6 +450,7 @@ func TestConfigShowCmd_NoConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "") // use HOME/.config, not CI's XDG dir
 	defer func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
@@ -514,12 +509,19 @@ func withTempHome(t *testing.T) func() {
 	t.Helper()
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
+	origXDG := os.Getenv("XDG_CONFIG_HOME")
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 	os.Setenv("USERPROFILE", tmpDir)
+	os.Unsetenv("XDG_CONFIG_HOME") // ensure HOME/.config is used, not CI's XDG dir
 	return func() {
 		os.Setenv("HOME", origHome)
 		os.Setenv("USERPROFILE", origUserProfile)
+		if origXDG != "" {
+			os.Setenv("XDG_CONFIG_HOME", origXDG)
+		} else {
+			os.Unsetenv("XDG_CONFIG_HOME")
+		}
 	}
 }
 
