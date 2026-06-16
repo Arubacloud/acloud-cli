@@ -283,3 +283,152 @@ func TestSortedProfileNames_DefaultFirst(t *testing.T) {
 		t.Errorf("expected 'default' first, got %q", names[0])
 	}
 }
+
+func TestSortedProfileNames_NoDefault(t *testing.T) {
+	profiles := map[string]configFile{
+		"prod":    {},
+		"staging": {},
+	}
+	names := sortedProfileNames(profiles)
+	if len(names) != 2 {
+		t.Errorf("expected 2 names, got %d", len(names))
+	}
+}
+
+// ─── ConfigProfileSetRun ──────────────────────────────────────────────────────
+
+func TestConfigProfileSet_NewProfile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_CLIENT_SECRET", "env-secret")
+
+	// Build a minimal cobra command with required flags
+	cmd := configProfileSetCmd
+	resetCmdFlags(cmd)
+
+	// Call directly with the flag values (simulating --client-id flag)
+	if err := cmd.Flags().Set("client-id", "new-profile-id"); err != nil {
+		t.Fatalf("set client-id: %v", err)
+	}
+
+	out := captureStdout(func() {
+		err := ConfigProfileSetRun(cmd, []string{"staging"})
+		if err != nil {
+			t.Errorf("ConfigProfileSetRun() error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "staging") {
+		t.Errorf("expected profile name in output, got: %s", out)
+	}
+
+	profiles, _ := loadAllProfiles()
+	if profiles["staging"].ClientID != "new-profile-id" {
+		t.Errorf("staging ClientID = %q, want new-profile-id", profiles["staging"].ClientID)
+	}
+	if profiles["staging"].ClientSecret != "env-secret" {
+		t.Errorf("staging ClientSecret = %q, want env-secret", profiles["staging"].ClientSecret)
+	}
+	resetCmdFlags(cmd)
+}
+
+func TestConfigProfileSet_UpdateExisting(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_CLIENT_SECRET", "")
+
+	if err := saveAllProfiles(map[string]configFile{
+		"prod": {ClientID: "old-id", ClientSecret: "old-secret"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := configProfileSetCmd
+	resetCmdFlags(cmd)
+	if err := cmd.Flags().Set("client-id", "new-id"); err != nil {
+		t.Fatalf("set client-id: %v", err)
+	}
+
+	if err := ConfigProfileSetRun(cmd, []string{"prod"}); err != nil {
+		t.Fatalf("ConfigProfileSetRun() error: %v", err)
+	}
+
+	profiles, _ := loadAllProfiles()
+	if profiles["prod"].ClientID != "new-id" {
+		t.Errorf("ClientID = %q, want new-id", profiles["prod"].ClientID)
+	}
+	// Secret should be preserved from existing profile
+	if profiles["prod"].ClientSecret != "old-secret" {
+		t.Errorf("ClientSecret = %q, want old-secret (preserved)", profiles["prod"].ClientSecret)
+	}
+	resetCmdFlags(cmd)
+}
+
+func TestConfigProfileSet_MissingClientID(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	cmd := configProfileSetCmd
+	resetCmdFlags(cmd)
+
+	err := ConfigProfileSetRun(cmd, []string{"newprofile"})
+	if err == nil {
+		t.Fatal("expected error when --client-id is missing for new profile")
+	}
+	if !strings.Contains(err.Error(), "client-id") {
+		t.Errorf("expected client-id in error, got: %v", err)
+	}
+	resetCmdFlags(cmd)
+}
+
+func TestConfigProfileSet_WithBaseURL(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_CLIENT_SECRET", "secret")
+
+	cmd := configProfileSetCmd
+	resetCmdFlags(cmd)
+	_ = cmd.Flags().Set("client-id", "custom-id")
+	_ = cmd.Flags().Set("base-url", "https://custom.api.example.com")
+	_ = cmd.Flags().Set("token-issuer-url", "https://custom.token.example.com")
+
+	if err := ConfigProfileSetRun(cmd, []string{"custom"}); err != nil {
+		t.Fatalf("ConfigProfileSetRun() error: %v", err)
+	}
+
+	profiles, _ := loadAllProfiles()
+	if profiles["custom"].BaseURL != "https://custom.api.example.com" {
+		t.Errorf("BaseURL = %q", profiles["custom"].BaseURL)
+	}
+	if profiles["custom"].TokenIssuerURL != "https://custom.token.example.com" {
+		t.Errorf("TokenIssuerURL = %q", profiles["custom"].TokenIssuerURL)
+	}
+	resetCmdFlags(cmd)
+}
+
+// ─── loadAllProfiles edge cases ───────────────────────────────────────────────
+
+func TestLoadAllProfiles_FileNotFound(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	_, err := loadAllProfiles()
+	if err == nil {
+		t.Error("expected error when no config file exists")
+	}
+}
+
+// ─── ConfigProfileListRun edge case: no config file ───────────────────────────
+
+func TestConfigProfileListRun_NoFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	out := captureStdout(func() {
+		_ = ConfigProfileListRun(nil, nil)
+	})
+	// Should print "No profiles" message or an empty table without panicking.
+	_ = out
+}
