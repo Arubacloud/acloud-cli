@@ -36,12 +36,14 @@ func init() {
 	blockstorageCreateCmd.MarkFlagRequired("name")
 	blockstorageCreateCmd.MarkFlagRequired("region")
 	blockstorageCreateCmd.MarkFlagRequired("size")
+	blockstorageCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	blockstorageGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
 	blockstorageUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	blockstorageUpdateCmd.Flags().String("name", "", "New name for the block storage")
 	blockstorageUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	blockstorageUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	blockstorageDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	blockstorageDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -164,6 +166,7 @@ type StorageBlockStorageCreateArgs struct {
 	SnapshotID    string
 	SetBootable   bool
 	Image         string
+	Wait          bool
 }
 
 // StorageBlockStorageGetArgs holds the typed arguments for getting a block storage.
@@ -179,6 +182,7 @@ type StorageBlockStorageUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // StorageBlockStorageDeleteArgs holds the typed arguments for deleting a block storage.
@@ -309,6 +313,9 @@ func (a *StorageBlockStorageCreateArgs) ParseFromCobraCommand(cmd *cobra.Command
 	if a.Image, err = cmd.Flags().GetString("image"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -346,6 +353,9 @@ func (a *StorageBlockStorageUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -488,6 +498,21 @@ func StorageBlockStorageCreate(ctx context.Context, client aruba.Client, args St
 			statusVal = string(*raw.Status.State)
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, sizeVal, typeVal, statusVal}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Block storage", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("Block storage", args.Name))
 	}
@@ -587,6 +612,21 @@ func StorageBlockStorageUpdate(ctx context.Context, client aruba.Client, args St
 		}
 		fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
 		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromStorage().Volumes().Get(ctx, volumeRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Block storage", args.ID); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Block storage", args.ID))
 	}

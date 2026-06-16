@@ -54,9 +54,11 @@ func init() {
 	cloudserverGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverGetCmd.Flags().Bool("verbose", false, "Print full JSON response")
 
+	cloudserverCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	cloudserverUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverUpdateCmd.Flags().String("name", "", "New name for the cloud server")
 	cloudserverUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	cloudserverUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	cloudserverDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	cloudserverDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -239,6 +241,7 @@ type ComputeCloudServerCreateArgs struct {
 	Tags             []string
 	BillingPeriod    aruba.BillingPeriod
 	UserDataFile     string
+	Wait             bool
 }
 
 // ComputeCloudServerGetArgs holds the typed arguments for getting a cloud server.
@@ -255,6 +258,7 @@ type ComputeCloudServerUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // ComputeCloudServerDeleteArgs holds the typed arguments for deleting a cloud server.
@@ -468,6 +472,9 @@ func (a *ComputeCloudServerCreateArgs) ParseFromCobraCommand(cmd *cobra.Command)
 	if a.UserDataFile, err = cmd.Flags().GetString("user-data-file"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -508,6 +515,9 @@ func (a *ComputeCloudServerUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command,
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -820,6 +830,21 @@ func ComputeCloudServerCreate(ctx context.Context, client aruba.Client, args Com
 			regionValue,
 		}
 		PrintOutput(resp, headers, [][]string{row})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Cloud server", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("Cloud server", args.Name))
 	}
@@ -929,6 +954,21 @@ func ComputeCloudServerUpdate(ctx context.Context, client aruba.Client, args Com
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromCompute().CloudServers().Get(ctx, cloudServerRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Cloud server", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Cloud server", args.ID))

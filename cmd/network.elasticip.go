@@ -28,10 +28,12 @@ func init() {
 	elasticipCreateCmd.MarkFlagRequired("name")
 	elasticipCreateCmd.MarkFlagRequired("region")
 	elasticipCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	elasticipCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	elasticipGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipUpdateCmd.Flags().String("name", "", "New name for the Elastic IP")
 	elasticipUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	elasticipUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	elasticipDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	elasticipDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	elasticipDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -141,6 +143,7 @@ type NetworkElasticIPCreateArgs struct {
 	Region        aruba.Region
 	BillingPeriod aruba.BillingPeriod
 	Tags          []string
+	Wait          bool
 }
 
 // NetworkElasticIPGetArgs holds the typed arguments for getting an Elastic IP.
@@ -156,6 +159,7 @@ type NetworkElasticIPUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // NetworkElasticIPDeleteArgs holds the typed arguments for deleting an Elastic IP.
@@ -264,6 +268,9 @@ func (a *NetworkElasticIPCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) e
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -301,6 +308,9 @@ func (a *NetworkElasticIPUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, c
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -420,8 +430,10 @@ func NetworkElasticIPCreate(ctx context.Context, client aruba.Client, args Netwo
 	if created != nil && created.Raw() != nil {
 		raw := created.Raw()
 		fmt.Printf("\n%s\n", msgCreated("Elastic IP", args.Name))
+		id := ""
 		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
+			id = *raw.Metadata.ID
+			fmt.Printf("ID:      %s\n", id)
 		}
 		if raw.Metadata.Name != nil {
 			fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
@@ -431,6 +443,21 @@ func NetworkElasticIPCreate(ctx context.Context, client aruba.Client, args Netwo
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Elastic IP", args.Name); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgCreatedAsync("Elastic IP", args.Name))
@@ -526,6 +553,21 @@ func NetworkElasticIPUpdate(ctx context.Context, client aruba.Client, args Netwo
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().ElasticIPs().Get(ctx, aruba.ElasticIPRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Elastic IP", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Elastic IP", args.ID))

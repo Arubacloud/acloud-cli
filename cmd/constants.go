@@ -2,10 +2,23 @@ package cmd
 
 // Resource state values returned by the API.
 const (
-	StateActive     = "Active"
-	StateInCreation = "InCreation"
-	StateUsed       = "Used"
-	StateNotUsed    = "NotUsed"
+	// Operational / settled states.
+	StateActive  = "Active"
+	StateRunning = "Running"
+	StateUsed    = "Used"
+	StateNotUsed = "NotUsed"
+
+	// Transitory states — an operation is in progress.
+	StateInCreation   = "InCreation"
+	StateCreating     = "Creating"
+	StateUpdating     = "Updating"
+	StateProvisioning = "Provisioning"
+	StateDeleting     = "Deleting"
+
+	// Failure states — provisioning or operational fault.
+	StateError   = "Error"
+	StateFailed  = "Failed"
+	StateDeleted = "Deleted"
 )
 
 // DateLayout is the display format used for all creation/modification timestamps.
