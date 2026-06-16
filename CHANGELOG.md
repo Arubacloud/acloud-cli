@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-16
+
+### Added
+
+- **`--zone` flag for `database dbaas update`** — the API requires the original
+  creation zone to be present in every PUT body; omitting it causes a 400
+  "DataCenter cannot be modified" error. Pass `--zone <zone>` (e.g. `ITBG-1`)
+  to supply it (closes #193).
+- **golangci-lint configuration** — `.golangci.yml` added and wired to
+  `make lint` target (closes #191).
+
+### Changed
+
+- **sdk-go bumped to v1.0.4** (GA) from v0.3.0 — breaking changes in
+  `pkg/types`: strict role-suffix naming (`*PropertiesResult` →
+  `*PropertiesResponse`, bare `*List` → `*ListResponse`, `*Common`-suffixed
+  nested types). Production code impact: 7 compile-error fixes across container,
+  database, network, and storage families. All completion functions migrated to
+  wrapper accessors (`.ID()`, `.Name()`), eliminating ~50 `.Raw().Metadata`
+  reads. `*aruba.Project` now satisfies `rawMarshaler` via `RawJSON()`/`RawYAML()`
+  (TD-032). VPN tunnel update reattach block removed; subnet DHCP preservation
+  migrated to wrapper accessors; VPN route cloud-subnet field fixed (TD-034,
+  TD-035, TD-030).
+- **Go module path renamed** to `github.com/Arubacloud/acloud-cli` (closes #188).
+- **`--client-secret` flag removed from `config set`** — the client secret is
+  now read exclusively from the `ACLOUD_CLIENT_SECRET` environment variable or
+  prompted interactively via secure terminal input. This prevents secrets from
+  appearing in shell history (closes #186).
+
+### Fixed
+
+- **Config**: `config show` now masks the client secret in all output formats
+  (plain text, JSON, YAML, table-json, table-yaml) (closes #187).
+- **Output**: `PrintTable` legacy shim removed; all commands consistently use
+  `PrintOutput` (closes #169 / TD-016).
+- **Schedule**: `job create` now correctly sends step parameters (`resource_uri`,
+  `action_uri`, `http_verb`, `name`) in the API payload; previously the steps
+  array was empty (closes #170 / TD-031).
+- **Database**: `dbaas update` re-injects the Engine catalog ID from the GET
+  response to prevent "Product not found in catalog" 400 errors on PUT.
+- **Database**: `backup create` retries up to 3 times on "Specified Database
+  name is not found" errors to handle the propagation delay between the DBaaS
+  database API and the backup service's internal registry.
+- **e2e**: Added `wait_for_removal` helper to `common.sh`; applied after every
+  subnet, VPC, security group, and container registry delete to prevent
+  parent-resource deletion failures ("subnet not in valid status", "project
+  can't be deleted due to the presence of resources").
+- **e2e**: `wait_for_status` now prints the captured error output when a polled
+  command fails, making auth failures and API errors visible instead of silently
+  bailing.
+- **e2e/container**: `--concurrent-users` in registry UPDATE fixed from integer
+  `20` to valid enum `Medium`. KaaS cleanup now skips the 600-second `wait_del`
+  loop after a failed delete, prints orphaned resource IDs for manual portal
+  cleanup, and accepts `Failed`/`Error` states in the pre-delete wait. VPC retry
+  loop stops early on "used by another resource" instead of spamming 20 identical
+  errors.
+- **e2e/database**: Skips individual user/database deletes when grants exist
+  (they always 409; DBaaS cascade delete handles cleanup). Sweeps untracked
+  DBaaS instances before project delete to handle instances left behind by failed
+  create calls. VPC retry loop exits immediately on 404 (already gone). DBaaS
+  update called with `--zone` so the PUT body includes `dataCenter`. All test
+  functions wired to `FAILURES` counter (previously a create failure reported
+  "all checks passed").
+- **e2e/compute**: `wait_for_removal` applied after subnet and VPC deletes.
+- **e2e/schedule**: `bootstrap_step_resource` now self-bootstraps a full cloud
+  server (VPC → subnet → SG → boot disk → server) when `ACLOUD_STEP_RESOURCE_URI`
+  is not set, using the canonical URI format from the Terraform provider examples
+  (`/projects/{id}/providers/Aruba.Compute/cloudServers/{id}`). Full cleanup
+  chain with `wait_for_removal` at each boundary.
+
 ## [0.2.0] - 2026-06-09
 
 ### Added
@@ -76,5 +146,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2e**: project `DELETE` failure now propagates correctly in the management
   suite (closes #128).
 
-[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.1.9...v0.2.0
