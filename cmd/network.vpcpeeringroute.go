@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -68,13 +67,18 @@ func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete str
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	vpcID := args[0]
+	vpcPeeringID := args[1]
+
+	key := cacheKey("vpc-peering-route", projectID, vpcID, vpcPeeringID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-
-	vpcID := args[0]
-	vpcPeeringID := args[1]
 
 	ctx := context.Background()
 	list, err := client.FromNetwork().VPCPeeringRoutes().List(ctx, aruba.VPCPeeringRef(projectID, vpcID, vpcPeeringID))
@@ -86,13 +90,14 @@ func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete str
 	if list != nil {
 		for _, route := range list.Items() {
 			id := route.ID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, route.Name()))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var vpcpeeringrouteCmd = &cobra.Command{
