@@ -63,6 +63,7 @@
         "resources/database/dbaas",
         "resources/database/dbaas.database",
         "resources/database/dbaas.user",
+        "resources/database/dbaas.grant",
         "resources/database/backup"
       ]
     },

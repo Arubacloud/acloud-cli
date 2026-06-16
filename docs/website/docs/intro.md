@@ -26,8 +26,9 @@ Manage the full lifecycle of your cloud resources including:
 - **Scriptable**: Perfect for automation, CI/CD pipelines, and infrastructure-as-code workflows
 
 ### Enterprise Features
+- **Multi-Profile Credentials**: Named credential profiles (`default`, `prod`, `staging`) for managing multiple accounts — select with `--profile` flag or `ACLOUD_PROFILE` env var
 - **Multi-Project Support**: Manage multiple projects from a single CLI instance
-- **Secure Credential Management**: Encrypted storage of API credentials
+- **Secure Credential Management**: Credentials stored in XDG-compliant location (`~/.config/acloud/config.yaml`) with `0600` permissions
 - **Comprehensive Error Handling**: Clear, actionable error messages
 - **Full API Coverage**: Complete CRUD operations for all supported resources
 

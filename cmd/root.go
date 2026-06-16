@@ -89,6 +89,8 @@ func init() {
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 	// Add global timeout flag (#175)
 	rootCmd.PersistentFlags().String("timeout", "30s", "Timeout for API calls (e.g. 30s, 2m, 5m)")
+	// Add global profile flag (#180)
+	rootCmd.PersistentFlags().String("profile", "", "Credential profile to use (overrides ACLOUD_PROFILE env var)")
 }
 
 // projectRef returns an opaque aruba.Ref for /projects/<projectID>. (TD-022)
