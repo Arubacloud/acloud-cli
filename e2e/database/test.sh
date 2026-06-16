@@ -107,12 +107,12 @@ cleanup() {
         echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
         wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
         $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
-        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 120 2>/dev/null || true
+        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 300 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
         local vpc_del_elapsed=0
-        while [ "$vpc_del_elapsed" -lt 120 ]; do
+        while [ "$vpc_del_elapsed" -lt 300 ]; do
             vpc_out=$($ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1)
             if [ $? -eq 0 ]; then echo "$vpc_out"; break; fi
             # 404 means already gone — stop retrying immediately
@@ -121,7 +121,7 @@ cleanup() {
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done
-        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
+        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 300 2>/dev/null || true
     fi
 
     # Sweep for DBaaS instances that exist in the project but weren't tracked —
