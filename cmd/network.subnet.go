@@ -36,6 +36,7 @@ func init() {
 	subnetCreateCmd.Flags().Bool("dhcp-enabled", false, "Enable DHCP for Advanced subnet type (required when CIDR is provided)")
 	subnetCreateCmd.Flags().StringSlice("dhcp-routes", []string{}, "DHCP routes for Advanced subnet type (optional, format: destination:gateway, e.g., '0.0.0.0/0:10.0.0.1')")
 	subnetCreateCmd.Flags().StringSlice("dhcp-dns", []string{}, "DHCP DNS servers for Advanced subnet type (optional, e.g., '8.8.8.8,8.8.4.4')")
+	subnetCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	subnetGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	subnetUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	subnetUpdateCmd.Flags().String("name", "", "Subnet name (optional)")
@@ -44,6 +45,7 @@ func init() {
 	subnetUpdateCmd.Flags().Bool("dhcp-enabled", false, "Enable DHCP for Advanced subnet type")
 	subnetUpdateCmd.Flags().StringSlice("dhcp-routes", []string{}, "DHCP routes for Advanced subnet type (optional, format: destination:gateway)")
 	subnetUpdateCmd.Flags().StringSlice("dhcp-dns", []string{}, "DHCP DNS servers for Advanced subnet type (optional)")
+	subnetUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	subnetDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	subnetDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	subnetDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -122,6 +124,7 @@ type NetworkSubnetCreateArgs struct {
 	DHCPEnabled    bool
 	DHCPRoutes     []string
 	DHCPDNSServers []string
+	Wait           bool
 }
 
 // NetworkSubnetGetArgs holds the typed arguments for getting a subnet.
@@ -146,6 +149,7 @@ type NetworkSubnetUpdateArgs struct {
 	DHCPRoutesChanged  bool
 	DHCPDNSServers     []string
 	DHCPDNSChanged     bool
+	Wait               bool
 }
 
 // NetworkSubnetDeleteArgs holds the typed arguments for deleting a subnet.
@@ -266,6 +270,9 @@ func (a *NetworkSubnetCreateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobr
 	if a.DHCPDNSServers, err = cmd.Flags().GetStringSlice("dhcp-dns"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -324,6 +331,9 @@ func (a *NetworkSubnetUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobr
 		errs = append(errs, err)
 	}
 	a.DHCPDNSChanged = cmd.Flags().Changed("dhcp-dns")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -518,6 +528,18 @@ func NetworkSubnetCreate(ctx context.Context, client aruba.Client, args NetworkS
 			status = string(*raw.Status.State)
 		}
 		PrintOutput(resp, headers, [][]string{{args.Name, id, createRegion, displayCIDR, status}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Subnet", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("Subnet", args.Name))
 	}
@@ -718,6 +740,18 @@ func NetworkSubnetUpdate(ctx context.Context, client aruba.Client, args NetworkS
 			status = string(*raw.Status.State)
 		}
 		PrintOutput(updated, headers, [][]string{{nameVal, id, cidrVal, status}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().Subnets().Get(ctx, aruba.SubnetRef(args.ProjectID, args.VPCID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Subnet", args.SubnetID); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Subnet", args.SubnetID))
 	}

@@ -152,10 +152,12 @@ func init() {
 	vpntunnelCreateCmd.MarkFlagRequired("peer-ip")
 	vpntunnelCreateCmd.MarkFlagRequired("vpc-id")
 	vpntunnelCreateCmd.MarkFlagRequired("elastic-ip-id")
+	vpntunnelCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	vpntunnelGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelUpdateCmd.Flags().String("name", "", "New name for the VPN tunnel")
 	vpntunnelUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	vpntunnelUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	vpntunnelDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpntunnelDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	vpntunnelDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -318,6 +320,7 @@ type NetworkVPNTunnelCreateArgs struct {
 	PSK           string
 	PSKCloudSite  string
 	PSKOnpremSite string
+	Wait          bool
 }
 
 // NetworkVPNTunnelGetArgs holds the typed arguments for getting a VPN tunnel.
@@ -333,6 +336,7 @@ type NetworkVPNTunnelUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // NetworkVPNTunnelDeleteArgs holds the typed arguments for deleting a VPN tunnel.
@@ -528,6 +532,9 @@ func (a *NetworkVPNTunnelCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) e
 	if a.PSKOnpremSite, err = cmd.Flags().GetString("psk-onprem-site"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -565,6 +572,9 @@ func (a *NetworkVPNTunnelUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, c
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -880,8 +890,10 @@ func NetworkVPNTunnelCreate(ctx context.Context, client aruba.Client, args Netwo
 	if resp != nil && resp.Raw() != nil {
 		raw := resp.Raw()
 		fmt.Printf("\n%s\n", msgCreated("VPN Tunnel", args.Name))
+		id := ""
 		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:       %s\n", *raw.Metadata.ID)
+			id = *raw.Metadata.ID
+			fmt.Printf("ID:       %s\n", id)
 		}
 		if raw.Metadata.Name != nil {
 			fmt.Printf("Name:     %s\n", *raw.Metadata.Name)
@@ -897,6 +909,18 @@ func NetworkVPNTunnelCreate(ctx context.Context, client aruba.Client, args Netwo
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:     %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().VPNTunnels().Get(ctx, vpnTunnelRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "VPN tunnel", args.Name); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgCreatedAsync("VPN Tunnel", args.Name))
@@ -945,6 +969,18 @@ func NetworkVPNTunnelUpdate(ctx context.Context, client aruba.Client, args Netwo
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().VPNTunnels().Get(ctx, vpnTunnelRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "VPN tunnel", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("VPN Tunnel", args.ID))

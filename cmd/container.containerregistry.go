@@ -37,6 +37,7 @@ func init() {
 	containerregistryCreateCmd.MarkFlagRequired("subnet-id")
 	containerregistryCreateCmd.MarkFlagRequired("security-group-id")
 	containerregistryCreateCmd.MarkFlagRequired("block-storage-id")
+	containerregistryCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	containerregistryGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -45,6 +46,7 @@ func init() {
 	containerregistryUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
 	containerregistryUpdateCmd.Flags().String("billing-period", "", "Billing period: Hour, Month, Year")
 	containerregistryUpdateCmd.Flags().String("concurrent-users", "", "Concurrent users tier: Small, Medium, HighPerf")
+	containerregistryUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	containerregistryDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	containerregistryDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -173,6 +175,7 @@ type ContainerContainerRegistryCreateArgs struct {
 	AdminUsername  string
 	SizeFlavor     aruba.ContainerRegistrySizeFlavor
 	Tags           []string
+	Wait           bool
 }
 
 // ContainerContainerRegistryGetArgs holds the typed arguments for getting a container registry.
@@ -196,6 +199,7 @@ type ContainerContainerRegistryUpdateArgs struct {
 	TagsChanged   bool
 	BillingPeriod aruba.BillingPeriod
 	SizeFlavor    aruba.ContainerRegistrySizeFlavor
+	Wait          bool
 }
 
 // ContainerContainerRegistryDeleteArgs holds the typed arguments for deleting a container registry.
@@ -321,6 +325,9 @@ func (a *ContainerContainerRegistryCreateArgs) ParseFromCobraCommand(cmd *cobra.
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -379,6 +386,9 @@ func (a *ContainerContainerRegistryUpdateArgs) ParseFromCobraCommand(cmd *cobra.
 	if s, err := cmd.Flags().GetString("concurrent-users"); err == nil {
 		a.SizeFlavor = aruba.ContainerRegistrySizeFlavor(s)
 	} else {
+		errs = append(errs, err)
+	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -538,6 +548,21 @@ func ContainerContainerRegistryCreate(ctx context.Context, client aruba.Client, 
 			statusVal = string(*raw.Status.State)
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, regionVal, statusVal}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromContainer().ContainerRegistry().Get(ctx, containerRegistryRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Container registry", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("Container registry", args.Name))
 	}
@@ -704,6 +729,21 @@ func ContainerContainerRegistryUpdate(ctx context.Context, client aruba.Client, 
 		}
 		if raw.Status.State != nil {
 			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromContainer().ContainerRegistry().Get(ctx, containerRegistryRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Container registry", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Container registry", args.ID))

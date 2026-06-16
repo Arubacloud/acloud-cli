@@ -28,12 +28,14 @@ func init() {
 	securitygroupCreateCmd.Flags().String("name", "", "Security group name (required)")
 	securitygroupCreateCmd.Flags().String("region", "", "Region code (required)")
 	securitygroupCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	securitygroupCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	securitygroupCreateCmd.MarkFlagRequired("name")
 	securitygroupCreateCmd.MarkFlagRequired("region")
 	securitygroupGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securitygroupUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securitygroupUpdateCmd.Flags().String("name", "", "New name for the security group")
 	securitygroupUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	securitygroupUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	securitygroupDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	securitygroupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	securitygroupDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -101,6 +103,7 @@ type NetworkSecurityGroupCreateArgs struct {
 	VPCID     string
 	Name      string
 	Tags      []string
+	Wait      bool
 }
 
 // NetworkSecurityGroupGetArgs holds the typed arguments for getting a security group.
@@ -118,6 +121,7 @@ type NetworkSecurityGroupUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // NetworkSecurityGroupDeleteArgs holds the typed arguments for deleting a security group.
@@ -221,6 +225,9 @@ func (a *NetworkSecurityGroupCreateArgs) ParseFromCobraCommand(cmd *cobra.Comman
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -264,6 +271,9 @@ func (a *NetworkSecurityGroupUpdateArgs) ParseFromCobraCommand(cmd *cobra.Comman
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -412,6 +422,21 @@ func NetworkSecurityGroupCreate(ctx context.Context, client aruba.Client, args N
 			status = string(*raw.Status.State)
 		}
 		PrintOutput(resp, headers, [][]string{{args.Name, id, region, status}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(args.ProjectID, args.VPCID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Security group", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("Security group", args.Name))
 	}
@@ -509,6 +534,21 @@ func NetworkSecurityGroupUpdate(ctx context.Context, client aruba.Client, args N
 			status = string(*raw.Status.State)
 		}
 		PrintOutput(updated, headers, [][]string{{nameVal, id, updateRegion, status}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(args.ProjectID, args.VPCID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "Security group", args.SGID); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgUpdatedAsync("Security group", args.SGID))
 	}

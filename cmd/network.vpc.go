@@ -25,12 +25,14 @@ func init() {
 	vpcCreateCmd.Flags().String("name", "", "Name for the VPC")
 	vpcCreateCmd.Flags().String("region", "", "Region code (e.g., IT-BG)")
 	vpcCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	vpcCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	vpcCreateCmd.MarkFlagRequired("name")
 	vpcCreateCmd.MarkFlagRequired("region")
 	vpcGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcUpdateCmd.Flags().String("name", "", "New name for the VPC")
 	vpcUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	vpcUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	vpcDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	vpcDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
@@ -140,6 +142,7 @@ type NetworkVPCCreateArgs struct {
 	Name      string
 	Region    aruba.Region
 	Tags      []string
+	Wait      bool
 }
 
 // NetworkVPCGetArgs holds the typed arguments for getting a VPC.
@@ -155,6 +158,7 @@ type NetworkVPCUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // NetworkVPCDeleteArgs holds the typed arguments for deleting a VPC.
@@ -258,6 +262,9 @@ func (a *NetworkVPCCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error {
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -295,6 +302,9 @@ func (a *NetworkVPCUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraAr
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -410,8 +420,10 @@ func NetworkVPCCreate(ctx context.Context, client aruba.Client, args NetworkVPCC
 	if created != nil && created.Raw() != nil {
 		raw := created.Raw()
 		fmt.Printf("\n%s\n", msgCreated("VPC", args.Name))
+		id := ""
 		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:      %s\n", *raw.Metadata.ID)
+			id = *raw.Metadata.ID
+			fmt.Printf("ID:      %s\n", id)
 		}
 		if raw.Metadata.Name != nil {
 			fmt.Printf("Name:    %s\n", *raw.Metadata.Name)
@@ -419,6 +431,21 @@ func NetworkVPCCreate(ctx context.Context, client aruba.Client, args NetworkVPCC
 		fmt.Printf("Default: %t\n", raw.Properties.Default)
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "VPC", args.Name); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgCreatedAsync("VPC", args.Name))
@@ -514,6 +541,21 @@ func NetworkVPCUpdate(ctx context.Context, client aruba.Client, args NetworkVPCU
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:    %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromNetwork().VPCs().Get(ctx, aruba.VPCRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "VPC", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("VPC", args.ID))

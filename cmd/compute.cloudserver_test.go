@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
@@ -1596,5 +1597,50 @@ func TestCloudServerUpdateCmd_Success(t *testing.T) {
 	}
 	if !strings.Contains(out, "cs-001") {
 		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+// TestComputeCloudServerCreate_WaitFlag verifies that --wait polls until Active
+// (mock returns InCreation on the first GET, then Active on the second).
+func TestComputeCloudServerCreate_WaitFlag(t *testing.T) {
+	id, name := "cs-wait-01", "wait-server"
+	stateActive := types.StateActive
+	stateInCreation := types.StateInCreation
+	getCallCount := 0
+
+	srv := newArubaTestServer(t)
+	// POST for create
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(201, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &stateActive},
+	}))
+	// GET for wait polling: first call returns InCreation, second returns Active
+	srv.On("GET", "/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wait-01",
+		func(w http.ResponseWriter, r *http.Request) {
+			getCallCount++
+			state := stateInCreation
+			if getCallCount >= 2 {
+				state = stateActive
+			}
+			jsonResponse(200, types.CloudServerResponse{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				Status:   types.ResourceStatusResponse{State: &state},
+			})(w, r)
+		})
+
+	ctx := context.Background()
+	err := waitUntilActiveWithInterval(ctx, func(ctx context.Context) (string, error) {
+		cs, err := srv.Client().FromCompute().CloudServers().Get(ctx, cloudServerRef("proj-123", id))
+		if err != nil {
+			return "", apiErrFromV2(err)
+		}
+		return string(cs.State()), nil
+	}, "Cloud server", name, time.Millisecond)
+
+	if err != nil {
+		t.Fatalf("WaitUntilActive returned error: %v", err)
+	}
+	if getCallCount < 2 {
+		t.Errorf("expected at least 2 GET calls (InCreation→Active), got %d", getCallCount)
 	}
 }

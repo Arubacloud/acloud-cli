@@ -57,6 +57,7 @@ func init() {
 	kaasCreateCmd.MarkFlagRequired("node-pool-nodes")
 	kaasCreateCmd.MarkFlagRequired("node-pool-instance")
 	kaasCreateCmd.MarkFlagRequired("node-pool-zone")
+	kaasCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	kaasGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -75,6 +76,7 @@ func init() {
 	kaasUpdateCmd.Flags().Bool("node-pool-autoscaling", false, "Enable autoscaling for node pool")
 	kaasUpdateCmd.Flags().Int("node-pool-min-count", 0, "Minimum number of nodes for autoscaling")
 	kaasUpdateCmd.Flags().Int("node-pool-max-count", 0, "Maximum number of nodes for autoscaling")
+	kaasUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	kaasDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kaasDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -230,6 +232,7 @@ type ContainerKaaSCreateArgs struct {
 	HA                            bool
 	APIServerAuthorizedIPRanges   []string
 	APIServerEnablePrivateCluster bool
+	Wait                          bool
 }
 
 // ContainerKaaSGetArgs holds the typed arguments for getting a KaaS cluster.
@@ -263,6 +266,7 @@ type ContainerKaaSUpdateArgs struct {
 	NodePoolAutoscaling bool
 	NodePoolMinCount    int
 	NodePoolMaxCount    int
+	Wait                bool
 }
 
 // ContainerKaaSDeleteArgs holds the typed arguments for deleting a KaaS cluster.
@@ -445,6 +449,9 @@ func (a *ContainerKaaSCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) erro
 	if a.APIServerEnablePrivateCluster, err = cmd.Flags().GetBool("api-server-enable-private-cluster"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -535,6 +542,9 @@ func (a *ContainerKaaSUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobr
 		errs = append(errs, err)
 	}
 	if a.NodePoolMaxCount, err = cmd.Flags().GetInt("node-pool-max-count"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -748,6 +758,19 @@ func ContainerKaaSCreate(ctx context.Context, client aruba.Client, args Containe
 			string(created.KubernetesVersion()),
 			string(created.Region()),
 		}})
+		if args.Wait {
+			id := created.KaaSID()
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromContainer().KaaS().Get(ctx, kaasRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "KaaS cluster", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("KaaS cluster", args.Name))
 	}
@@ -889,6 +912,18 @@ func ContainerKaaSUpdate(ctx context.Context, client aruba.Client, args Containe
 		fmt.Printf("Name:    %s\n", updated.Name())
 		if tags := updated.Tags(); len(tags) > 0 {
 			fmt.Printf("Tags:    %v\n", tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromContainer().KaaS().Get(ctx, kaasRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				return string(res.State()), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "KaaS cluster", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("KaaS cluster", args.ID))

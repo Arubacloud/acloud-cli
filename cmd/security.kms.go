@@ -29,6 +29,7 @@ func init() {
 	kmsCreateCmd.Flags().String("region", "", "Region code (required)")
 	kmsCreateCmd.Flags().String("billing-period", string(aruba.BillingPeriodHour), "Billing period: Hour, Month, Year")
 	kmsCreateCmd.Flags().StringSlice("tags", []string{}, "Tags (comma-separated)")
+	kmsCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 	kmsCreateCmd.MarkFlagRequired("name")
 	kmsCreateCmd.MarkFlagRequired("region")
 
@@ -37,6 +38,7 @@ func init() {
 	kmsUpdateCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kmsUpdateCmd.Flags().String("name", "", "New KMS name")
 	kmsUpdateCmd.Flags().StringSlice("tags", []string{}, "New tags (comma-separated)")
+	kmsUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	kmsDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	kmsDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -147,6 +149,7 @@ type SecurityKMSCreateArgs struct {
 	Region        aruba.Region
 	BillingPeriod aruba.BillingPeriod
 	Tags          []string
+	Wait          bool
 }
 
 // SecurityKMSGetArgs holds the typed arguments for getting a KMS resource.
@@ -162,6 +165,7 @@ type SecurityKMSUpdateArgs struct {
 	Name        string
 	Tags        []string
 	TagsChanged bool
+	Wait        bool
 }
 
 // SecurityKMSDeleteArgs holds the typed arguments for deleting a KMS resource.
@@ -270,6 +274,9 @@ func (a *SecurityKMSCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) error 
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -307,6 +314,9 @@ func (a *SecurityKMSUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobraA
 		errs = append(errs, err)
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -442,6 +452,21 @@ func SecurityKMSCreate(ctx context.Context, client aruba.Client, args SecurityKM
 		}
 		row := []string{id, nameVal, regionVal, statusVal}
 		PrintOutput(created, headers, [][]string{row})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromSecurity().KMS().Get(ctx, kmsRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "KMS", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("KMS", args.Name))
 	}
@@ -534,6 +559,21 @@ func SecurityKMSUpdate(ctx context.Context, client aruba.Client, args SecurityKM
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromSecurity().KMS().Get(ctx, kmsRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "KMS", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("KMS", args.ID))

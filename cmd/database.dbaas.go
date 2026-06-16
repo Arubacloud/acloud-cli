@@ -37,6 +37,7 @@ func init() {
 	dbaasCreateCmd.MarkFlagRequired("engine-id")
 	dbaasCreateCmd.MarkFlagRequired("flavor")
 	dbaasCreateCmd.MarkFlagRequired("storage-size")
+	dbaasCreateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	dbaasGetCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 
@@ -47,6 +48,7 @@ func init() {
 	// PUT body (omitting it is treated as a modification attempt → 400). Pass the same
 	// zone that was used at creation time (e.g. ITBG-1).
 	dbaasUpdateCmd.Flags().String("zone", "", "Zone used at creation time (required to avoid API 400 on PUT)")
+	dbaasUpdateCmd.Flags().Bool("wait", false, "Wait until the resource becomes Active (use --timeout to control the deadline)")
 
 	dbaasDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
@@ -174,6 +176,7 @@ type DatabaseDBaaSCreateArgs struct {
 	SGID          string
 	ElasticIPID   string
 	Tags          []string
+	Wait          bool
 }
 
 // DatabaseDBaaSGetArgs holds the typed arguments for getting a DBaaS instance.
@@ -190,6 +193,7 @@ type DatabaseDBaaSUpdateArgs struct {
 	Tags        []string
 	TagsChanged bool
 	Zone        string
+	Wait        bool
 }
 
 // DatabaseDBaaSDeleteArgs holds the typed arguments for deleting a DBaaS instance.
@@ -322,6 +326,9 @@ func (a *DatabaseDBaaSCreateArgs) ParseFromCobraCommand(cmd *cobra.Command) erro
 	if a.Tags, err = cmd.Flags().GetStringSlice("tags"); err != nil {
 		errs = append(errs, err)
 	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
 }
@@ -360,6 +367,9 @@ func (a *DatabaseDBaaSUpdateArgs) ParseFromCobraCommand(cmd *cobra.Command, cobr
 	}
 	a.TagsChanged = cmd.Flags().Changed("tags")
 	if a.Zone, err = cmd.Flags().GetString("zone"); err != nil {
+		errs = append(errs, err)
+	}
+	if a.Wait, err = cmd.Flags().GetBool("wait"); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -535,6 +545,21 @@ func DatabaseDBaaSCreate(ctx context.Context, client aruba.Client, args Database
 			regionVal = string(raw.Metadata.LocationResponse.Value)
 		}
 		PrintOutput(created, headers, [][]string{{id, nameVal, engine, version, flavorVal, regionVal}})
+		if args.Wait && id != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(args.ProjectID, id))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "DBaaS", args.Name); err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Println(msgCreatedAsync("DBaaS instance", args.Name))
 	}
@@ -658,6 +683,21 @@ func DatabaseDBaaSUpdate(ctx context.Context, client aruba.Client, args Database
 		}
 		if len(raw.Metadata.Tags) > 0 {
 			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+		}
+		if args.Wait && args.ID != "" {
+			getter := func(ctx context.Context) (string, error) {
+				res, err := client.FromDatabase().DBaaS().Get(ctx, dbaasRef(args.ProjectID, args.ID))
+				if err != nil {
+					return "", apiErrFromV2(err)
+				}
+				if res == nil || res.Raw() == nil || res.Raw().Status.State == nil {
+					return "", nil
+				}
+				return string(*res.Raw().Status.State), nil
+			}
+			if err := WaitUntilActive(ctx, getter, "DBaaS", args.ID); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Println(msgUpdatedAsync("DBaaS instance", args.ID))
