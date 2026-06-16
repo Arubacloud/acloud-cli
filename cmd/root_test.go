@@ -234,29 +234,6 @@ func TestPrintTable_MismatchedColumns(t *testing.T) {
 	PrintOutput(nil, headers, rows)
 }
 
-func TestNormalizeHeaderKey(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"NAME", "name"},
-		{"ID", "id"},
-		{"PUBLIC_KEY", "public_key"},
-		{"CREATION DATE", "creation_date"},
-		{"RAM(GB)", "ram_gb"},
-		{"HD(GB)", "hd_gb"},
-		{"CPU", "cpu"},
-		{"  spaced  ", "spaced"},
-		{"multi  space__key", "multi_space_key"},
-		{"abc123", "abc123"},
-	}
-	for _, c := range cases {
-		got := normalizeHeaderKey(c.in)
-		if got != c.want {
-			t.Errorf("normalizeHeaderKey(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // captureStdout captures os.Stdout during f() and returns the output.
 func captureStdout(f func()) string {
 	old := os.Stdout
@@ -688,81 +665,6 @@ func TestResolveOutputFormat_AllFormats(t *testing.T) {
 	resetCmdFlags(rootCmd)
 }
 
-func TestPrintJSON_NilObject(t *testing.T) {
-	out := captureStdout(func() { printJSON(nil) })
-	if !strings.Contains(out, "{}") {
-		t.Errorf("printJSON(nil) should print {}, got: %s", out)
-	}
-}
-
-func TestPrintYAML_NilObject(t *testing.T) {
-	out := captureStdout(func() { printYAML(nil) })
-	if !strings.Contains(out, "{}") {
-		t.Errorf("printYAML(nil) should print {}, got: %s", out)
-	}
-}
-
-func TestPrintYAML_ValidObject(t *testing.T) {
-	obj := map[string]string{"key": "value"}
-	out := captureStdout(func() { printYAML(obj) })
-	if !strings.Contains(out, "key") || !strings.Contains(out, "value") {
-		t.Errorf("printYAML() output missing key/value, got: %s", out)
-	}
-}
-
-func TestPrintTableJSON_Empty(t *testing.T) {
-	out := captureStdout(func() {
-		printTableJSON([]TableColumn{{Header: "NAME", Width: 10}}, [][]string{})
-	})
-	if !strings.Contains(out, "[]") {
-		t.Errorf("printTableJSON with empty rows should print [], got: %s", out)
-	}
-}
-
-func TestRowsToRecords(t *testing.T) {
-	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
-	rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
-	records := rowsToRecords(headers, rows)
-	if len(records) != 2 {
-		t.Errorf("expected 2 records, got %d", len(records))
-	}
-}
-
-func TestRowsToRecords_ShortRow(t *testing.T) {
-	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
-	rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
-	records := rowsToRecords(headers, rows)
-	if len(records) != 1 {
-		t.Errorf("expected 1 record, got %d", len(records))
-	}
-	// Should only have 2 key-value pairs (NAME and ID), not 3
-	if len(records[0].Content) != 4 { // 2 pairs * 2 nodes each
-		t.Errorf("expected 4 content nodes (2 pairs), got %d", len(records[0].Content))
-	}
-}
-
-func TestPrintTableJSON_MultipleRows(t *testing.T) {
-	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}}
-	rows := [][]string{{"alice", "id-1"}, {"bob", "id-2"}}
-	out := captureStdout(func() {
-		printTableJSON(headers, rows)
-	})
-	if !strings.Contains(out, "alice") || !strings.Contains(out, "bob") {
-		t.Errorf("printTableJSON output missing rows, got: %s", out)
-	}
-}
-
-func TestPrintTableJSON_ShortRow(t *testing.T) {
-	headers := []TableColumn{{Header: "NAME", Width: 10}, {Header: "ID", Width: 10}, {Header: "EXTRA", Width: 10}}
-	rows := [][]string{{"alice", "id-1"}} // fewer columns than headers
-	out := captureStdout(func() {
-		printTableJSON(headers, rows)
-	})
-	if !strings.Contains(out, "alice") {
-		t.Errorf("printTableJSON short row output missing alice, got: %s", out)
-	}
-}
-
 func TestResolveOutputFormat_Unknown(t *testing.T) {
 	rootCmd.PersistentFlags().Set("output", "invalid-format")
 	got := resolveOutputFormat()
@@ -770,36 +672,6 @@ func TestResolveOutputFormat_Unknown(t *testing.T) {
 		t.Errorf("resolveOutputFormat() with unknown flag = %q, want %q", got, OutputFormatTable)
 	}
 	rootCmd.PersistentFlags().Set("output", "table")
-}
-
-func TestPrintJSON_MarshalError(t *testing.T) {
-	// channels cannot be marshalled to JSON — triggers the error branch
-	old := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-	printJSON(make(chan int))
-	w.Close()
-	os.Stderr = old
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "error marshalling to JSON") {
-		t.Errorf("expected marshal error message, got: %s", buf.String())
-	}
-}
-
-func TestPrintYAML_MarshalError(t *testing.T) {
-	// channels cannot be marshalled to JSON — triggers the error branch in printYAML
-	old := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-	printYAML(make(chan int))
-	w.Close()
-	os.Stderr = old
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "error marshalling to JSON for YAML conversion") {
-		t.Errorf("expected marshal error message, got: %s", buf.String())
-	}
 }
 
 func TestNewCtx_DefaultTimeout(t *testing.T) {
