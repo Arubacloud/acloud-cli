@@ -63,8 +63,10 @@ var contextDeleteCmd = &cobra.Command{
 	RunE:  ContextDeleteRun,
 }
 
-// LoadContext loads the context configuration
+// LoadContext loads the context configuration.
+// Migrates legacy ~/.acloud-context.yaml to the XDG path on first load (#176).
 func LoadContext() (*Context, error) {
+	migrateLegacyContext()
 	contextFile, err := getContextFilePath()
 	if err != nil {
 		return nil, err
@@ -122,13 +124,49 @@ func GetCurrentProjectID() (string, error) {
 	return info.ProjectID, nil
 }
 
-// getContextFilePath returns the path to the context file (TD-007).
+// getContextFilePath returns the XDG-compliant path to the context file (#176, TD-007).
+// New path: $XDG_CONFIG_HOME/acloud/context.yaml (default: ~/.config/acloud/context.yaml).
 func getContextFilePath() (string, error) {
+	dir, err := xdgConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine XDG config directory: %w", err)
+	}
+	return filepath.Join(dir, "acloud", "context.yaml"), nil
+}
+
+// legacyContextPath returns the pre-XDG context path (~/.acloud-context.yaml).
+func legacyContextPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
+		return "", err
 	}
 	return filepath.Join(home, ".acloud-context.yaml"), nil
+}
+
+// migrateLegacyContext copies ~/.acloud-context.yaml → XDG path when absent (#176).
+func migrateLegacyContext() {
+	newPath, err := getContextFilePath()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return
+	}
+	oldPath, err := legacyContextPath()
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(oldPath)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), FilePermDirAll); err != nil {
+		return
+	}
+	if err := os.WriteFile(newPath, data, FilePermConfig); err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "notice: context migrated from %s to %s\n", oldPath, newPath)
 }
 
 func init() {

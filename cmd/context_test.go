@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -36,17 +35,8 @@ func TestLoadContext(t *testing.T) {
 }
 
 func TestSaveContext(t *testing.T) {
-	originalHome := os.Getenv("HOME")
-	originalUserProfile := os.Getenv("USERPROFILE")
-
 	tmpDir := t.TempDir()
-
-	os.Setenv("HOME", tmpDir)
-	os.Setenv("USERPROFILE", tmpDir)
-	defer func() {
-		os.Setenv("HOME", originalHome)
-		os.Setenv("USERPROFILE", originalUserProfile)
-	}()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Create test context
 	testContext := &Context{
@@ -64,10 +54,10 @@ func TestSaveContext(t *testing.T) {
 		t.Fatalf("SaveContext() error = %v", err)
 	}
 
-	// Verify file exists
-	contextPath := filepath.Join(tmpDir, ".acloud-context.yaml")
+	// Verify file exists at XDG path
+	contextPath := filepath.Join(tmpDir, "acloud", "context.yaml")
 	if _, err := os.Stat(contextPath); os.IsNotExist(err) {
-		t.Fatal("SaveContext() did not create context file")
+		t.Fatal("SaveContext() did not create context file at XDG path")
 	}
 
 	// Load and verify
@@ -134,24 +124,16 @@ func TestGetCurrentProjectID(t *testing.T) {
 }
 
 func TestLoadContext_InvalidYAML(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("os.UserHomeDir() on Windows uses Win32 API, not HOME env var")
-	}
-	originalHome := os.Getenv("HOME")
-	if originalHome == "" {
-		originalHome = os.Getenv("USERPROFILE")
-	}
-
 	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
-
-	contextPath := filepath.Join(tmpDir, ".acloud-context.yaml")
-	invalidYAML := "this is not valid yaml: ["
-	err := os.WriteFile(contextPath, []byte(invalidYAML), 0600)
-	if err != nil {
-		t.Fatalf("Failed to write invalid YAML: %v", err)
+	// Write invalid YAML to the XDG path, creating the directory first.
+	xdgPath := filepath.Join(tmpDir, "acloud", "context.yaml")
+	if err := os.MkdirAll(filepath.Dir(xdgPath), 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(xdgPath, []byte("this is not valid yaml: ["), 0600); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	ctx, err := LoadContext()
