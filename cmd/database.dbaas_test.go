@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -479,6 +481,26 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 			},
 		},
 		{
+			// --zone re-injects the zone so PUT body includes "dataCenter".
+			// Exercises ParseFromCobraCommand zone read and DatabaseDBaaSUpdate InZone branch.
+			name: "--zone flag injects dataCenter into PUT body",
+			args: []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123", "--tags", "updated", "--zone", "ITBG-1"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+				}))
+				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
+					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, Tags: []string{"updated"}},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if !strings.Contains(out, "dbaas-001") {
+					t.Errorf("expected ID in output, got: %s", out)
+				}
+			},
+		},
+		{
 			name:        "no flags error",
 			args:        []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123"},
 			wantErr:     true,
@@ -519,6 +541,39 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 				tc.assertOut(t, out)
 			}
 		})
+	}
+}
+
+// TestDatabaseDBaaSUpdate_ZoneInPUTBody verifies that --zone injects dataCenter into
+// the PUT request body so the API round-trip succeeds without a "DataCenter cannot
+// be modified" 400. This is a regression test for the zone omitempty gap.
+func TestDatabaseDBaaSUpdate_ZoneInPUTBody(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-z1", "my-dbaas"
+	var capturedBody []byte
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-z1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+	}))
+	srv.On(http.MethodPut, "/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-z1",
+		func(w http.ResponseWriter, r *http.Request) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			jsonResponse(200, types.DBaaSResponse{
+				Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name, Tags: []string{"t"}},
+			})(w, r)
+		})
+
+	err := runCmd(srv.Client(), []string{
+		"database", "dbaas", "update", "dbaas-z1",
+		"--project-id", "proj-123",
+		"--tags", "t",
+		"--zone", "ITBG-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body := string(capturedBody)
+	if !strings.Contains(body, `"dataCenter"`) || !strings.Contains(body, `"ITBG-1"`) {
+		t.Errorf("PUT body missing expected dataCenter ITBG-1; got: %s", body)
 	}
 }
 
