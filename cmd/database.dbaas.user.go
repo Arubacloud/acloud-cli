@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -59,12 +58,17 @@ func completeDBaaSUserID(cmd *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	dbaasID := args[0]
+
+	key := cacheKey("dbaas-user", projectID, dbaasID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-
-	dbaasID := args[0]
 
 	ctx := context.Background()
 	list, err := client.FromDatabase().Users().List(ctx, dbaasRef(projectID, dbaasID))
@@ -77,14 +81,13 @@ func completeDBaaSUserID(cmd *cobra.Command, args []string, toComplete string) (
 		for _, user := range list.Items() {
 			raw := user.Raw()
 			if raw != nil && raw.Username != "" {
-				if toComplete == "" || strings.HasPrefix(raw.Username, toComplete) {
-					completions = append(completions, fmt.Sprintf("%s\t%s", raw.Username, raw.Username))
-				}
+				completions = append(completions, fmt.Sprintf("%s\t%s", raw.Username, raw.Username))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var dbaasUserCmd = &cobra.Command{

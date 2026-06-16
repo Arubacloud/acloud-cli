@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -56,6 +55,11 @@ func completeBackupID(cmd *cobra.Command, args []string, toComplete string) ([]s
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	key := cacheKey("backup", projectID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -71,13 +75,14 @@ func completeBackupID(cmd *cobra.Command, args []string, toComplete string) ([]s
 	if list != nil {
 		for _, bkp := range list.Items() {
 			id := bkp.ID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, bkp.Name()))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var storageBackupCmd = &cobra.Command{

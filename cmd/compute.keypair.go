@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -62,6 +61,11 @@ func completeKeyPairID(cmd *cobra.Command, args []string, toComplete string) ([]
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	key := cacheKey("keypair", projectID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -77,13 +81,14 @@ func completeKeyPairID(cmd *cobra.Command, args []string, toComplete string) ([]
 	if list != nil {
 		for _, kp := range list.Items() {
 			name := kp.Name()
-			if toComplete == "" || strings.HasPrefix(name, toComplete) {
+			if name != "" {
 				completions = append(completions, fmt.Sprintf("%s\tKeypair", name))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // KeyPair subcommands

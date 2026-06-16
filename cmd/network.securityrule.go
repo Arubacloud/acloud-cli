@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -71,13 +70,18 @@ func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	vpcID := args[0]
+	securityGroupID := args[1]
+
+	key := cacheKey("security-rule", projectID, vpcID, securityGroupID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-
-	vpcID := args[0]
-	securityGroupID := args[1]
 
 	ctx := context.Background()
 	list, err := client.FromNetwork().SecurityGroupRules().List(ctx, aruba.SecurityGroupRef(projectID, vpcID, securityGroupID))
@@ -89,13 +93,14 @@ func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string
 	if list != nil {
 		for _, rule := range list.Items() {
 			id := rule.ID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, rule.Name()))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // SecurityRule subcommands

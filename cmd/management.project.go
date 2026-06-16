@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -48,6 +47,11 @@ func init() {
 func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	// Allow completion even if args exist - user might be completing a partial ID
 
+	key := cacheKey("project")
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	// Get SDK client
 	client, err := GetArubaClient()
 	if err != nil {
@@ -66,15 +70,15 @@ func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]
 		for _, p := range list.Items() {
 			id := p.ID()
 			name := p.Name()
-			// Filter by partial input - use HasPrefix for more reliable matching
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
+			if id != "" {
 				// Format: "id\tname" - the tab separates the completion from the description
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var projectCmd = &cobra.Command{

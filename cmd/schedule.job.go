@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
@@ -68,6 +67,11 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	key := cacheKey("job", projectID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -83,13 +87,14 @@ func completeJobID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 	if list != nil {
 		for _, job := range list.Items() {
 			id := job.JobID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, job.Name()))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var jobCmd = &cobra.Command{

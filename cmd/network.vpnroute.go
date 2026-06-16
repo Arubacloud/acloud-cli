@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -62,11 +61,17 @@ func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
+	vpnTunnelID := args[0]
+
+	key := cacheKey("vpn-route", projectID, vpnTunnelID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	vpnTunnelID := args[0]
 
 	ctx := context.Background()
 	list, err := client.FromNetwork().VPNRoutes().List(ctx, aruba.VPNTunnelRef(projectID, vpnTunnelID))
@@ -77,12 +82,13 @@ func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([
 	if list != nil {
 		for _, route := range list.Items() {
 			id := route.ID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, route.Name()))
 			}
 		}
 	}
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var vpnrouteCmd = &cobra.Command{

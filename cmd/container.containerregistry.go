@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
@@ -72,6 +71,11 @@ func completeContainerRegistryID(cmd *cobra.Command, args []string, toComplete s
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	key := cacheKey("container-registry", projectID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -87,13 +91,14 @@ func completeContainerRegistryID(cmd *cobra.Command, args []string, toComplete s
 	if list != nil {
 		for _, cr := range list.Items() {
 			id := cr.ID()
-			if id != "" && (toComplete == "" || strings.HasPrefix(id, toComplete)) {
+			if id != "" {
 				completions = append(completions, fmt.Sprintf("%s\t%s", id, cr.Name()))
 			}
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 var containerregistryCmd = &cobra.Command{

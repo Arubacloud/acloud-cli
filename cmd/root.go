@@ -37,6 +37,7 @@ var state = &clientState{}
 // Intended for use in tests to prevent state leaking between test cases.
 func resetClientState() {
 	state = &clientState{}
+	completionCacheReset()
 }
 
 // setClientForTesting injects a mock client that GetArubaClient returns directly,

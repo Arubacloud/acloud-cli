@@ -99,6 +99,11 @@ func completeCloudServerID(cmd *cobra.Command, args []string, toComplete string)
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
+	key := cacheKey("cloudserver", projectID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
 	client, err := GetArubaClient()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -122,13 +127,12 @@ func completeCloudServerID(cmd *cobra.Command, args []string, toComplete string)
 			if raw.Metadata.Name != nil {
 				name = *raw.Metadata.Name
 			}
-			if toComplete == "" || strings.HasPrefix(id, toComplete) {
-				completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
-			}
+			completions = append(completions, fmt.Sprintf("%s\t%s", id, name))
 		}
 	}
 
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // CloudServer subcommands
