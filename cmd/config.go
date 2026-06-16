@@ -22,12 +22,19 @@ type Config struct {
 	TokenIssuerURL string
 }
 
-// configFile is the persisted representation stored in ~/.acloud.yaml.
+// configFile is the persisted representation of a single credential set.
 type configFile struct {
 	ClientID       string `yaml:"clientId"`
 	ClientSecret   string `yaml:"clientSecret"`
 	BaseURL        string `yaml:"baseUrl,omitempty"`
 	TokenIssuerURL string `yaml:"tokenIssuerUrl,omitempty"`
+}
+
+// multiProfileConfigFile is the envelope used when the config contains named
+// profiles. Detection: if the YAML has a top-level "profiles" mapping the file
+// is in multi-profile format; otherwise it is treated as single-profile (#180).
+type multiProfileConfigFile struct {
+	Profiles map[string]configFile `yaml:"profiles"`
 }
 
 type configShowDisplay struct {
@@ -70,11 +77,21 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configShowCmd)
+	configCmd.AddCommand(configProfileCmd)
+	configProfileCmd.AddCommand(configProfileListCmd)
+	configProfileCmd.AddCommand(configProfileSetCmd)
+	configProfileCmd.AddCommand(configProfileDeleteCmd)
 
 	// Flags for config set command
 	configSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID (required)")
 	configSetCmd.Flags().String("base-url", "", "Base URL for Aruba Cloud API (optional, default: https://api.arubacloud.com)")
 	configSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication (optional, default: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token)")
+
+	// Flags for config profile set
+	configProfileSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID")
+	configProfileSetCmd.Flags().String("client-secret", "", "Aruba Cloud API client secret (or use ACLOUD_CLIENT_SECRET)")
+	configProfileSetCmd.Flags().String("base-url", "", "Base URL for Aruba Cloud API")
+	configProfileSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication")
 }
 
 // xdgConfigDir returns the XDG config home directory (#176).
@@ -136,12 +153,89 @@ func migrateLegacyConfig() {
 	fmt.Fprintf(os.Stderr, "notice: config migrated from %s to %s\n", oldPath, newPath)
 }
 
+// ─── Multi-profile support (#180) ────────────────────────────────────────────
+
+// getActiveProfile returns the profile name for the current invocation.
+// Priority: --profile persistent flag > ACLOUD_PROFILE env var > "default".
+func getActiveProfile() string {
+	if rootCmd != nil {
+		if p, _ := rootCmd.PersistentFlags().GetString("profile"); p != "" {
+			return p
+		}
+	}
+	if p := os.Getenv("ACLOUD_PROFILE"); p != "" {
+		return p
+	}
+	return "default"
+}
+
+// loadAllProfiles reads the config file and returns a map of all profiles.
+// Single-profile files are wrapped as {"default": singleProfile} transparently.
+func loadAllProfiles() (map[string]configFile, error) {
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try multi-profile format first.
+	var mpf multiProfileConfigFile
+	if yaml.Unmarshal(data, &mpf) == nil && len(mpf.Profiles) > 0 {
+		return mpf.Profiles, nil
+	}
+
+	// Fall back to single-profile format.
+	var fileCfg configFile
+	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
+		return nil, fmt.Errorf("config file %s is corrupted: %w", configPath, err)
+	}
+	return map[string]configFile{"default": fileCfg}, nil
+}
+
+// saveAllProfiles writes all profiles to the config file in multi-profile format.
+func saveAllProfiles(profiles map[string]configFile) error {
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), FilePermDirAll); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	data, err := yaml.Marshal(multiProfileConfigFile{Profiles: profiles})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, FilePermConfig)
+}
+
+// sortedProfileNames returns profile names in deterministic order.
+func sortedProfileNames(profiles map[string]configFile) []string {
+	names := make([]string, 0, len(profiles))
+	for k := range profiles {
+		names = append(names, k)
+	}
+	// "default" first, then alphabetical.
+	result := make([]string, 0, len(names))
+	for _, n := range names {
+		if n == "default" {
+			result = append([]string{"default"}, result...)
+		} else {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
 // LoadConfig loads the configuration from the config file, with env var overrides.
 // Env vars ACLOUD_CLIENT_ID, ACLOUD_CLIENT_SECRET, ACLOUD_BASE_URL, and
 // ACLOUD_TOKEN_ISSUER_URL take precedence over the config file when set.
 // If the config file is missing but credentials are supplied via env vars,
 // the file is not required and no error is returned.
 // Migrates legacy ~/.acloud.yaml to the XDG path on first load (#176).
+// Supports multi-profile config via --profile flag or ACLOUD_PROFILE env var (#180).
 func LoadConfig() (*Config, error) {
 	migrateLegacyConfig()
 	configPath, err := GetConfigPath()
@@ -169,11 +263,23 @@ func LoadConfig() (*Config, error) {
 		return config, nil
 	}
 
-	fileCfg := &configFile{}
-	if err2 := yaml.Unmarshal(data, fileCfg); err2 != nil {
-		return nil, fmt.Errorf("config file %s is corrupted (%w). Delete it and run 'acloud config set' to reconfigure", configPath, err2)
+	// Try multi-profile format.
+	var mpf multiProfileConfigFile
+	if yaml.Unmarshal(data, &mpf) == nil && len(mpf.Profiles) > 0 {
+		profileName := getActiveProfile()
+		fileCfg, ok := mpf.Profiles[profileName]
+		if !ok {
+			return nil, fmt.Errorf("profile %q not found in %s. Run 'acloud config profile list' to see available profiles", profileName, configPath)
+		}
+		*config = configFromFile(&fileCfg)
+	} else {
+		// Single-profile format (backward compat).
+		fileCfg := &configFile{}
+		if err2 := yaml.Unmarshal(data, fileCfg); err2 != nil {
+			return nil, fmt.Errorf("config file %s is corrupted (%w). Delete it and run 'acloud config set' to reconfigure", configPath, err2)
+		}
+		*config = configFromFile(fileCfg)
 	}
-	*config = configFromFile(fileCfg)
 
 	// Env vars override file values — useful for CI/CD and e2e tests.
 	if v := os.Getenv("ACLOUD_CLIENT_ID"); v != "" {
@@ -192,24 +298,17 @@ func LoadConfig() (*Config, error) {
 	return config, nil
 }
 
-// SaveConfig saves the configuration to the XDG config file, creating
-// the parent directory if it does not exist (#176).
+// SaveConfig saves the configuration to the active profile (#176, #180).
+// On first write it produces multi-profile format; subsequent calls preserve
+// all existing profiles and update only the active one.
 func SaveConfig(config *Config) error {
-	configPath, err := GetConfigPath()
+	profiles, err := loadAllProfiles()
 	if err != nil {
-		return err
+		// New file or unreadable: start fresh.
+		profiles = make(map[string]configFile)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(configPath), FilePermDirAll); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-
-	data, err := yaml.Marshal(fileFromConfig(config))
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(configPath, data, FilePermConfig)
+	profiles[getActiveProfile()] = fileFromConfig(config)
+	return saveAllProfiles(profiles)
 }
 
 func configFromFile(fileCfg *configFile) Config {
@@ -452,5 +551,133 @@ func ConfigShowRun(cmd *cobra.Command, _ []string) error {
 	if err := ConfigShow(ctx, *args); err != nil {
 		return fmt.Errorf("running command: %w", err)
 	}
+	return nil
+}
+
+// ─── config profile ───────────────────────────────────────────────────────────
+
+var configProfileCmd = &cobra.Command{
+	Use:   "profile",
+	Short: "Manage named credential profiles",
+	Long:  `Manage named credential profiles for acloud (dev/staging/prod accounts).`,
+}
+
+var configProfileListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all credential profiles",
+	Args:  cobra.NoArgs,
+	RunE:  ConfigProfileListRun,
+}
+
+var configProfileSetCmd = &cobra.Command{
+	Use:   "set <profile-name>",
+	Short: "Create or update a credential profile",
+	Args:  cobra.ExactArgs(1),
+	RunE:  ConfigProfileSetRun,
+}
+
+var configProfileDeleteCmd = &cobra.Command{
+	Use:   "delete <profile-name>",
+	Short: "Delete a credential profile",
+	Args:  cobra.ExactArgs(1),
+	RunE:  ConfigProfileDeleteRun,
+}
+
+// ConfigProfileListRun lists all profiles, marking the active one with *.
+func ConfigProfileListRun(_ *cobra.Command, _ []string) error {
+	profiles, err := loadAllProfiles()
+	if err != nil {
+		fmt.Println("No profiles configured. Run 'acloud config set' to create one.")
+		return nil
+	}
+	active := getActiveProfile()
+	headers := []TableColumn{
+		{Header: "PROFILE", Width: 20},
+		{Header: "CLIENT_ID", Width: 30},
+		{Header: "BASE_URL", Width: 40},
+	}
+	var rows [][]string
+	for _, name := range sortedProfileNames(profiles) {
+		p := profiles[name]
+		marker := ""
+		if name == active {
+			marker = "* "
+		}
+		rows = append(rows, []string{marker + name, p.ClientID, p.BaseURL})
+	}
+	PrintOutput(nil, headers, rows)
+	return nil
+}
+
+// ConfigProfileSetRun creates or updates a named profile.
+func ConfigProfileSetRun(cmd *cobra.Command, args []string) error {
+	profileName := args[0]
+
+	clientID, _ := cmd.Flags().GetString("client-id")
+	clientSecret, _ := cmd.Flags().GetString("client-secret")
+	baseURL, _ := cmd.Flags().GetString("base-url")
+	tokenIssuerURL, _ := cmd.Flags().GetString("token-issuer-url")
+
+	// Accept client secret from env var if not provided as flag.
+	if clientSecret == "" {
+		clientSecret = os.Getenv("ACLOUD_CLIENT_SECRET")
+	}
+
+	profiles, err := loadAllProfiles()
+	if err != nil {
+		profiles = make(map[string]configFile)
+	}
+
+	// Merge with existing profile if present.
+	existing := profiles[profileName]
+	if clientID != "" {
+		existing.ClientID = clientID
+	}
+	if clientSecret != "" {
+		existing.ClientSecret = clientSecret
+	}
+	if baseURL != "" {
+		existing.BaseURL = baseURL
+	}
+	if tokenIssuerURL != "" {
+		existing.TokenIssuerURL = tokenIssuerURL
+	}
+
+	if existing.ClientID == "" {
+		return fmt.Errorf("--client-id is required when creating a new profile")
+	}
+	if existing.ClientSecret == "" {
+		prompted, err := readSecret(fmt.Sprintf("Enter client secret for profile %q: ", profileName))
+		if err != nil {
+			return fmt.Errorf("client secret is required (set ACLOUD_CLIENT_SECRET or provide interactive input): %w", err)
+		}
+		existing.ClientSecret = prompted
+	}
+
+	profiles[profileName] = existing
+	if err := saveAllProfiles(profiles); err != nil {
+		return fmt.Errorf("saving profile: %w", err)
+	}
+	fmt.Printf("Profile %q saved.\n", profileName)
+	return nil
+}
+
+// ConfigProfileDeleteRun removes a named profile.
+func ConfigProfileDeleteRun(_ *cobra.Command, args []string) error {
+	profileName := args[0]
+
+	profiles, err := loadAllProfiles()
+	if err != nil {
+		return fmt.Errorf("loading profiles: %w", err)
+	}
+	if _, ok := profiles[profileName]; !ok {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	delete(profiles, profileName)
+
+	if err := saveAllProfiles(profiles); err != nil {
+		return fmt.Errorf("saving profiles: %w", err)
+	}
+	fmt.Printf("Profile %q deleted.\n", profileName)
 	return nil
 }
