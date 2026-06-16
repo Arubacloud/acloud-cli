@@ -638,3 +638,282 @@ func TestContainerRegistryUpdate_Wait_ReachesActive(t *testing.T) {
 		t.Errorf("ContainerContainerRegistryUpdate with Wait=true: %v", err)
 	}
 }
+
+// ─── Failure paths for Update wait blocks (return err branch) ─────────────────
+// Each function below exercises the WaitUntilActive→error→return path inside
+// the *Update operation, which was previously uncovered by the happy-path tests.
+
+func TestComputeCloudServerUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-wu1", "wait-cs-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wu1", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wu1", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := ComputeCloudServerUpdate(waitCtx(t), srv.Client(), ComputeCloudServerUpdateArgs{
+		ProjectID: "proj-123", ID: "cs-wu1", Name: "new-cs-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("ComputeCloudServerUpdate with Wait=true: %v", err)
+	}
+}
+
+func TestComputeCloudServerUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-wu2", "fail-cs-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wu2", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wu2", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := ComputeCloudServerUpdate(waitCtx(t), srv.Client(), ComputeCloudServerUpdateArgs{
+		ProjectID: "proj-123", ID: "cs-wu2", Name: "new-cs-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on cloudserver update, got nil")
+	}
+}
+
+func TestNetworkVPCUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpc-wf1", "fail-vpc-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-wf1", jsonResponse(200, types.VPCResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-wf1", jsonResponse(200, types.VPCResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := NetworkVPCUpdate(waitCtx(t), srv.Client(), NetworkVPCUpdateArgs{
+		ProjectID: "proj-123", ID: "vpc-wf1", Name: "new-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on VPC update, got nil")
+	}
+}
+
+func TestSecurityKMSUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kms-wf1", "fail-kms-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-wf1", jsonResponse(200, types.KmsResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Security/kms/kms-wf1", jsonResponse(200, types.KmsResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := SecurityKMSUpdate(waitCtx(t), srv.Client(), SecurityKMSUpdateArgs{
+		ProjectID: "proj-123", ID: "kms-wf1", Name: "new-kms-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on KMS update, got nil")
+	}
+}
+
+func TestStorageBlockStorageUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vol-wf1", "fail-vol-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-wf1", jsonResponse(200, types.BlockStorageResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Storage/blockStorages/vol-wf1", jsonResponse(200, types.BlockStorageResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := StorageBlockStorageUpdate(waitCtx(t), srv.Client(), StorageBlockStorageUpdateArgs{
+		ProjectID: "proj-123", ID: "vol-wf1", Name: "new-vol-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on BlockStorage update, got nil")
+	}
+}
+
+func TestNetworkSubnetUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sn-wf1", "fail-subnet-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sn-wf1", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sn-wf1", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := NetworkSubnetUpdate(waitCtx(t), srv.Client(), NetworkSubnetUpdateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", SubnetID: "sn-wf1", Name: "new-sn-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on Subnet update, got nil")
+	}
+}
+
+func TestNetworkSecurityGroupUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sg-wf1", "fail-sg-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-wf1", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-wf1", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := NetworkSecurityGroupUpdate(waitCtx(t), srv.Client(), NetworkSecurityGroupUpdateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", SGID: "sg-wf1", Name: "new-sg-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on SecurityGroup update, got nil")
+	}
+}
+
+func TestNetworkElasticIPUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-wf1", "fail-eip-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-wf1", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-wf1", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := NetworkElasticIPUpdate(waitCtx(t), srv.Client(), NetworkElasticIPUpdateArgs{
+		ProjectID: "proj-123", ID: "eip-wf1", Name: "new-eip-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on ElasticIP update, got nil")
+	}
+}
+
+func TestNetworkVPNTunnelUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-wf1", "fail-vpn-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-wf1", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-wf1", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := NetworkVPNTunnelUpdate(waitCtx(t), srv.Client(), NetworkVPNTunnelUpdateArgs{
+		ProjectID: "proj-123", ID: "vpn-wf1", Name: "new-vpn-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on VPNTunnel update, got nil")
+	}
+}
+
+func TestContainerKaaSUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-wf1", "fail-kaas-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-wf1", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Container/kaas/kaas-wf1", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := ContainerKaaSUpdate(waitCtx(t), srv.Client(), ContainerKaaSUpdateArgs{
+		ProjectID: "proj-123", ID: "kaas-wf1", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on KaaS update, got nil")
+	}
+}
+
+func TestDatabaseDBaaSUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-wf1", "fail-dbaas-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-wf1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-wf1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := DatabaseDBaaSUpdate(waitCtx(t), srv.Client(), DatabaseDBaaSUpdateArgs{
+		ProjectID: "proj-123", ID: "dbaas-wf1", Name: "new-dbaas-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on DBaaS update, got nil")
+	}
+}
+
+func TestContainerRegistryUpdate_Wait_FailureState(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-wf1", "fail-cr-upd"
+	putState := types.StateActive
+	getState := types.StateFailed
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-wf1", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &getState},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Container/registries/cr-wf1", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &putState},
+	}))
+
+	err := ContainerContainerRegistryUpdate(waitCtx(t), srv.Client(), ContainerContainerRegistryUpdateArgs{
+		ProjectID: "proj-123", ID: "cr-wf1", Name: "new-cr-name", Wait: true,
+	})
+	if err == nil {
+		t.Error("expected error for Failed state on ContainerRegistry update, got nil")
+	}
+}
