@@ -76,6 +76,7 @@ cleanup() {
         echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
         wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
         $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 120 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
@@ -85,6 +86,7 @@ cleanup() {
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done
+        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
     fi
 
     # Ephemeral key files

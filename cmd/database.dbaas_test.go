@@ -451,17 +451,21 @@ func TestDBaaSUpdateCmd(t *testing.T) {
 		},
 		{
 			// Regression: fromResponse sets d.engine from Engine.Type ("mysql") instead of
-			// the catalog ID, and never populates d.zone. Both cause 400 on PUT — fix
-			// re-injects Engine.ID and Engine.DataCenter before calling Update.
-			name: "engine ID and zone re-populated from response — avoids catalog 400",
+			// the catalog ID. Re-inject Engine.ID from the GET response so toRequest()
+			// emits the correct catalog identifier.
+			// Note: DataCenter is intentionally NOT re-injected — the GET response stores
+			// it as a region display name (e.g. "ITBG-Bergamo") not the zone code
+			// ("ITBG-1"), so injecting it would cause a 400 "DataCenter cannot be modified".
+			// Omitting dataCenter from PUT (omitempty + nil) is accepted as "no change".
+			name: "engine ID re-populated from response — avoids catalog 400; zone omitted from PUT",
 			args: []string{"database", "dbaas", "update", "dbaas-001", "--project-id", "proj-123", "--tags", "updated"},
 			setupSrv: func(srv *arubaTestServer) {
 				id, name := "dbaas-001", "my-dbaas"
-				engineID, engineType, engineDC := "mysql-8.0", "mysql", "ITBG-1"
+				engineID, engineType := "mysql-8.0", "mysql"
 				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{
 					Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
 					Properties: types.DBaaSPropertiesResponse{
-						Engine: &types.DBaaSEngineResponse{ID: &engineID, Type: &engineType, DataCenter: &engineDC},
+						Engine: &types.DBaaSEngineResponse{ID: &engineID, Type: &engineType},
 					},
 				}))
 				srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001", jsonResponse(200, types.DBaaSResponse{

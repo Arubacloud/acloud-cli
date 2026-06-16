@@ -52,25 +52,28 @@ cleanup() {
         fi
     done
 
-    # Grants: The API does not return grant IDs in list/create responses, so
-    # individual grant deletes are not possible here. User/database deletes
-    # will 409 when grants exist — that is expected and harmless; the DBaaS
-    # cascade delete (below) removes all sub-resources atomically.
+    # When grants were created, individual user/database deletes will always 409
+    # ("user has granted access" / "users have access to this database").
+    # The DBaaS cascade delete handles all sub-resources atomically, so skip
+    # the individual deletes when grants exist to avoid confusing error noise.
+    if [ "$CREATED_GRANTS" -gt 0 ]; then
+        echo "Skipping individual user/database deletes — grants exist; DBaaS cascade delete will remove them"
+    else
+        # Delete DBaaS users
+        if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
+            for user in "${CREATED_USERS[@]}"; do
+                echo "Deleting user: $user"
+                $ACLOUD_CMD database dbaas user delete "$DBAAS_ID" "$user" --yes 2>&1 || true
+            done
+        fi
 
-    # Delete DBaaS users
-    if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
-        for user in "${CREATED_USERS[@]}"; do
-            echo "Deleting user: $user"
-            $ACLOUD_CMD database dbaas user delete "$DBAAS_ID" "$user" --yes 2>&1 || true
-        done
-    fi
-
-    # Delete DBaaS databases
-    if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
-        for db in "${CREATED_DATABASES[@]}"; do
-            echo "Deleting database: $db"
-            $ACLOUD_CMD database dbaas database delete "$DBAAS_ID" "$db" --yes 2>&1 || true
-        done
+        # Delete DBaaS databases
+        if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
+            for db in "${CREATED_DATABASES[@]}"; do
+                echo "Deleting database: $db"
+                $ACLOUD_CMD database dbaas database delete "$DBAAS_ID" "$db" --yes 2>&1 || true
+            done
+        fi
     fi
 
     # Delete DBaaS instances — wait for Active before delete to avoid 400
@@ -104,6 +107,7 @@ cleanup() {
         echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
         wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
         $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 120 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
@@ -113,6 +117,7 @@ cleanup() {
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done
+        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
     fi
 
     # Delete bootstrapped project last (retry — DBaaS and VPC deletions are async)

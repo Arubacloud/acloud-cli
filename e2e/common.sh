@@ -203,6 +203,22 @@ wait_for_status() {
     return 1
 }
 
+# --- Removal polling ------------------------------------------------------
+# wait_for_removal "<get-cmd>" [timeout]
+# Polls every 5s until the get command exits non-zero (resource gone).
+# Returns 0 on removal, 1 on timeout.
+# Use this after a delete call to ensure the resource is truly gone before
+# attempting to delete a parent resource that depends on it.
+wait_for_removal() {
+    local get_cmd="$1" timeout="${2:-120}" elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        eval "$get_cmd" >/dev/null 2>&1 || { echo "  → removed"; return 0; }
+        sleep 5; elapsed=$((elapsed + 5))
+    done
+    echo -e "${YELLOW}wait_for_removal: timeout after ${timeout}s — resource may still be in Deleting state${NC}"
+    return 1
+}
+
 # --- Ephemeral SSH key for keypair tests ---------------------------------
 # Generates a temporary ed25519 key; prints the public-key string to stdout.
 # Returns 1 if ssh-keygen is unavailable.

@@ -23,6 +23,9 @@ BOOTSTRAP_SG_ID=""
 BOOTSTRAP_PUBIP_ID=""
 BOOTSTRAP_BLOCK_ID=""
 
+# IDs that could not be deleted during cleanup (printed at the end for manual removal)
+ORPHANED_KAAS_IDS=()
+
 # Resolved dep IDs (populated by ensure_* functions)
 VPC_ID="${ACLOUD_VPC_ID:-}"
 SUBNET_ID="${ACLOUD_SUBNET_ID:-}"
@@ -43,6 +46,7 @@ cleanup() {
             wait_for_status "$ACLOUD_CMD container containerregistry get $id" '^(Active|Ready)$' 300 2>/dev/null || true
             echo "Deleting container registry: $id"
             $ACLOUD_CMD container containerregistry delete "$id" --yes 2>&1 || true
+            wait_for_removal "$ACLOUD_CMD container containerregistry get $id" 300 2>/dev/null || true
         fi
     done
 
@@ -50,16 +54,26 @@ cleanup() {
     for id in "${CREATED_CLUSTERS[@]}"; do
         if is_valid_id "$id"; then
             echo "Waiting for cluster $id before delete..."
-            wait_for_status "$ACLOUD_CMD container kaas get $id" '^(Active|Ready)$' 600 2>/dev/null || true
+            # Accept Failed/Error so a failed provisioning run doesn't stall cleanup.
+            # InCreation clusters will time out here; the API rejects DELETE while InCreation.
+            wait_for_status "$ACLOUD_CMD container kaas get $id" '^(Active|Ready|Failed|Error)$' 600 2>/dev/null || true
             echo "Deleting KaaS cluster: $id"
-            $ACLOUD_CMD container kaas delete "$id" --yes 2>&1 || true
-            local wait_del=0
-            echo "  Waiting for KaaS $id to be fully removed..."
-            while [ "$wait_del" -lt 600 ]; do
-                $ACLOUD_CMD container kaas get "$id" >/dev/null 2>&1 || { echo "  → KaaS $id removed"; break; }
-                sleep 15
-                wait_del=$((wait_del + 15))
-            done
+            local del_out del_exit
+            del_out=$($ACLOUD_CMD container kaas delete "$id" --yes 2>&1)
+            del_exit=$?
+            echo "$del_out"
+            if [ $del_exit -eq 0 ]; then
+                local wait_del=0
+                echo "  Waiting for KaaS $id to be fully removed..."
+                while [ "$wait_del" -lt 600 ]; do
+                    $ACLOUD_CMD container kaas get "$id" >/dev/null 2>&1 || { echo "  → KaaS $id removed"; break; }
+                    sleep 15
+                    wait_del=$((wait_del + 15))
+                done
+            else
+                echo -e "${YELLOW}  ⚠ KaaS $id delete failed (cluster still provisioning?) — subnet/VPC/project will need manual cleanup${NC}"
+                ORPHANED_KAAS_IDS+=("$id")
+            fi
         fi
     done
 
@@ -75,20 +89,35 @@ cleanup() {
     if [ -n "$BOOTSTRAP_SG_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped security group: $BOOTSTRAP_SG_ID"
         $ACLOUD_CMD network securitygroup delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SG_ID" --yes 2>&1 || true
+        wait_for_removal "$ACLOUD_CMD network securitygroup get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SG_ID" 120 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_SUBNET_ID" ] && [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
         wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
         $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 120 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
         local vpc_del_elapsed=0
         while [ "$vpc_del_elapsed" -lt 300 ]; do
-            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            vpc_del_out=$($ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1)
+            if [ $? -eq 0 ]; then
+                echo "$vpc_del_out"
+                break
+            fi
+            # If the VPC is blocked by a KaaS cluster that's still provisioning, retrying
+            # won't help — print once and give up early to avoid 20 identical errors.
+            if echo "$vpc_del_out" | grep -qi "used by another resource\|bound resource"; then
+                echo "$vpc_del_out"
+                echo -e "${YELLOW}  ⚠ VPC still held by a resource (KaaS cluster still provisioning?) — skipping further retries${NC}"
+                break
+            fi
+            echo "$vpc_del_out"
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done
+        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
     fi
 
     # Delete bootstrapped project last — retry because VPC/cluster deletions are async
@@ -100,6 +129,19 @@ cleanup() {
             sleep 15
             proj_del_elapsed=$((proj_del_elapsed + 15))
         done
+    fi
+
+    if [ ${#ORPHANED_KAAS_IDS[@]} -gt 0 ]; then
+        echo -e "${RED}=== ORPHANED RESOURCES — manual cleanup required ===${NC}"
+        echo "The following KaaS clusters could not be deleted (still provisioning at test exit)."
+        echo "Wait for them to reach Active in the portal, then delete in this order:"
+        for oid in "${ORPHANED_KAAS_IDS[@]}"; do
+            echo "  1. KaaS cluster:  $oid"
+        done
+        [ -n "$BOOTSTRAP_SUBNET_ID" ] && echo "  2. Subnet:        $BOOTSTRAP_SUBNET_ID"
+        [ -n "$BOOTSTRAP_VPC_ID" ]    && echo "  3. VPC:           $BOOTSTRAP_VPC_ID"
+        [ -n "$BOOTSTRAP_PROJECT_ID" ] && echo "  4. Project:       $BOOTSTRAP_PROJECT_ID"
+        echo -e "${RED}=====================================================${NC}"
     fi
 
     echo -e "${GREEN}Cleanup completed!${NC}"
@@ -384,7 +426,7 @@ test_containerregistry() {
         $ACLOUD_CMD container containerregistry update "$REGISTRY_ID" \
             --name "${registry_name}-updated" \
             --tags "e2e-test,registry,updated" \
-            --concurrent-users 20 2>&1 || true
+            --concurrent-users Medium 2>&1 || true
         echo ""
     else
         skip "[UPDATE] container registry: did not reach Active after 900s — update step skipped"
