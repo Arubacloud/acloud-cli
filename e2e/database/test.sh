@@ -353,7 +353,8 @@ test_dbaas() {
     if [ "$dbaas_ready" -eq 1 ]; then
         echo -e "${GREEN}[UPDATE]${NC} Updating DBaaS: $DBAAS_ID"
         UPDATE_OUTPUT=$($ACLOUD_CMD database dbaas update "$DBAAS_ID" \
-            --tags "e2e-test,updated" 2>&1)
+            --tags "e2e-test,updated" \
+            --zone "$ZONE" 2>&1)
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}DBaaS updated successfully${NC}"
         else
@@ -534,16 +535,32 @@ test_backup() {
     local backup_name="e2ebackup${_ts}"
     local database_name="${CREATED_DATABASES[0]}"
 
+    # The backup service has its own database registry that may lag behind the DBaaS
+    # database API. Retry up to 3 times with a 15-second delay on "database not found"
+    # errors to handle the propagation window.
     echo -e "${GREEN}[CREATE]${NC} Creating backup: $backup_name"
-    CREATE_OUTPUT=$($ACLOUD_CMD database backup create \
-        --name "$backup_name" \
-        --region "$REGION" \
-        --zone "$ZONE" \
-        --dbaas-id "$DBAAS_ID" \
-        --database-name "$database_name" \
-        --billing-period "Hour" \
-        --tags "e2e-test" 2>&1)
-    exit_code=$?
+    local attempt=0 exit_code=1
+    while [ $attempt -lt 3 ]; do
+        CREATE_OUTPUT=$($ACLOUD_CMD database backup create \
+            --name "$backup_name" \
+            --region "$REGION" \
+            --zone "$ZONE" \
+            --dbaas-id "$DBAAS_ID" \
+            --database-name "$database_name" \
+            --billing-period "Hour" \
+            --tags "e2e-test" 2>&1)
+        exit_code=$?
+        if [ $exit_code -eq 0 ]; then break; fi
+        if echo "$CREATE_OUTPUT" | grep -qi "database.*not found\|not found.*database"; then
+            attempt=$((attempt + 1))
+            if [ $attempt -lt 3 ]; then
+                echo -e "${YELLOW}  Backup service hasn't synced database yet — retrying in 15s (attempt $((attempt + 1))/3)...${NC}"
+                sleep 15
+                continue
+            fi
+        fi
+        break
+    done
 
     if ! check_auth_error "$CREATE_OUTPUT"; then return 1; fi
     if [ $exit_code -ne 0 ]; then
