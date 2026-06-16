@@ -52,25 +52,28 @@ cleanup() {
         fi
     done
 
-    # Grants: The API does not return grant IDs in list/create responses, so
-    # individual grant deletes are not possible here. User/database deletes
-    # will 409 when grants exist — that is expected and harmless; the DBaaS
-    # cascade delete (below) removes all sub-resources atomically.
+    # When grants were created, individual user/database deletes will always 409
+    # ("user has granted access" / "users have access to this database").
+    # The DBaaS cascade delete handles all sub-resources atomically, so skip
+    # the individual deletes when grants exist to avoid confusing error noise.
+    if [ "$CREATED_GRANTS" -gt 0 ]; then
+        echo "Skipping individual user/database deletes — grants exist; DBaaS cascade delete will remove them"
+    else
+        # Delete DBaaS users
+        if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
+            for user in "${CREATED_USERS[@]}"; do
+                echo "Deleting user: $user"
+                $ACLOUD_CMD database dbaas user delete "$DBAAS_ID" "$user" --yes 2>&1 || true
+            done
+        fi
 
-    # Delete DBaaS users
-    if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
-        for user in "${CREATED_USERS[@]}"; do
-            echo "Deleting user: $user"
-            $ACLOUD_CMD database dbaas user delete "$DBAAS_ID" "$user" --yes 2>&1 || true
-        done
-    fi
-
-    # Delete DBaaS databases
-    if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
-        for db in "${CREATED_DATABASES[@]}"; do
-            echo "Deleting database: $db"
-            $ACLOUD_CMD database dbaas database delete "$DBAAS_ID" "$db" --yes 2>&1 || true
-        done
+        # Delete DBaaS databases
+        if [ -n "$DBAAS_ID" ] && is_valid_id "$DBAAS_ID"; then
+            for db in "${CREATED_DATABASES[@]}"; do
+                echo "Deleting database: $db"
+                $ACLOUD_CMD database dbaas database delete "$DBAAS_ID" "$db" --yes 2>&1 || true
+            done
+        fi
     fi
 
     # Delete DBaaS instances — wait for Active before delete to avoid 400
@@ -104,14 +107,46 @@ cleanup() {
         echo "Deleting bootstrapped subnet: $BOOTSTRAP_SUBNET_ID"
         wait_for_status "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" '^(Active|Ready)$' 60 2>/dev/null || true
         $ACLOUD_CMD network subnet delete "$BOOTSTRAP_VPC_ID" "$BOOTSTRAP_SUBNET_ID" --yes 2>&1 || true
+        wait_for_removal "$ACLOUD_CMD network subnet get $BOOTSTRAP_VPC_ID $BOOTSTRAP_SUBNET_ID" 120 2>/dev/null || true
     fi
     if [ -n "$BOOTSTRAP_VPC_ID" ]; then
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
         local vpc_del_elapsed=0
         while [ "$vpc_del_elapsed" -lt 120 ]; do
-            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            vpc_out=$($ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1)
+            if [ $? -eq 0 ]; then echo "$vpc_out"; break; fi
+            # 404 means already gone — stop retrying immediately
+            if echo "$vpc_out" | grep -qi "404\|Not Found"; then echo "$vpc_out"; break; fi
+            echo "$vpc_out"
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
+        done
+        wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
+    fi
+
+    # Sweep for DBaaS instances that exist in the project but weren't tracked —
+    # e.g. a failed create call that returned 400 but still persisted the resource.
+    # This must run before the project delete or the project will stay blocked.
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ] || [ "$PROJECT_ID" != "your-project-id" ]; then
+        local sweep_id="${BOOTSTRAP_PROJECT_ID:-$PROJECT_ID}"
+        local leftover_ids
+        leftover_ids=$($ACLOUD_CMD database dbaas list --output table-json 2>/dev/null \
+            | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    for item in d:
+        v=item.get('id','')
+        if v: print(v)
+except: pass
+" 2>/dev/null || true)
+        for lid in $leftover_ids; do
+            if is_valid_id "$lid"; then
+                echo "  Sweeping untracked DBaaS instance: $lid"
+                wait_for_status "$ACLOUD_CMD database dbaas get $lid" '^(Active|Ready|Failed|Error)$' 120 2>/dev/null || true
+                $ACLOUD_CMD database dbaas delete "$lid" --yes 2>&1 || true
+                wait_for_removal "$ACLOUD_CMD database dbaas get $lid" 300 2>/dev/null || true
+            fi
         done
     fi
 
@@ -318,7 +353,8 @@ test_dbaas() {
     if [ "$dbaas_ready" -eq 1 ]; then
         echo -e "${GREEN}[UPDATE]${NC} Updating DBaaS: $DBAAS_ID"
         UPDATE_OUTPUT=$($ACLOUD_CMD database dbaas update "$DBAAS_ID" \
-            --tags "e2e-test,updated" 2>&1)
+            --tags "e2e-test,updated" \
+            --zone "$ZONE" 2>&1)
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}DBaaS updated successfully${NC}"
         else
@@ -499,16 +535,32 @@ test_backup() {
     local backup_name="e2ebackup${_ts}"
     local database_name="${CREATED_DATABASES[0]}"
 
+    # The backup service has its own database registry that may lag behind the DBaaS
+    # database API. Retry up to 3 times with a 15-second delay on "database not found"
+    # errors to handle the propagation window.
     echo -e "${GREEN}[CREATE]${NC} Creating backup: $backup_name"
-    CREATE_OUTPUT=$($ACLOUD_CMD database backup create \
-        --name "$backup_name" \
-        --region "$REGION" \
-        --zone "$ZONE" \
-        --dbaas-id "$DBAAS_ID" \
-        --database-name "$database_name" \
-        --billing-period "Hour" \
-        --tags "e2e-test" 2>&1)
-    exit_code=$?
+    local attempt=0 exit_code=1
+    while [ $attempt -lt 3 ]; do
+        CREATE_OUTPUT=$($ACLOUD_CMD database backup create \
+            --name "$backup_name" \
+            --region "$REGION" \
+            --zone "$ZONE" \
+            --dbaas-id "$DBAAS_ID" \
+            --database-name "$database_name" \
+            --billing-period "Hour" \
+            --tags "e2e-test" 2>&1)
+        exit_code=$?
+        if [ $exit_code -eq 0 ]; then break; fi
+        if echo "$CREATE_OUTPUT" | grep -qi "database.*not found\|not found.*database"; then
+            attempt=$((attempt + 1))
+            if [ $attempt -lt 3 ]; then
+                echo -e "${YELLOW}  Backup service hasn't synced database yet — retrying in 15s (attempt $((attempt + 1))/3)...${NC}"
+                sleep 15
+                continue
+            fi
+        fi
+        break
+    done
 
     if ! check_auth_error "$CREATE_OUTPUT"; then return 1; fi
     if [ $exit_code -ne 0 ]; then
@@ -543,11 +595,11 @@ setup_context
 
 echo -e "${BLUE}Starting Database Resources E2E Tests...${NC}\n"
 
-test_dbaas
-test_dbaas_database
-test_dbaas_user
-test_dbaas_grant
-test_backup
+test_dbaas             || FAILURES=$((FAILURES + 1))
+test_dbaas_database    || FAILURES=$((FAILURES + 1))
+test_dbaas_user        || FAILURES=$((FAILURES + 1))
+test_dbaas_grant       || FAILURES=$((FAILURES + 1))
+test_backup            || FAILURES=$((FAILURES + 1))
 test_output_formats
 
 # Test summary
