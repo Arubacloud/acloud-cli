@@ -82,7 +82,10 @@ cleanup() {
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
         local vpc_del_elapsed=0
         while [ "$vpc_del_elapsed" -lt 120 ]; do
-            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            vpc_out=$($ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1)
+            if [ $? -eq 0 ]; then echo "$vpc_out"; break; fi
+            if echo "$vpc_out" | grep -qi "404\|Not Found"; then echo "$vpc_out"; break; fi
+            echo "$vpc_out"
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done

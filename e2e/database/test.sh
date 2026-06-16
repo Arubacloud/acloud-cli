@@ -113,11 +113,41 @@ cleanup() {
         echo "Deleting bootstrapped VPC: $BOOTSTRAP_VPC_ID"
         local vpc_del_elapsed=0
         while [ "$vpc_del_elapsed" -lt 120 ]; do
-            $ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1 && break
+            vpc_out=$($ACLOUD_CMD network vpc delete "$BOOTSTRAP_VPC_ID" --yes 2>&1)
+            if [ $? -eq 0 ]; then echo "$vpc_out"; break; fi
+            # 404 means already gone — stop retrying immediately
+            if echo "$vpc_out" | grep -qi "404\|Not Found"; then echo "$vpc_out"; break; fi
+            echo "$vpc_out"
             sleep 15
             vpc_del_elapsed=$((vpc_del_elapsed + 15))
         done
         wait_for_removal "$ACLOUD_CMD network vpc get $BOOTSTRAP_VPC_ID" 120 2>/dev/null || true
+    fi
+
+    # Sweep for DBaaS instances that exist in the project but weren't tracked —
+    # e.g. a failed create call that returned 400 but still persisted the resource.
+    # This must run before the project delete or the project will stay blocked.
+    if [ -n "$BOOTSTRAP_PROJECT_ID" ] || [ "$PROJECT_ID" != "your-project-id" ]; then
+        local sweep_id="${BOOTSTRAP_PROJECT_ID:-$PROJECT_ID}"
+        local leftover_ids
+        leftover_ids=$($ACLOUD_CMD database dbaas list --output table-json 2>/dev/null \
+            | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    for item in d:
+        v=item.get('id','')
+        if v: print(v)
+except: pass
+" 2>/dev/null || true)
+        for lid in $leftover_ids; do
+            if is_valid_id "$lid"; then
+                echo "  Sweeping untracked DBaaS instance: $lid"
+                wait_for_status "$ACLOUD_CMD database dbaas get $lid" '^(Active|Ready|Failed|Error)$' 120 2>/dev/null || true
+                $ACLOUD_CMD database dbaas delete "$lid" --yes 2>&1 || true
+                wait_for_removal "$ACLOUD_CMD database dbaas get $lid" 300 2>/dev/null || true
+            fi
+        done
     fi
 
     # Delete bootstrapped project last (retry — DBaaS and VPC deletions are async)
@@ -548,11 +578,11 @@ setup_context
 
 echo -e "${BLUE}Starting Database Resources E2E Tests...${NC}\n"
 
-test_dbaas
-test_dbaas_database
-test_dbaas_user
-test_dbaas_grant
-test_backup
+test_dbaas             || FAILURES=$((FAILURES + 1))
+test_dbaas_database    || FAILURES=$((FAILURES + 1))
+test_dbaas_user        || FAILURES=$((FAILURES + 1))
+test_dbaas_grant       || FAILURES=$((FAILURES + 1))
+test_backup            || FAILURES=$((FAILURES + 1))
 test_output_formats
 
 # Test summary
