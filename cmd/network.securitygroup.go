@@ -424,7 +424,7 @@ func NetworkSecurityGroupCreate(ctx context.Context, client aruba.Client, args N
 		PrintOutput(resp, headers, [][]string{{args.Name, id, region, status}})
 		if args.Wait && id != "" {
 			getter := func(ctx context.Context) (string, error) {
-				res, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(args.ProjectID, args.VPCID, id))
+				res, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(args.ProjectID, args.VPCID, id))
 				if err != nil {
 					return "", apiErrFromV2(err)
 				}
@@ -536,7 +536,7 @@ func NetworkSecurityGroupUpdate(ctx context.Context, client aruba.Client, args N
 		PrintOutput(updated, headers, [][]string{{nameVal, id, updateRegion, status}})
 		if args.Wait && id != "" {
 			getter := func(ctx context.Context) (string, error) {
-				res, err := client.FromNetwork().SecurityGroups().Get(ctx, securityGroupRef(args.ProjectID, args.VPCID, id))
+				res, err := client.FromNetwork().SecurityGroups().Get(ctx, aruba.SecurityGroupRef(args.ProjectID, args.VPCID, id))
 				if err != nil {
 					return "", apiErrFromV2(err)
 				}

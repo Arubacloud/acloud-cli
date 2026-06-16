@@ -554,6 +554,35 @@ acloud network vpc list -o json
 acloud storage blockstorage list -o table-json | jq '.[].name'
 ```
 
+## Provisioning Sincrono (--wait)
+
+Per impostazione predefinita, i comandi `create` e `update` ritornano non appena l'API accetta la richiesta — la risorsa potrebbe essere ancora in fase di provisioning in background. Usa `--wait` per attendere finché la risorsa raggiunge uno stato operativo (`Active`, `Running`, ecc.) o fallisce.
+
+```bash
+# Attendi che il VPC sia Active
+acloud network vpc create --name "prod-vpc" --region "IT-BG" --wait
+
+# Attendi che il DBaaS sia Active; estendi il timeout a 10 minuti
+acloud --timeout 10m database dbaas create --name "prod-db" --region "IT-BG" \
+  --engine-id "mysql-8.0" --flavor "DBO4A8" --storage-size 50 \
+  --zone "ITBG-1" --wait
+```
+
+Il progresso viene stampato su stderr (per non mescolarsi con l'output `-o json`):
+```
+Waiting for VPC 'prod-vpc' to become Active... [12s]
+VPC 'prod-vpc' is Active after 15s.
+```
+
+**Risorse supportate:** `cloudserver`, `vpc`, `subnet`, `securitygroup`, `vpntunnel`, `elasticip`, `kaas`, `containerregistry`, `dbaas`, `kms`, `blockstorage` — sia nei comandi create che update.
+
+**Timeout:** `--wait` rispetta il flag globale `--timeout` (default `30s`). Per risorse che richiedono più tempo per il provisioning (cluster KaaS, istanze DBaaS), imposta un timeout più lungo:
+```bash
+acloud --timeout 15m container kaas create ... --wait
+```
+
+**Codice di uscita:** Ritorna non-zero se la risorsa raggiunge uno stato di errore (`Error`, `Failed`) o il timeout scade prima che la risorsa diventi operativa.
+
 ## Eliminazione Sicura (Dry Run)
 
 Ogni comando di eliminazione supporta `--dry-run` per verificare che una risorsa esista senza eliminarla effettivamente:

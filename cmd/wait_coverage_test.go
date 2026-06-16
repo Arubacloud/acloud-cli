@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
 )
 
@@ -308,4 +309,332 @@ func TestWaitFlag_CLI_KMS(t *testing.T) {
 		"--project-id", "proj-123", "--name", "cli-kms", "--region", "IT-BG",
 		"--billing-period", "Hour", "--wait",
 	})
+}
+
+// ─── Subnet create + update ───────────────────────────────────────────────────
+
+func TestNetworkSubnetCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sub-w1", "wait-subnet"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-w1", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	args := validNetworkSubnetCreateArgs()
+	args.Wait = true
+	if err := NetworkSubnetCreate(waitCtx(t), srv.Client(), args); err != nil {
+		t.Errorf("NetworkSubnetCreate with Wait=true: %v", err)
+	}
+}
+
+func TestNetworkSubnetUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sub-w2", "wait-subnet-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-w2", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets/sub-w2", jsonResponse(200, types.SubnetResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := NetworkSubnetUpdate(waitCtx(t), srv.Client(), NetworkSubnetUpdateArgs{
+		ProjectID: "proj-123",
+		VPCID:     "vpc-001",
+		SubnetID:  "sub-w2",
+		Name:      "new-subnet-name",
+		Wait:      true,
+	})
+	if err != nil {
+		t.Errorf("NetworkSubnetUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── SecurityGroup create + update ───────────────────────────────────────────
+
+func TestNetworkSecurityGroupCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sg-w1", "wait-sg"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-w1", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := NetworkSecurityGroupCreate(waitCtx(t), srv.Client(), NetworkSecurityGroupCreateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", Name: "wait-sg", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("NetworkSecurityGroupCreate with Wait=true: %v", err)
+	}
+}
+
+func TestNetworkSecurityGroupUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "sg-w2", "wait-sg-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-w2", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups/sg-w2", jsonResponse(200, types.SecurityGroupResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := NetworkSecurityGroupUpdate(waitCtx(t), srv.Client(), NetworkSecurityGroupUpdateArgs{
+		ProjectID: "proj-123", VPCID: "vpc-001", SGID: "sg-w2",
+		Name: "new-sg-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("NetworkSecurityGroupUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── ElasticIP create + update ────────────────────────────────────────────────
+
+func TestNetworkElasticIPCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-w1", "wait-eip"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/elasticIps", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-w1", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	args := validNetworkElasticIPCreateArgs()
+	args.Wait = true
+	if err := NetworkElasticIPCreate(waitCtx(t), srv.Client(), args); err != nil {
+		t.Errorf("NetworkElasticIPCreate with Wait=true: %v", err)
+	}
+}
+
+func TestNetworkElasticIPUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "eip-w2", "wait-eip-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-w2", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/elasticIps/eip-w2", jsonResponse(200, types.ElasticIPResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := NetworkElasticIPUpdate(waitCtx(t), srv.Client(), NetworkElasticIPUpdateArgs{
+		ProjectID: "proj-123", ID: "eip-w2",
+		Name: "new-eip-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("NetworkElasticIPUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── VPNTunnel create + update ────────────────────────────────────────────────
+
+func TestNetworkVPNTunnelCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-w1", "wait-vpn"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Network/vpnTunnels", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-w1", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	args := validNetworkVPNTunnelCreateArgs()
+	args.Wait = true
+	if err := NetworkVPNTunnelCreate(waitCtx(t), srv.Client(), args); err != nil {
+		t.Errorf("NetworkVPNTunnelCreate with Wait=true: %v", err)
+	}
+}
+
+func TestNetworkVPNTunnelUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "vpn-w2", "wait-vpn-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-w2", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Network/vpnTunnels/vpn-w2", jsonResponse(200, types.VPNTunnelResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := NetworkVPNTunnelUpdate(waitCtx(t), srv.Client(), NetworkVPNTunnelUpdateArgs{
+		ProjectID: "proj-123", ID: "vpn-w2",
+		Name: "new-vpn-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("NetworkVPNTunnelUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── KaaS create + update ─────────────────────────────────────────────────────
+
+func TestContainerKaaSCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-w1", "wait-kaas"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Container/kaas", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-w1", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := ContainerKaaSCreate(waitCtx(t), srv.Client(), ContainerKaaSCreateArgs{
+		ProjectID:         "proj-123",
+		Name:              "wait-kaas",
+		Region:            aruba.RegionITBGBergamo,
+		VPCID:             "vpc-001",
+		SubnetID:          "sub-001",
+		NodeCIDRAddress:   "10.0.0.0/16",
+		NodeCIDRName:      "my-cidr",
+		SecurityGroupName: "my-sg",
+		KubernetesVersion: aruba.KubernetesVersion("1.32.3"),
+		NodePoolName:      "workers",
+		NodePoolNodes:     1,
+		NodePoolInstance:  aruba.NodePoolInstanceK4A8,
+		NodePoolZone:      aruba.Zone("ITBG-1"),
+		Wait:              true,
+	})
+	if err != nil {
+		t.Errorf("ContainerKaaSCreate with Wait=true: %v", err)
+	}
+}
+
+func TestContainerKaaSUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kaas-w2", "wait-kaas-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/kaas/kaas-w2", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Container/kaas/kaas-w2", jsonResponse(200, types.KaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := ContainerKaaSUpdate(waitCtx(t), srv.Client(), ContainerKaaSUpdateArgs{
+		ProjectID: "proj-123", ID: "kaas-w2",
+		Name: "new-kaas-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("ContainerKaaSUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── DBaaS create + update ────────────────────────────────────────────────────
+
+func TestDatabaseDBaaSCreate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-w1", "wait-dbaas"
+	state := types.StateActive
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-w1", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := DatabaseDBaaSCreate(waitCtx(t), srv.Client(), DatabaseDBaaSCreateArgs{
+		ProjectID:     "proj-123",
+		Name:          "wait-dbaas",
+		Region:        aruba.RegionITBGBergamo,
+		Zone:          "ITBG-1",
+		Engine:        "mysql-8.0",
+		Flavor:        "DBO4A8",
+		SizeGB:        50,
+		BillingPeriod: aruba.BillingPeriodHour,
+		Wait:          true,
+	})
+	if err != nil {
+		t.Errorf("DatabaseDBaaSCreate with Wait=true: %v", err)
+	}
+}
+
+func TestDatabaseDBaaSUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "dbaas-w2", "wait-dbaas-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-w2", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-w2", jsonResponse(200, types.DBaaSResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := DatabaseDBaaSUpdate(waitCtx(t), srv.Client(), DatabaseDBaaSUpdateArgs{
+		ProjectID: "proj-123", ID: "dbaas-w2",
+		Name: "new-dbaas-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("DatabaseDBaaSUpdate with Wait=true: %v", err)
+	}
+}
+
+// ─── ContainerRegistry update (create already covered) ───────────────────────
+
+func TestContainerRegistryUpdate_Wait_ReachesActive(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cr-w2", "wait-cr-upd"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Container/registries/cr-w2", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Container/registries/cr-w2", jsonResponse(200, types.ContainerRegistryResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+
+	err := ContainerContainerRegistryUpdate(waitCtx(t), srv.Client(), ContainerContainerRegistryUpdateArgs{
+		ProjectID: "proj-123", ID: "cr-w2",
+		Name: "new-cr-name", Wait: true,
+	})
+	if err != nil {
+		t.Errorf("ContainerContainerRegistryUpdate with Wait=true: %v", err)
+	}
 }
