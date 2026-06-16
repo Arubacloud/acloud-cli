@@ -12,6 +12,7 @@ import (
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -915,5 +916,217 @@ func TestContainerRegistryUpdate_Wait_FailureState(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for Failed state on ContainerRegistry update, got nil")
+	}
+}
+
+func TestWaitFlag_Parse_MissingProjectID(t *testing.T) {
+	// Force project resolution to fail from both flag and context so ParseFromCobraCommand
+	// executes its error-collection branches in wait-enabled create/update handlers.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "vpc create",
+			args: []string{"network", "vpc", "create", "--name", "vpc-a", "--region", "IT-BG", "--wait"},
+		},
+		{
+			name: "vpc update",
+			args: []string{"network", "vpc", "update", "vpc-001", "--name", "vpc-b", "--wait"},
+		},
+		{
+			name: "cloudserver create",
+			args: []string{"compute", "cloudserver", "create", "--name", "cs-a", "--region", "IT-BG", "--zone", "ITBG-1", "--flavor", "cs-1", "--boot-disk-id", "vol-001", "--vpc-id", "vpc-001", "--subnet-id", "sub-001", "--security-group-id", "sg-001", "--wait"},
+		},
+		{
+			name: "cloudserver update",
+			args: []string{"compute", "cloudserver", "update", "cs-001", "--name", "cs-b", "--wait"},
+		},
+		{
+			name: "kms create",
+			args: []string{"security", "kms", "create", "--name", "kms-a", "--region", "IT-BG", "--billing-period", "Hour", "--wait"},
+		},
+		{
+			name: "kms update",
+			args: []string{"security", "kms", "update", "kms-001", "--name", "kms-b", "--wait"},
+		},
+		{
+			name: "dbaas create",
+			args: []string{"database", "dbaas", "create", "--name", "db-a", "--region", "IT-BG", "--engine-id", "mysql-8.0", "--flavor", "DBO4A8", "--storage-size", "50", "--zone", "ITBG-1", "--wait"},
+		},
+		{
+			name: "dbaas update",
+			args: []string{"database", "dbaas", "update", "db-001", "--name", "db-b", "--wait"},
+		},
+		{
+			name: "blockstorage create",
+			args: []string{"storage", "blockstorage", "create", "--name", "vol-a", "--size", "50", "--wait"},
+		},
+		{
+			name: "blockstorage update",
+			args: []string{"storage", "blockstorage", "update", "vol-001", "--name", "vol-b", "--wait"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newArubaTestServer(t)
+			if err := runCmd(srv.Client(), tc.args); err == nil {
+				t.Fatalf("expected parse/validation error when project-id is missing for %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestComputeCloudServerCreate_Wait_GetterError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-wge1", "wait-cs-create"
+	state := types.StateInCreation
+
+	srv.OnPost("/projects/proj-123/providers/Aruba.Compute/cloudServers", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wge1",
+		errorResponse(500, "test", "wait poll failed"))
+
+	args := validCreateArgs()
+	args.Wait = true
+	if err := ComputeCloudServerCreate(waitCtx(t), srv.Client(), args); err == nil {
+		t.Fatal("expected error when wait getter returns API error")
+	}
+}
+
+func TestComputeCloudServerUpdate_Wait_GetterError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "cs-wge2", "wait-cs-update"
+	state := types.StateActive
+
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wge2", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	srv.OnPut("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wge2", jsonResponse(200, types.CloudServerResponse{
+		Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name},
+		Status:   types.ResourceStatusResponse{State: &state},
+	}))
+	// Second GET call (inside wait getter) returns API error.
+	srv.OnGet("/projects/proj-123/providers/Aruba.Compute/cloudServers/cs-wge2",
+		errorResponse(500, "test", "wait poll failed"))
+
+	args := ComputeCloudServerUpdateArgs{ProjectID: "proj-123", ID: "cs-wge2", Name: "new-name", Wait: true}
+	if err := ComputeCloudServerUpdate(waitCtx(t), srv.Client(), args); err == nil {
+		t.Fatal("expected error when wait getter returns API error")
+	}
+}
+
+func TestWaitParse_CreateUpdate_MissingProjectID(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	tests := []struct {
+		name  string
+		parse func(*cobra.Command) error
+	}{
+		{name: "compute create", parse: func(cmd *cobra.Command) error {
+			var a ComputeCloudServerCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "compute update", parse: func(cmd *cobra.Command) error {
+			var a ComputeCloudServerUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"cs-001"})
+		}},
+		{name: "container registry create", parse: func(cmd *cobra.Command) error {
+			var a ContainerContainerRegistryCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "container registry update", parse: func(cmd *cobra.Command) error {
+			var a ContainerContainerRegistryUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"cr-001"})
+		}},
+		{name: "kaas create", parse: func(cmd *cobra.Command) error {
+			var a ContainerKaaSCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "kaas update", parse: func(cmd *cobra.Command) error {
+			var a ContainerKaaSUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"kaas-001"})
+		}},
+		{name: "dbaas create", parse: func(cmd *cobra.Command) error {
+			var a DatabaseDBaaSCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "dbaas update", parse: func(cmd *cobra.Command) error {
+			var a DatabaseDBaaSUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"db-001"})
+		}},
+		{name: "elasticip create", parse: func(cmd *cobra.Command) error {
+			var a NetworkElasticIPCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "elasticip update", parse: func(cmd *cobra.Command) error {
+			var a NetworkElasticIPUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"eip-001"})
+		}},
+		{name: "securitygroup create", parse: func(cmd *cobra.Command) error {
+			var a NetworkSecurityGroupCreateArgs
+			return a.ParseFromCobraCommand(cmd, nil)
+		}},
+		{name: "securitygroup update", parse: func(cmd *cobra.Command) error {
+			var a NetworkSecurityGroupUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"sg-001"})
+		}},
+		{name: "subnet create", parse: func(cmd *cobra.Command) error {
+			var a NetworkSubnetCreateArgs
+			return a.ParseFromCobraCommand(cmd, nil)
+		}},
+		{name: "subnet update", parse: func(cmd *cobra.Command) error {
+			var a NetworkSubnetUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"sub-001"})
+		}},
+		{name: "vpc create", parse: func(cmd *cobra.Command) error {
+			var a NetworkVPCCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "vpc update", parse: func(cmd *cobra.Command) error {
+			var a NetworkVPCUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"vpc-001"})
+		}},
+		{name: "vpntunnel create", parse: func(cmd *cobra.Command) error {
+			var a NetworkVPNTunnelCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "vpntunnel update", parse: func(cmd *cobra.Command) error {
+			var a NetworkVPNTunnelUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"vpn-001"})
+		}},
+		{name: "kms create", parse: func(cmd *cobra.Command) error {
+			var a SecurityKMSCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "kms update", parse: func(cmd *cobra.Command) error {
+			var a SecurityKMSUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"kms-001"})
+		}},
+		{name: "blockstorage create", parse: func(cmd *cobra.Command) error {
+			var a StorageBlockStorageCreateArgs
+			return a.ParseFromCobraCommand(cmd)
+		}},
+		{name: "blockstorage update", parse: func(cmd *cobra.Command) error {
+			var a StorageBlockStorageUpdateArgs
+			return a.ParseFromCobraCommand(cmd, []string{"vol-001"})
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "test"}
+			if err := tc.parse(cmd); err == nil {
+				t.Fatalf("expected parse errors for %s", tc.name)
+			}
+		})
 	}
 }
