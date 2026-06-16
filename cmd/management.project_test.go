@@ -63,6 +63,61 @@ func TestProjectListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "--output yaml emits non-empty YAML",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "proj-001", "my-project"
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
+					Values: []types.ProjectResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"management", "project", "list", "--output", "yaml"},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "{}" || strings.TrimSpace(out) == "" {
+					t.Errorf("yaml output is empty or {}, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--output table-json emits valid JSON array",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "proj-001", "my-project"
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
+					Values: []types.ProjectResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"management", "project", "list", "--output", "table-json"},
+			assertOut: func(t *testing.T, out string) {
+				var rows []map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+					t.Errorf("table-json output is not a valid JSON array: %v\noutput: %s", err, out)
+				}
+				if len(rows) == 0 {
+					t.Errorf("expected at least one row in table-json output, got none")
+				}
+			},
+		},
+		{
+			name: "--output table-yaml emits non-empty YAML sequence",
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "proj-001", "my-project"
+				srv.OnGet("/projects", jsonResponse(200, types.ProjectListResponse{
+					Values: []types.ProjectResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			args: []string{"management", "project", "list", "--output", "table-yaml"},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "" {
+					t.Errorf("table-yaml output is empty, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "server error propagates",
 			setupSrv: func(srv *arubaTestServer) {
 				srv.OnGet("/projects", errorResponse(500, "Internal Server Error", "boom"))

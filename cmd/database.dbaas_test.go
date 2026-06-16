@@ -64,6 +64,61 @@ func TestDBaaSListCmd(t *testing.T) {
 			},
 		},
 		{
+			name: "--output yaml emits valid YAML",
+			args: []string{"database", "dbaas", "list", "--project-id", "proj-123", "--output", "yaml"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+					Values: []types.DBaaSResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "{}" || strings.TrimSpace(out) == "" {
+					t.Errorf("yaml output is empty or {}, got: %s", out)
+				}
+			},
+		},
+		{
+			name: "--output table-json emits valid JSON array",
+			args: []string{"database", "dbaas", "list", "--project-id", "proj-123", "--output", "table-json"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+					Values: []types.DBaaSResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				var rows []map[string]any
+				if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+					t.Errorf("table-json output is not a valid JSON array: %v\noutput: %s", err, out)
+				}
+				if len(rows) == 0 {
+					t.Errorf("expected at least one row in table-json output, got none")
+				}
+			},
+		},
+		{
+			name: "--output table-yaml emits non-empty YAML",
+			args: []string{"database", "dbaas", "list", "--project-id", "proj-123", "--output", "table-yaml"},
+			setupSrv: func(srv *arubaTestServer) {
+				id, name := "dbaas-001", "my-dbaas"
+				srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+					Values: []types.DBaaSResponse{
+						{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+					},
+				}))
+			},
+			assertOut: func(t *testing.T, out string) {
+				if strings.TrimSpace(out) == "" {
+					t.Errorf("table-yaml output is empty, got: %s", out)
+				}
+			},
+		},
+		{
 			name: "list items with all optional fields covers nil-guards",
 			args: []string{"database", "dbaas", "list", "--project-id", "proj-123"},
 			setupSrv: func(srv *arubaTestServer) {
