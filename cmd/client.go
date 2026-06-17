@@ -5,7 +5,31 @@ import (
 
 	"github.com/Arubacloud/acloud-cli/internal/client"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
+	"github.com/spf13/cobra"
 )
+
+func init() {
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if skipClientInit(cmd) {
+			return nil
+		}
+		_, err := GetArubaClient()
+		return err
+	}
+}
+
+// skipClientInit returns true for commands that work without an SDK client:
+// config/context management, shell completion helpers, and built-in help.
+func skipClientInit(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "config", "context", "completion",
+			"__complete", "__completeNoDesc", "help":
+			return true
+		}
+	}
+	return false
+}
 
 // GetArubaClient returns a cached aruba.Client built from the active profile config.
 // The client is re-created whenever credentials, URLs, or the --debug flag change.
