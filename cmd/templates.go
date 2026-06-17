@@ -18,6 +18,29 @@ Created By:      {{.CreatedBy}}
 Tags:            {{.Tags}}
 `
 
+const keyGetTmpl = `
+Key Details:
+============
+ID:              {{.ID}}
+Name:            {{.Name}}
+Algorithm:       {{.Algorithm}}
+Type:            {{.Type}}
+Status:          {{.Status}}
+Creation Source: {{.CreationSource}}
+Private Key ID:  {{.PrivateKeyID}}
+`
+
+const kmipGetTmpl = `
+KMIP Details:
+=============
+ID:              {{.ID}}
+Name:            {{.Name}}
+Type:            {{.Type}}
+Status:          {{.Status}}
+Creation Date:   {{.CreationDate}}
+Deletion Date:   {{.DeletionDate}}
+`
+
 const cloudServerGetTmpl = `
 Cloud Server Details:
 ====================

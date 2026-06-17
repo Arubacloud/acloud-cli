@@ -82,3 +82,9 @@ var validContainerRegistrySizeFlavors = []aruba.ContainerRegistrySizeFlavor{
 	aruba.ContainerRegistrySizeFlavorMedium,   // "Medium"
 	aruba.ContainerRegistrySizeFlavorHighPerf, // "HighPerf"
 }
+
+// validKeyAlgorithms is the set of cryptographic algorithms supported by KMS keys.
+var validKeyAlgorithms = []aruba.KeyAlgorithm{
+	aruba.KeyAlgorithmAes, // "Aes" — symmetric AES key
+	aruba.KeyAlgorithmRsa, // "Rsa" — asymmetric RSA key pair
+}

@@ -13,4 +13,6 @@ var securityCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(securityCmd)
 	// KMS commands are registered in security.kms.go
+	// Key commands are registered in security.key.go
+	// KMIP commands are registered in security.kmip.go
 }
