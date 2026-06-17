@@ -100,20 +100,6 @@ type kaasGetView struct {
 	ID, URI, Name, Region, Version, Status, CreatedAt, CreatedBy, Tags string
 }
 
-const kaasGetTmpl = `
-KaaS Cluster Details:
-====================
-ID:                 {{.ID}}
-URI:                {{.URI}}
-Name:               {{.Name}}
-Region:             {{.Region}}
-Kubernetes Version: {{.Version}}
-Status:             {{.Status}}
-Creation Date:      {{.CreatedAt}}
-Created By:         {{.CreatedBy}}
-Tags:               {{.Tags}}
-`
-
 func kaasRef(projectID, kaasID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Container/kaas/" + kaasID)

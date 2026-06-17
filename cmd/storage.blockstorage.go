@@ -14,23 +14,6 @@ type blockStorageGetView struct {
 	ID, URI, Name, Size, Type, Zone, Region, Bootable, Status, CreatedAt, CreatedBy, Tags string
 }
 
-const blockStorageGetTmpl = `
-Block Storage Details:
-======================
-ID:              {{.ID}}
-URI:             {{.URI}}
-Name:            {{.Name}}
-Size (GB):       {{.Size}}
-Type:            {{.Type}}
-Zone:            {{.Zone}}
-Region:          {{.Region}}
-Bootable:        {{.Bootable}}
-Status:          {{.Status}}
-Creation Date:   {{.CreatedAt}}
-Created By:      {{.CreatedBy}}
-Tags:            {{.Tags}}
-`
-
 func volumeRef(projectID, volumeID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID)
 }

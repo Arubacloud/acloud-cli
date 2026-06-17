@@ -14,19 +14,6 @@ type kmsGetView struct {
 	ID, URI, Name, Region, Status, CreatedAt, CreatedBy, Tags string
 }
 
-const kmsGetTmpl = `
-KMS Details:
-============
-ID:              {{.ID}}
-URI:             {{.URI}}
-Name:            {{.Name}}
-Region:          {{.Region}}
-Status:          {{.Status}}
-Creation Date:   {{.CreatedAt}}
-Created By:      {{.CreatedBy}}
-Tags:            {{.Tags}}
-`
-
 func kmsRef(projectID, kmsID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
 }
