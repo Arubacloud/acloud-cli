@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Arubacloud/acloud-cli/internal/client"
+	"github.com/Arubacloud/acloud-cli/internal/logging"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
 )
@@ -57,6 +58,10 @@ func GetArubaClient() (aruba.Client, error) {
 	}
 
 	debug, _ := rootCmd.PersistentFlags().GetBool("debug")
+	logLevel := resolveLogLevel(debug)
+	logFormat, _ := rootCmd.PersistentFlags().GetString("log-format")
+
+	logging.Setup(logLevel, logFormat)
 
 	return client.Get(client.Params{
 		ClientID:       cfg.ClientID,
@@ -65,6 +70,8 @@ func GetArubaClient() (aruba.Client, error) {
 		TokenIssuerURL: tokenIssuer,
 		Debug:          debug,
 		UserAgent:      "acloud-cli@" + rootCmd.Version,
+		LogLevel:       logLevel,
+		LogFormat:      logFormat,
 	})
 }
 
@@ -75,4 +82,18 @@ func resetClientState() {
 
 func setClientForTesting(c aruba.Client) {
 	client.SetForTesting(c)
+}
+
+// resolveLogLevel returns the effective log level string. --debug takes
+// precedence over --log-level (back-compat: --debug was the only verbosity
+// control before --log-level was introduced).
+func resolveLogLevel(debug bool) string {
+	if debug {
+		return "debug"
+	}
+	level, _ := rootCmd.PersistentFlags().GetString("log-level")
+	if level == "" {
+		return "info"
+	}
+	return level
 }

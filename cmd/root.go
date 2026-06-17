@@ -38,10 +38,12 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging (WARNING: may expose credentials and tokens in HTTP headers)")
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable debug logging — equivalent to --log-level debug (WARNING: exposes credentials in HTTP headers)")
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 	rootCmd.PersistentFlags().String("timeout", "30s", "Timeout for API calls (e.g. 30s, 2m, 5m)")
 	rootCmd.PersistentFlags().String("profile", "", "Credential profile to use (overrides ACLOUD_PROFILE env var)")
+	rootCmd.PersistentFlags().String("log-level", "info", "Log verbosity: debug, info, warn, error")
+	rootCmd.PersistentFlags().String("log-format", "text", "Log output format: text, json")
 }
 
 // GetProjectID returns the project ID from the flag or current context.

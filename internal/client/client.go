@@ -2,10 +2,11 @@ package client
 
 import (
 	"fmt"
-	"log"
-	"os"
+	"net/http"
 	"sync"
 
+	"github.com/Arubacloud/acloud-cli/internal/logging"
+	"github.com/Arubacloud/acloud-cli/internal/middleware"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 )
 
@@ -17,6 +18,8 @@ type Params struct {
 	TokenIssuerURL string
 	UserAgent      string
 	Debug          bool
+	LogLevel       string
+	LogFormat      string
 }
 
 type cachedState struct {
@@ -27,6 +30,8 @@ type cachedState struct {
 	debug       bool
 	baseURL     string
 	tokenIssuer string
+	logLevel    string
+	logFormat   string
 	override    aruba.Client // set by SetForTesting only
 }
 
@@ -43,27 +48,34 @@ func Get(p Params) (aruba.Client, error) {
 		s.secret == p.ClientSecret &&
 		s.debug == p.Debug &&
 		s.baseURL == p.BaseURL &&
-		s.tokenIssuer == p.TokenIssuerURL {
+		s.tokenIssuer == p.TokenIssuerURL &&
+		s.logLevel == p.LogLevel &&
+		s.logFormat == p.LogFormat {
 		return s.client, nil
 	}
 
-	options := aruba.DefaultOptions(p.ClientID, p.ClientSecret)
+	options := aruba.DefaultOptions(p.ClientID, p.ClientSecret).WithDefaultLogger()
 	if p.BaseURL != "" {
 		options = options.WithBaseURL(p.BaseURL)
 	}
 	if p.TokenIssuerURL != "" {
 		options = options.WithTokenIssuerURL(p.TokenIssuerURL)
 	}
-	if p.Debug {
-		options = options.WithNativeLogger()
-		log.SetOutput(os.Stderr)
-		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-		log.SetPrefix("[ArubaSDK] ")
-	} else {
-		options = options.WithDefaultLogger()
-	}
 	if p.UserAgent != "" {
 		options = options.WithUserAgent(p.UserAgent)
+	}
+
+	// Inject a logging transport when debug-level logging is active so that
+	// HTTP requests and responses are visible with Authorization headers
+	// redacted. This replaces the former WithNativeLogger + global log.*
+	// side-effects approach.
+	if p.LogLevel == "debug" {
+		options = options.WithCustomHTTPClient(&http.Client{
+			Transport: &middleware.LoggingTransport{
+				Base:   http.DefaultTransport,
+				Logger: logging.L(),
+			},
+		})
 	}
 
 	c, err := aruba.NewClient(options)
@@ -77,6 +89,8 @@ func Get(p Params) (aruba.Client, error) {
 	s.debug = p.Debug
 	s.baseURL = p.BaseURL
 	s.tokenIssuer = p.TokenIssuerURL
+	s.logLevel = p.LogLevel
+	s.logFormat = p.LogFormat
 
 	return c, nil
 }
