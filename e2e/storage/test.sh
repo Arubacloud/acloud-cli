@@ -119,6 +119,8 @@ cleanup() {
             del_elapsed=$((del_elapsed + 10))
         done
     fi
+
+    echo -e "${GREEN}Cleanup completed!${NC}"
 }
 
 trap cleanup EXIT
