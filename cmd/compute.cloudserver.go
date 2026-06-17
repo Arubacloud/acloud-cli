@@ -89,6 +89,10 @@ func init() {
 }
 
 // cloudServerRef builds the combined project+server Ref that Get/Delete need.
+type cloudServerGetView struct {
+	ID, Name, Region, Flavor, CPU, RAM, HD, BootVolumeURI, KeypairURI, Status, Tags string
+}
+
 func cloudServerRef(projectID, serverID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Compute/cloudServers/" + serverID)
@@ -862,48 +866,39 @@ func ComputeCloudServerGet(ctx context.Context, client aruba.Client, args Comput
 		fmt.Println("Cloud server not found or no data returned.")
 		return nil
 	}
-
-	raw := server.Raw()
-
 	format := resolveOutputFormat()
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		PrintOutput(server, nil, nil)
 		return nil
 	}
-
-	fmt.Println("\nCloud Server Details:")
-	fmt.Println("====================")
-
+	raw := server.Raw()
+	view := cloudServerGetView{
+		CPU:  fmt.Sprintf("%d", raw.Properties.Flavor.CPU),
+		RAM:  fmt.Sprintf("%d GB", raw.Properties.Flavor.RAM),
+		HD:   fmt.Sprintf("%d GB", raw.Properties.Flavor.HD),
+		Tags: "[]",
+	}
 	if raw.Metadata.ID != nil {
-		fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+		view.ID = *raw.Metadata.ID
 	}
 	if raw.Metadata.Name != nil {
-		fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
+		view.Name = *raw.Metadata.Name
 	}
-	if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-		fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
 	}
-	if raw.Properties.Flavor.Name != "" {
-		fmt.Printf("Flavor:          %s\n", raw.Properties.Flavor.Name)
-	}
-	fmt.Printf("CPU:             %d\n", raw.Properties.Flavor.CPU)
-	fmt.Printf("RAM:             %d GB\n", raw.Properties.Flavor.RAM)
-	fmt.Printf("HD:              %d GB\n", raw.Properties.Flavor.HD)
-	if raw.Properties.BootVolume.URI != "" {
-		fmt.Printf("Boot Volume URI: %s\n", raw.Properties.BootVolume.URI)
-	}
-	if raw.Properties.KeyPair.URI != "" {
-		fmt.Printf("Keypair URI:     %s\n", raw.Properties.KeyPair.URI)
-	}
+	view.Flavor = string(raw.Properties.Flavor.Name)
+	view.BootVolumeURI = raw.Properties.BootVolume.URI
+	view.KeypairURI = raw.Properties.KeyPair.URI
 	if raw.Status.State != nil {
-		fmt.Printf("Status:          %s\n", *raw.Status.State)
+		view.Status = string(*raw.Status.State)
 	}
 	if len(raw.Metadata.Tags) > 0 {
-		fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-	} else {
-		fmt.Printf("Tags:            []\n")
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
 	}
-
+	if err := renderGet(cloudServerGetTmpl, view); err != nil {
+		return err
+	}
 	if args.Verbose {
 		jsonData, _ := json.MarshalIndent(raw, "", "  ")
 		fmt.Println("\nFull JSON Response:")
@@ -993,52 +988,45 @@ func ComputeCloudServerList(ctx context.Context, client aruba.Client, args Compu
 		return fmt.Errorf("listing cloud servers: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 25},
-			{Header: "ID", Width: 30},
-			{Header: "LOCATION", Width: 15},
-			{Header: "FLAVOR", Width: 15},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, server := range list.Items() {
-			raw := server.Raw()
-			if raw == nil || raw.Metadata.ID == nil || *raw.Metadata.ID == "" {
-				continue
-			}
-			id := *raw.Metadata.ID
-			var name string
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			var location string
-			if raw.Metadata.LocationResponse != nil {
-				location = string(raw.Metadata.LocationResponse.Value)
-			}
-			flavor := raw.Properties.Flavor.Name
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{
-				name,
-				id,
-				location,
-				string(flavor),
-				status,
-			})
-		}
-
-		if len(rows) == 0 {
-			fmt.Println("No cloud servers found")
-			return nil
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No cloud servers found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.CloudServer]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 25}, Value: func(s *aruba.CloudServer) string {
+			if r := s.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(s *aruba.CloudServer) string {
+			if r := s.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "LOCATION", Width: 15}, Value: func(s *aruba.CloudServer) string {
+			if r := s.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "FLAVOR", Width: 15}, Value: func(s *aruba.CloudServer) string {
+			if r := s.Raw(); r != nil {
+				return string(r.Properties.Flavor.Name)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(s *aruba.CloudServer) string {
+			if r := s.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(s *aruba.CloudServer) bool {
+		r := s.Raw()
+		return r != nil && r.Metadata.ID != nil && *r.Metadata.ID != ""
+	})
 	return nil
 }
 

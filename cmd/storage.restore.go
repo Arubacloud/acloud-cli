@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type storageRestoreGetView struct {
+	ID, URI, Name, TargetVolume, Region, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func restoreRef(projectID, backupID, restoreID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID + "/restores/" + restoreID)
 }
@@ -488,51 +492,45 @@ func StorageRestoreGet(ctx context.Context, client aruba.Client, args StorageRes
 		return fmt.Errorf("getting restore: %w", apiErrFromV2(err))
 	}
 
-	if restore != nil && restore.Raw() != nil {
-		raw := restore.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(restore, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nRestore Operation Details:")
-		fmt.Println("==========================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Properties.Destination.URI != "" {
-			fmt.Printf("Target Volume:   %s\n", raw.Properties.Destination.URI)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if restore == nil || restore.Raw() == nil {
 		fmt.Println("Restore operation not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(restore, nil, nil)
+		return nil
+	}
+	raw := restore.Raw()
+	view := storageRestoreGetView{
+		TargetVolume: raw.Properties.Destination.URI,
+		Tags:         "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(restoreGetTmpl, view)
 }
 
 // StorageRestoreUpdate updates a restore operation's name and/or tags.
@@ -601,38 +599,30 @@ func StorageRestoreList(ctx context.Context, client aruba.Client, args StorageRe
 		return fmt.Errorf("listing restores: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, r := range list.Items() {
-			raw := r.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No restores found for this backup")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.StorageRestore]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(r *aruba.StorageRestore) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.Name != nil {
+				return *raw.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(r *aruba.StorageRestore) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.ID != nil {
+				return *raw.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(r *aruba.StorageRestore) string {
+			if raw := r.Raw(); raw != nil && raw.Status.State != nil {
+				return string(*raw.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(r *aruba.StorageRestore) bool { return r.Raw() != nil })
 	return nil
 }
 

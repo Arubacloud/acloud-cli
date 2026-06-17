@@ -49,6 +49,10 @@ func init() {
 }
 
 // keypairRef builds the combined project+keypair Ref that v0.2.0 Get/Delete need.
+type keypairGetView struct {
+	Name, URI, PublicKey, CreatedAt, CreatedBy string
+}
+
 func keypairRef(projectID, name string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Compute/keyPairs/" + name)
@@ -447,38 +451,30 @@ func ComputeKeyPairGet(ctx context.Context, client aruba.Client, args ComputeKey
 		return fmt.Errorf("getting keypair: %w", apiErrFromV2(err))
 	}
 
-	if kp != nil && kp.Raw() != nil {
-		raw := kp.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(kp, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nKeypair Details:")
-		fmt.Println("===============")
-
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Properties.Value != "" {
-			fmt.Printf("Public Key:      %s\n", raw.Properties.Value)
-		}
-		fmt.Printf("Status:          Active\n")
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-	} else {
+	if kp == nil || kp.Raw() == nil {
 		fmt.Println("Keypair not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(kp, nil, nil)
+		return nil
+	}
+	raw := kp.Raw()
+	view := keypairGetView{PublicKey: raw.Properties.Value}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	return renderGet(keypairGetTmpl, view)
 }
 
 // ComputeKeyPairUpdate prints a "not supported" message (the API does not support keypair updates).
@@ -509,49 +505,39 @@ func ComputeKeyPairList(ctx context.Context, client aruba.Client, args ComputeKe
 		return fmt.Errorf("listing keypairs: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "ID", Width: 30},
-			{Header: "PUBLIC_KEY", Width: 60},
-			{Header: "STATUS", Width: 10},
-		}
-
-		var rows [][]string
-		for _, kp := range list.Items() {
-			raw := kp.Raw()
-			if raw == nil {
-				continue
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			if id == "" {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			publicKey := ""
-			if raw.Properties.Value != "" {
-				publicKey = raw.Properties.Value
-				if len(publicKey) > 50 {
-					publicKey = publicKey[:50] + "..."
-				}
-			}
-			rows = append(rows, []string{name, id, publicKey, "Active"})
-		}
-
-		if len(rows) == 0 {
-			fmt.Println("No keypairs found")
-			return nil
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No keypairs found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.KeyPair]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(kp *aruba.KeyPair) string {
+			if r := kp.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(kp *aruba.KeyPair) string {
+			if r := kp.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "PUBLIC_KEY", Width: 60}, Value: func(kp *aruba.KeyPair) string {
+			r := kp.Raw()
+			if r == nil || r.Properties.Value == "" {
+				return ""
+			}
+			v := r.Properties.Value
+			if len(v) > 50 {
+				return v[:50] + "..."
+			}
+			return v
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 10}, Value: func(kp *aruba.KeyPair) string { return "Active" }},
+	}, list.Items(), func(kp *aruba.KeyPair) bool {
+		r := kp.Raw()
+		return r != nil && r.Metadata.ID != nil && *r.Metadata.ID != ""
+	})
 	return nil
 }
 

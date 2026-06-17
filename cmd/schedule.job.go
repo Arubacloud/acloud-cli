@@ -11,6 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type scheduleJobGetView struct {
+	ID, URI, Name, Region, JobType, Enabled, ScheduleAt, Cron, ExecuteUntil, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func jobRef(projectID, jobID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Schedule/jobs/" + jobID)
 }
@@ -573,59 +577,55 @@ func ScheduleJobGet(ctx context.Context, client aruba.Client, args ScheduleJobGe
 		return fmt.Errorf("getting job: %w", apiErrFromV2(err))
 	}
 
-	if job != nil && job.Raw() != nil {
-		raw := job.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(job, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nJob Details:")
-		fmt.Println("============")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		fmt.Printf("Job Type:        %s\n", string(raw.Properties.JobType))
-		fmt.Printf("Enabled:         %t\n", raw.Properties.Enabled)
-		if raw.Properties.ScheduleAt != nil {
-			fmt.Printf("Schedule At:     %s\n", *raw.Properties.ScheduleAt)
-		}
-		if raw.Properties.Cron != nil {
-			fmt.Printf("CRON:            %s\n", *raw.Properties.Cron)
-		}
-		if raw.Properties.ExecuteUntil != nil {
-			fmt.Printf("Execute Until:   %s\n", *raw.Properties.ExecuteUntil)
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if job == nil || job.Raw() == nil {
 		fmt.Println("Job not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(job, nil, nil)
+		return nil
+	}
+	raw := job.Raw()
+	view := scheduleJobGetView{
+		JobType: string(raw.Properties.JobType),
+		Enabled: fmt.Sprintf("%t", raw.Properties.Enabled),
+		Tags:    "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.ScheduleAt != nil {
+		view.ScheduleAt = *raw.Properties.ScheduleAt
+	}
+	if raw.Properties.Cron != nil {
+		view.Cron = *raw.Properties.Cron
+	}
+	if raw.Properties.ExecuteUntil != nil {
+		view.ExecuteUntil = *raw.Properties.ExecuteUntil
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(scheduleJobGetTmpl, view)
 }
 
 // ScheduleJobList lists all scheduled jobs in a project.

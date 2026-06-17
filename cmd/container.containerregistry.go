@@ -62,6 +62,11 @@ func init() {
 }
 
 // containerRegistryRef builds the URI for a specific container registry.
+type containerRegistryGetView struct {
+	ID, URI, Name, Region, PublicIP, VPC, Subnet, SecurityGroup, BlockStorage     string
+	BillingPeriod, AdminUser, ConcurrentUsers, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func containerRegistryRef(projectID, registryID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Container/registries/" + registryID)
@@ -576,72 +581,58 @@ func ContainerContainerRegistryGet(ctx context.Context, client aruba.Client, arg
 		return fmt.Errorf("getting container registry: %w", apiErrFromV2(err))
 	}
 
-	if registry != nil && registry.Raw() != nil {
-		raw := registry.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(registry, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nContainer Registry Details:")
-		fmt.Println("==========================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Properties.PublicIp.URI != "" {
-			fmt.Printf("Public IP:       %s\n", raw.Properties.PublicIp.URI)
-		}
-		if raw.Properties.VPC.URI != "" {
-			fmt.Printf("VPC:             %s\n", raw.Properties.VPC.URI)
-		}
-		if raw.Properties.Subnet.URI != "" {
-			fmt.Printf("Subnet:          %s\n", raw.Properties.Subnet.URI)
-		}
-		if raw.Properties.SecurityGroup.URI != "" {
-			fmt.Printf("Security Group:  %s\n", raw.Properties.SecurityGroup.URI)
-		}
-		if raw.Properties.BlockStorage.URI != "" {
-			fmt.Printf("Block Storage:   %s\n", raw.Properties.BlockStorage.URI)
-		}
-		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-			fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPlanCommon.BillingPeriod))
-		}
-		if raw.Properties.AdminUser != nil {
-			fmt.Printf("Admin User:      %s\n", raw.Properties.AdminUser.Username)
-		}
-		if raw.Properties.ConcurrentUsers != nil {
-			fmt.Printf("Concurrent Users: %s\n", *raw.Properties.ConcurrentUsers)
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if registry == nil || registry.Raw() == nil {
 		fmt.Println("Container registry not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(registry, nil, nil)
+		return nil
+	}
+	raw := registry.Raw()
+	view := containerRegistryGetView{
+		PublicIP:      raw.Properties.PublicIp.URI,
+		VPC:           raw.Properties.VPC.URI,
+		Subnet:        raw.Properties.Subnet.URI,
+		SecurityGroup: raw.Properties.SecurityGroup.URI,
+		BlockStorage:  raw.Properties.BlockStorage.URI,
+		Tags:          "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+		view.BillingPeriod = string(*raw.Properties.BillingPlanCommon.BillingPeriod)
+	}
+	if raw.Properties.AdminUser != nil {
+		view.AdminUser = raw.Properties.AdminUser.Username
+	}
+	if raw.Properties.ConcurrentUsers != nil {
+		view.ConcurrentUsers = *raw.Properties.ConcurrentUsers
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(containerRegistryGetTmpl, view)
 }
 
 // ContainerContainerRegistryList lists all container registries in a project.
@@ -651,42 +642,36 @@ func ContainerContainerRegistryList(ctx context.Context, client aruba.Client, ar
 		return fmt.Errorf("listing container registries: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "ID", Width: 30},
-			{Header: "REGION", Width: 20},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, cr := range list.Items() {
-			raw := cr.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No container registries found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.ContainerRegistry]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(cr *aruba.ContainerRegistry) string {
+			if r := cr.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(cr *aruba.ContainerRegistry) string {
+			if r := cr.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 20}, Value: func(cr *aruba.ContainerRegistry) string {
+			if r := cr.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(cr *aruba.ContainerRegistry) string {
+			if r := cr.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(cr *aruba.ContainerRegistry) bool { return cr.Raw() != nil })
 	return nil
 }
 

@@ -81,6 +81,10 @@ func completeDBaaSDatabaseID(cmd *cobra.Command, args []string, toComplete strin
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+type databaseGetView struct {
+	Name, CreatedAt, CreatedBy string
+}
+
 var dbaasDatabaseCmd = &cobra.Command{
 	Use:   "database [dbaas-id]",
 	Short: "Manage databases in DBaaS",
@@ -446,29 +450,24 @@ func DatabaseDBaaSDatabaseGet(ctx context.Context, client aruba.Client, args Dat
 		return fmt.Errorf("getting database: %w", apiErrFromV2(err))
 	}
 
-	if db != nil && db.Raw() != nil {
-		raw := db.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(db, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nDatabase Details:")
-		fmt.Println("================")
-		fmt.Printf("Name:            %s\n", raw.Name)
-		if raw.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
-		}
-		if raw.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
-		}
-		fmt.Println()
-	} else {
+	if db == nil || db.Raw() == nil {
 		fmt.Println("Database not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(db, nil, nil)
+		return nil
+	}
+	raw := db.Raw()
+	view := databaseGetView{Name: raw.Name}
+	if raw.CreationDate != nil {
+		view.CreatedAt = raw.CreationDate.Format(DateLayout)
+	}
+	if raw.CreatedBy != nil {
+		view.CreatedBy = *raw.CreatedBy
+	}
+	return renderGet(databaseGetTmpl, view)
 }
 
 // DatabaseDBaaSDatabaseUpdate updates a database's name.
@@ -514,33 +513,30 @@ func DatabaseDBaaSDatabaseList(ctx context.Context, client aruba.Client, args Da
 		return fmt.Errorf("listing databases: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "CREATION DATE", Width: 25},
-			{Header: "CREATED BY", Width: 30},
-		}
-
-		var rows [][]string
-		for _, db := range list.Items() {
-			raw := db.Raw()
-			if raw == nil {
-				continue
-			}
-			creationDate := ""
-			if raw.CreationDate != nil {
-				creationDate = raw.CreationDate.Format(DateLayout)
-			}
-			createdBy := ""
-			if raw.CreatedBy != nil {
-				createdBy = *raw.CreatedBy
-			}
-			rows = append(rows, []string{raw.Name, creationDate, createdBy})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No databases found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.Database]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(db *aruba.Database) string {
+			if r := db.Raw(); r != nil {
+				return r.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CREATION DATE", Width: 25}, Value: func(db *aruba.Database) string {
+			if r := db.Raw(); r != nil && r.CreationDate != nil {
+				return r.CreationDate.Format(DateLayout)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CREATED BY", Width: 30}, Value: func(db *aruba.Database) string {
+			if r := db.Raw(); r != nil && r.CreatedBy != nil {
+				return *r.CreatedBy
+			}
+			return ""
+		}},
+	}, list.Items(), func(db *aruba.Database) bool { return db.Raw() != nil })
 	return nil
 }
 

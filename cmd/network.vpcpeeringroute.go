@@ -100,6 +100,10 @@ func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete str
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+type vpcPeeringRouteGetView struct {
+	ID, Name, LocalNetwork, RemoteNetwork, BillingPeriod, Tags, Status string
+}
+
 var vpcpeeringrouteCmd = &cobra.Command{
 	Use:   "vpcpeeringroute",
 	Short: "Manage VPC peering routes",
@@ -567,35 +571,39 @@ func NetworkVPCPeeringRouteGet(ctx context.Context, client aruba.Client, args Ne
 		return fmt.Errorf("getting VPC peering route: %w", apiErrFromV2(err))
 	}
 
-	if route != nil && route.Raw() != nil {
-		raw := route.Raw()
-		fmt.Println("\nVPC Peering Route Details:")
-		fmt.Println("==========================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		} else {
-			fmt.Printf("ID:              %s\n", args.RouteID)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		fmt.Printf("Local Network:    %s\n", raw.Properties.LocalNetworkAddress)
-		fmt.Printf("Remote Network:   %s\n", raw.Properties.RemoteNetworkAddress)
-		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-			fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if route == nil || route.Raw() == nil {
 		fmt.Println("VPC peering route not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(route, nil, nil)
+		return nil
+	}
+	raw := route.Raw()
+	view := vpcPeeringRouteGetView{
+		LocalNetwork:  raw.Properties.LocalNetworkAddress,
+		RemoteNetwork: raw.Properties.RemoteNetworkAddress,
+		Tags:          "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	} else {
+		view.ID = args.RouteID
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+		view.BillingPeriod = string(*raw.Properties.BillingPlanCommon.BillingPeriod)
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(vpcPeeringRouteGetTmpl, view)
 }
 
 // NetworkVPCPeeringRouteUpdate updates a VPC peering route's fields.
@@ -679,40 +687,42 @@ func NetworkVPCPeeringRouteList(ctx context.Context, client aruba.Client, args N
 		return fmt.Errorf("listing VPC peering routes: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "LOCAL NETWORK", Width: 18},
-			{Header: "REMOTE NETWORK", Width: 18},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, route := range list.Items() {
-			raw := route.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			localNetwork := raw.Properties.LocalNetworkAddress
-			remoteNetwork := raw.Properties.RemoteNetworkAddress
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, localNetwork, remoteNetwork, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No VPC peering routes found.")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.VPCPeeringRoute]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(r *aruba.VPCPeeringRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.Name != nil {
+				return *raw.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(r *aruba.VPCPeeringRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.ID != nil {
+				return *raw.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "LOCAL NETWORK", Width: 18}, Value: func(r *aruba.VPCPeeringRoute) string {
+			if raw := r.Raw(); raw != nil {
+				return raw.Properties.LocalNetworkAddress
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REMOTE NETWORK", Width: 18}, Value: func(r *aruba.VPCPeeringRoute) string {
+			if raw := r.Raw(); raw != nil {
+				return raw.Properties.RemoteNetworkAddress
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(r *aruba.VPCPeeringRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Status.State != nil {
+				return string(*raw.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(r *aruba.VPCPeeringRoute) bool { return r.Raw() != nil })
 	return nil
 }
 

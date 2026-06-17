@@ -64,6 +64,10 @@ func init() {
 }
 
 // dbaasRef builds the URI for a specific DBaaS instance.
+type dbaasGetView struct {
+	ID, URI, Name, Region, EngineType, EngineVersion, EngineName, Flavor, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func dbaasRef(projectID, dbaasID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Database/dbaas/" + dbaasID)
@@ -573,62 +577,56 @@ func DatabaseDBaaSGet(ctx context.Context, client aruba.Client, args DatabaseDBa
 		return fmt.Errorf("getting DBaaS instance: %w", apiErrFromV2(err))
 	}
 
-	if dbaas != nil && dbaas.Raw() != nil {
-		raw := dbaas.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(dbaas, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nDBaaS Instance Details:")
-		fmt.Println("=======================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Properties.Engine != nil {
-			if raw.Properties.Engine.Type != nil {
-				fmt.Printf("Engine Type:     %s\n", *raw.Properties.Engine.Type)
-			}
-			if raw.Properties.Engine.Version != nil {
-				fmt.Printf("Engine Version:  %s\n", *raw.Properties.Engine.Version)
-			}
-			if raw.Properties.Engine.Name != nil {
-				fmt.Printf("Engine Name:     %s\n", *raw.Properties.Engine.Name)
-			}
-		}
-		if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
-			fmt.Printf("Flavor:          %s\n", *raw.Properties.Flavor.Name)
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if dbaas == nil || dbaas.Raw() == nil {
 		fmt.Println("DBaaS instance not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(dbaas, nil, nil)
+		return nil
+	}
+	raw := dbaas.Raw()
+	view := dbaasGetView{Tags: "[]"}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Engine != nil {
+		if raw.Properties.Engine.Type != nil {
+			view.EngineType = *raw.Properties.Engine.Type
+		}
+		if raw.Properties.Engine.Version != nil {
+			view.EngineVersion = *raw.Properties.Engine.Version
+		}
+		if raw.Properties.Engine.Name != nil {
+			view.EngineName = *raw.Properties.Engine.Name
+		}
+	}
+	if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
+		view.Flavor = *raw.Properties.Flavor.Name
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(dbaasGetTmpl, view)
 }
 
 // DatabaseDBaaSUpdate updates a DBaaS instance's name and/or tags.
@@ -722,57 +720,54 @@ func DatabaseDBaaSList(ctx context.Context, client aruba.Client, args DatabaseDB
 		return fmt.Errorf("listing DBaaS instances: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 30},
-			{Header: "ENGINE", Width: 20},
-			{Header: "VERSION", Width: 15},
-			{Header: "FLAVOR", Width: 20},
-			{Header: "REGION", Width: 20},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, d := range list.Items() {
-			raw := d.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			engine := ""
-			if raw.Properties.Engine != nil && raw.Properties.Engine.Type != nil {
-				engine = *raw.Properties.Engine.Type
-			}
-			version := ""
-			if raw.Properties.Engine != nil && raw.Properties.Engine.Version != nil {
-				version = *raw.Properties.Engine.Version
-			}
-			flavor := ""
-			if raw.Properties.Flavor != nil && raw.Properties.Flavor.Name != nil {
-				flavor = *raw.Properties.Flavor.Name
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, engine, version, flavor, region, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No DBaaS instances found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.DBaaS]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ENGINE", Width: 20}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Properties.Engine != nil && r.Properties.Engine.Type != nil {
+				return *r.Properties.Engine.Type
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "VERSION", Width: 15}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Properties.Engine != nil && r.Properties.Engine.Version != nil {
+				return *r.Properties.Engine.Version
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "FLAVOR", Width: 20}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Properties.Flavor != nil && r.Properties.Flavor.Name != nil {
+				return *r.Properties.Flavor.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 20}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(d *aruba.DBaaS) string {
+			if r := d.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(d *aruba.DBaaS) bool { return d.Raw() != nil })
 	return nil
 }
 

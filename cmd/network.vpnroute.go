@@ -91,6 +91,10 @@ func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+type vpnRouteGetView struct {
+	ID, URI, Name, Region, CloudSubnet, OnPremSubnet, CreatedAt, CreatedBy, Tags, Status string
+}
+
 var vpnrouteCmd = &cobra.Command{
 	Use:   "vpnroute",
 	Short: "Manage VPN tunnel routes",
@@ -510,42 +514,46 @@ func NetworkVPNRouteGet(ctx context.Context, client aruba.Client, args NetworkVP
 		return fmt.Errorf("getting VPN route: %w", apiErrFromV2(err))
 	}
 
-	if route != nil && route.Raw() != nil {
-		raw := route.Raw()
-		fmt.Println("\nVPN Route Details:")
-		fmt.Println("==================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		fmt.Printf("Cloud Subnet:    %s\n", route.CloudSubnet())
-		fmt.Printf("OnPrem Subnet:   %s\n", route.OnPremSubnet())
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if route == nil || route.Raw() == nil {
 		fmt.Println("VPN route not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(route, nil, nil)
+		return nil
+	}
+	raw := route.Raw()
+	view := vpnRouteGetView{
+		CloudSubnet:  route.CloudSubnet(),
+		OnPremSubnet: route.OnPremSubnet(),
+		Tags:         "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Metadata.CreationDate != nil {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(vpnRouteGetTmpl, view)
 }
 
 // NetworkVPNRouteUpdate updates a VPN route's name and/or tags.
@@ -627,38 +635,32 @@ func NetworkVPNRouteList(ctx context.Context, client aruba.Client, args NetworkV
 		return fmt.Errorf("listing VPN routes: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "CLOUD SUBNET", Width: 18},
-			{Header: "ONPREM SUBNET", Width: 18},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, route := range list.Items() {
-			raw := route.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, route.CloudSubnet(), route.OnPremSubnet(), status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No VPN routes found.")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.VPNRoute]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(r *aruba.VPNRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.Name != nil {
+				return *raw.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(r *aruba.VPNRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.ID != nil {
+				return *raw.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CLOUD SUBNET", Width: 18}, Value: func(r *aruba.VPNRoute) string { return r.CloudSubnet() }},
+		{TableColumn: TableColumn{Header: "ONPREM SUBNET", Width: 18}, Value: func(r *aruba.VPNRoute) string { return r.OnPremSubnet() }},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(r *aruba.VPNRoute) string {
+			if raw := r.Raw(); raw != nil && raw.Status.State != nil {
+				return string(*raw.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(r *aruba.VPNRoute) bool { return r.Raw() != nil })
 	return nil
 }
 
