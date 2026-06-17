@@ -10,6 +10,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type kmsGetView struct {
+	ID, URI, Name, Region, Status, CreatedAt, CreatedBy, Tags string
+}
+
+const kmsGetTmpl = `
+KMS Details:
+============
+ID:              {{.ID}}
+URI:             {{.URI}}
+Name:            {{.Name}}
+Region:          {{.Region}}
+Status:          {{.Status}}
+Creation Date:   {{.CreatedAt}}
+Created By:      {{.CreatedBy}}
+Tags:            {{.Tags}}
+`
+
 func kmsRef(projectID, kmsID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Security/kms/" + kmsID)
 }
@@ -480,49 +497,42 @@ func SecurityKMSGet(ctx context.Context, client aruba.Client, args SecurityKMSGe
 		return fmt.Errorf("getting KMS: %w", apiErrFromV2(err))
 	}
 
-	if kms != nil && kms.Raw() != nil {
-		raw := kms.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(kms, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nKMS Details:")
-		fmt.Println("============")
-
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if kms == nil || kms.Raw() == nil {
 		fmt.Println("KMS not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(kms, nil, nil)
+		return nil
+	}
+	raw := kms.Raw()
+	view := kmsGetView{Tags: "[]"}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(kmsGetTmpl, view)
 }
 
 // SecurityKMSUpdate updates a KMS resource's name and/or tags.
