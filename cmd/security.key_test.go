@@ -547,7 +547,6 @@ func TestSecurityKeyCreate_WithStatus(t *testing.T) {
 	}
 }
 
-
 func TestSecurityKeyGet_WithAllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "key-001", "my-key"

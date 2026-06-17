@@ -589,7 +589,6 @@ func TestSecurityKmipCreate_WithAllFields(t *testing.T) {
 	}
 }
 
-
 func TestSecurityKmipGet_WithAllOptionalFields(t *testing.T) {
 	srv := newArubaTestServer(t)
 	id, name := "kmip-001", "my-kmip"
