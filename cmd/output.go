@@ -8,6 +8,16 @@ import (
 // can use the unqualified name without any import changes.
 type TableColumn = output.TableColumn
 
+// ListColumn is a type alias for output.ListColumn so cmd files can declare
+// column definitions without importing internal/output directly.
+type ListColumn[T any] = output.ListColumn[T]
+
+// renderList builds and prints a typed list using the global --output flag.
+// Items for which any filter returns false are excluded from the output.
+func renderList[T any](obj any, cols []ListColumn[T], items []T, filters ...func(T) bool) {
+	output.RenderList(resolveOutputFormat(), obj, cols, items, filters...)
+}
+
 // resolveOutputFormat reads the global --output flag and returns one of the
 // five canonical format names defined in constants.go.
 func resolveOutputFormat() string {

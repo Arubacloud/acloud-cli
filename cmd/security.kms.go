@@ -606,42 +606,16 @@ func SecurityKMSList(ctx context.Context, client aruba.Client, args SecurityKMSL
 		return fmt.Errorf("listing KMS: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 30},
-			{Header: "REGION", Width: 20},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, kms := range list.Items() {
-			raw := kms.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No KMS resources found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.KMS]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(k *aruba.KMS) string { return k.Name() }},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(k *aruba.KMS) string { return k.KMSID() }},
+		{TableColumn: TableColumn{Header: "REGION", Width: 20}, Value: func(k *aruba.KMS) string { return string(k.Region()) }},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(k *aruba.KMS) string { return string(k.State()) }},
+	}, list.Items(), func(k *aruba.KMS) bool { return k.Raw() != nil })
 	return nil
 }
 

@@ -635,49 +635,31 @@ func ScheduleJobList(ctx context.Context, client aruba.Client, args ScheduleJobL
 		return fmt.Errorf("listing jobs: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 30},
-			{Header: "TYPE", Width: 15},
-			{Header: "ENABLED", Width: 10},
-			{Header: "REGION", Width: 20},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, job := range list.Items() {
-			raw := job.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			jobType := string(raw.Properties.JobType)
-			enabledVal := "No"
-			if raw.Properties.Enabled {
-				enabledVal = "Yes"
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, jobType, enabledVal, region, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No jobs found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.Job]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(j *aruba.Job) string { return j.Name() }},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(j *aruba.Job) string { return j.JobID() }},
+		{TableColumn: TableColumn{Header: "TYPE", Width: 15}, Value: func(j *aruba.Job) string {
+			if r := j.Raw(); r != nil {
+				return string(r.Properties.JobType)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ENABLED", Width: 10}, Value: func(j *aruba.Job) string {
+			if r := j.Raw(); r != nil {
+				if r.Properties.Enabled {
+					return "Yes"
+				}
+				return "No"
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 20}, Value: func(j *aruba.Job) string { return string(j.Region()) }},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(j *aruba.Job) string { return string(j.State()) }},
+	}, list.Items(), func(j *aruba.Job) bool { return j.Raw() != nil })
 	return nil
 }
 
