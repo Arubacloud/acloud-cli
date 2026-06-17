@@ -651,49 +651,54 @@ func StorageBlockStorageList(ctx context.Context, client aruba.Client, args Stor
 		return fmt.Errorf("listing block storage: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "SIZE(GB)", Width: 12},
-			{Header: "REGION", Width: 15},
-			{Header: "ZONE", Width: 15},
-			{Header: "TYPE", Width: 15},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, vol := range list.Items() {
-			raw := vol.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			size := fmt.Sprintf("%d", raw.Properties.SizeGB)
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			zone := string(raw.Properties.Zone)
-			volumeType := string(raw.Properties.Type)
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, size, region, zone, volumeType, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No block storage found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.BlockStorage]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "SIZE(GB)", Width: 12}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil {
+				return fmt.Sprintf("%d", r.Properties.SizeGB)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 15}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ZONE", Width: 15}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil {
+				return string(r.Properties.Zone)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "TYPE", Width: 15}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil {
+				return string(r.Properties.Type)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(v *aruba.BlockStorage) string {
+			if r := v.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(v *aruba.BlockStorage) bool { return v.Raw() != nil })
 	return nil
 }
 

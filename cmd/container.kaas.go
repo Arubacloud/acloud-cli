@@ -832,32 +832,17 @@ func ContainerKaaSList(ctx context.Context, client aruba.Client, args ContainerK
 		return fmt.Errorf("listing KaaS clusters: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "ID", Width: 30},
-			{Header: "NAME", Width: 40},
-			{Header: "VERSION", Width: 20},
-			{Header: "REGION", Width: 20},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, k := range list.Items() {
-			if k.KaaSID() == "" {
-				continue
-			}
-			rows = append(rows, []string{
-				k.KaaSID(),
-				k.Name(),
-				string(k.KubernetesVersion()),
-				string(k.Region()),
-				string(k.State()),
-			})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No KaaS clusters found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.KaaS]{
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(k *aruba.KaaS) string { return k.KaaSID() }},
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(k *aruba.KaaS) string { return k.Name() }},
+		{TableColumn: TableColumn{Header: "VERSION", Width: 20}, Value: func(k *aruba.KaaS) string { return string(k.KubernetesVersion()) }},
+		{TableColumn: TableColumn{Header: "REGION", Width: 20}, Value: func(k *aruba.KaaS) string { return string(k.Region()) }},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(k *aruba.KaaS) string { return string(k.State()) }},
+	}, list.Items(), func(k *aruba.KaaS) bool { return k.KaaSID() != "" })
 	return nil
 }
 

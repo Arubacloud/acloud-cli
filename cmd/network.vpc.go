@@ -580,45 +580,42 @@ func NetworkVPCList(ctx context.Context, client aruba.Client, args NetworkVPCLis
 		return fmt.Errorf("listing VPCs: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "ID", Width: 25},
-			{Header: "REGION", Width: 18},
-			{Header: "SUBNETS", Width: 10},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, vpc := range list.Items() {
-			raw := vpc.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			subnets := fmt.Sprintf("%d", len(raw.Properties.LinkedResources))
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, subnets, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No VPCs found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.VPC]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(v *aruba.VPC) string {
+			if r := v.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 25}, Value: func(v *aruba.VPC) string {
+			if r := v.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 18}, Value: func(v *aruba.VPC) string {
+			if r := v.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "SUBNETS", Width: 10}, Value: func(v *aruba.VPC) string {
+			if r := v.Raw(); r != nil {
+				return fmt.Sprintf("%d", len(r.Properties.LinkedResources))
+			}
+			return "0"
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(v *aruba.VPC) string {
+			if r := v.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(v *aruba.VPC) bool { return v.Raw() != nil })
 	return nil
 }
 
