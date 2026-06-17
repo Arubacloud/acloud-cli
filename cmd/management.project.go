@@ -81,6 +81,10 @@ func completeProjectID(cmd *cobra.Command, args []string, toComplete string) ([]
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+type projectGetView struct {
+	ID, Name, Description, Default, CreatedAt, UpdatedAt, CreatedBy, UpdatedBy, Tags string
+}
+
 var projectCmd = &cobra.Command{
 	Use:   "project",
 	Short: "Manage projects",
@@ -416,51 +420,34 @@ func ManagementProjectGet(ctx context.Context, client aruba.Client, args Managem
 		return fmt.Errorf("getting project: %w", apiErrFromV2(err))
 	}
 
-	if p != nil && p.ID() != "" {
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(p, nil, nil)
-			return nil
-		}
-
-		// Display project details
-		fmt.Println("\nProject Details:")
-		fmt.Println("================")
-
-		fmt.Printf("ID:              %s\n", p.ID())
-		fmt.Printf("Name:            %s\n", p.Name())
-
-		if p.Description() != "" {
-			fmt.Printf("Description:     %s\n", p.Description())
-		}
-
-		fmt.Printf("Default:         %t\n", p.IsDefault())
-
-		if !p.CreatedAt().IsZero() {
-			fmt.Printf("Creation Date:   %s\n", p.CreatedAt().Format(DateLayout))
-		}
-		if !p.UpdatedAt().IsZero() {
-			fmt.Printf("Update Date:     %s\n", p.UpdatedAt().Format(DateLayout))
-		}
-		if v := p.CreatedBy(); v != "" {
-			fmt.Printf("Created By:      %s\n", v)
-		}
-		if v := p.UpdatedBy(); v != "" {
-			fmt.Printf("Updated By:      %s\n", v)
-		}
-
-		tags := p.Tags()
-		if len(tags) > 0 {
-			fmt.Printf("Tags:            %v\n", tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-
-		fmt.Println()
-	} else {
+	if p == nil || p.ID() == "" {
 		fmt.Println("Project not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(p, nil, nil)
+		return nil
+	}
+	view := projectGetView{
+		ID:          p.ID(),
+		Name:        p.Name(),
+		Description: p.Description(),
+		Default:     fmt.Sprintf("%t", p.IsDefault()),
+		CreatedBy:   p.CreatedBy(),
+		UpdatedBy:   p.UpdatedBy(),
+		Tags:        "[]",
+	}
+	if !p.CreatedAt().IsZero() {
+		view.CreatedAt = p.CreatedAt().Format(DateLayout)
+	}
+	if !p.UpdatedAt().IsZero() {
+		view.UpdatedAt = p.UpdatedAt().Format(DateLayout)
+	}
+	if tags := p.Tags(); len(tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", tags)
+	}
+	return renderGet(projectGetTmpl, view)
 }
 
 // ManagementProjectUpdate updates a project's description and/or tags.
@@ -542,34 +529,20 @@ func ManagementProjectList(ctx context.Context, client aruba.Client, args Manage
 		return fmt.Errorf("listing projects: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		// Define table columns
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "ID", Width: 30},
-			{Header: "CREATION DATE", Width: 15},
-		}
-
-		// Build rows
-		var rows [][]string
-		for _, p := range list.Items() {
-			name := p.Name()
-			id := p.ID()
-
-			// Format creation date as dd-mm-yyyy
-			creationDate := "N/A"
-			if !p.CreatedAt().IsZero() {
-				creationDate = p.CreatedAt().Format("02-01-2006")
-			}
-
-			rows = append(rows, []string{name, id, creationDate})
-		}
-
-		// Print the table
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No projects found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.Project]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(p *aruba.Project) string { return p.Name() }},
+		{TableColumn: TableColumn{Header: "ID", Width: 30}, Value: func(p *aruba.Project) string { return p.ID() }},
+		{TableColumn: TableColumn{Header: "CREATION DATE", Width: 15}, Value: func(p *aruba.Project) string {
+			if p.CreatedAt().IsZero() {
+				return "N/A"
+			}
+			return p.CreatedAt().Format("02-01-2006")
+		}},
+	}, list.Items())
 	return nil
 }
 

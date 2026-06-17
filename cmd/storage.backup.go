@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type storageBackupGetView struct {
+	ID, URI, Name, Type, SourceVolume, RetentionDays, BillingPeriod, Region, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func backupRef(projectID, backupID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/backups/" + backupID)
 }
@@ -478,57 +482,52 @@ func StorageBackupGet(ctx context.Context, client aruba.Client, args StorageBack
 		return fmt.Errorf("getting backup: %w", apiErrFromV2(err))
 	}
 
-	if bkp != nil && bkp.Raw() != nil {
-		raw := bkp.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(bkp, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nStorage Backup Details:")
-		fmt.Println("=======================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
-		if raw.Properties.Origin.URI != "" {
-			fmt.Printf("Source Volume:   %s\n", raw.Properties.Origin.URI)
-		}
-		if raw.Properties.RetentionDays != nil {
-			fmt.Printf("Retention Days:  %d\n", *raw.Properties.RetentionDays)
-		}
-		if raw.Properties.BillingPeriod != nil {
-			fmt.Printf("Billing Period:  %s\n", string(*raw.Properties.BillingPeriod))
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-	} else {
+	if bkp == nil || bkp.Raw() == nil {
 		fmt.Println("Backup not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(bkp, nil, nil)
+		return nil
+	}
+	raw := bkp.Raw()
+	view := storageBackupGetView{
+		Type:         string(raw.Properties.Type),
+		SourceVolume: raw.Properties.Origin.URI,
+		Tags:         "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Properties.RetentionDays != nil {
+		view.RetentionDays = fmt.Sprintf("%d", *raw.Properties.RetentionDays)
+	}
+	if raw.Properties.BillingPeriod != nil {
+		view.BillingPeriod = string(*raw.Properties.BillingPeriod)
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(storageBackupGetTmpl, view)
 }
 
 // StorageBackupUpdate is a stub — the API does not support backup updates.
@@ -553,40 +552,36 @@ func StorageBackupList(ctx context.Context, client aruba.Client, args StorageBac
 		return fmt.Errorf("listing backups: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "TYPE", Width: 12},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, bkp := range list.Items() {
-			raw := bkp.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			backupType := string(raw.Properties.Type)
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, backupType, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No backups found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.StorageBackup]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(b *aruba.StorageBackup) string {
+			if r := b.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(b *aruba.StorageBackup) string {
+			if r := b.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "TYPE", Width: 12}, Value: func(b *aruba.StorageBackup) string {
+			if r := b.Raw(); r != nil {
+				return string(r.Properties.Type)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(b *aruba.StorageBackup) string {
+			if r := b.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(b *aruba.StorageBackup) bool { return b.Raw() != nil })
 	return nil
 }
 

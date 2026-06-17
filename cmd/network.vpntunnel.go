@@ -103,6 +103,10 @@ var vpnESPPFSGroups = []string{
 
 // vpnTunnelRef builds the combined-URI Ref for a VPN tunnel.
 // Used by network.vpnroute.go for VPNRoute refs that encode the tunnel ancestry.
+type vpnTunnelGetView struct {
+	ID, URI, Name, Region, VPNType, Protocol, PeerIP string
+}
+
 func vpnTunnelRef(projectID, tunnelID string) aruba.Ref {
 	return aruba.VPNTunnelRef(projectID, tunnelID)
 }
@@ -702,47 +706,43 @@ func NetworkVPNTunnelList(ctx context.Context, client aruba.Client, args Network
 		return fmt.Errorf("listing VPN tunnels: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 40},
-			{Header: "ID", Width: 25},
-			{Header: "REGION", Width: 18},
-			{Header: "TYPE", Width: 15},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, vpn := range list.Items() {
-			redactVPNTunnelSecrets(vpn)
-			raw := vpn.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			vpnType := ""
-			if raw.Properties.VPNType != nil {
-				vpnType = string(*raw.Properties.VPNType)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, vpnType, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No VPN tunnels found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.VPNTunnel]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 40}, Value: func(v *aruba.VPNTunnel) string {
+			redactVPNTunnelSecrets(v)
+			if r := v.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 25}, Value: func(v *aruba.VPNTunnel) string {
+			if r := v.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 18}, Value: func(v *aruba.VPNTunnel) string {
+			if r := v.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "TYPE", Width: 15}, Value: func(v *aruba.VPNTunnel) string {
+			if r := v.Raw(); r != nil && r.Properties.VPNType != nil {
+				return string(*r.Properties.VPNType)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(v *aruba.VPNTunnel) string {
+			if r := v.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(v *aruba.VPNTunnel) bool { return v.Raw() != nil })
 	return nil
 }
 
@@ -753,65 +753,72 @@ func NetworkVPNTunnelGet(ctx context.Context, client aruba.Client, args NetworkV
 		return fmt.Errorf("getting VPN tunnel details: %w", apiErrFromV2(err))
 	}
 
-	if vpn != nil && vpn.Raw() != nil {
-		raw := vpn.Raw()
-
-		fmt.Println("\nVPN Tunnel Details:")
-		fmt.Println("===================")
-
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
+	if vpn == nil || vpn.Raw() == nil {
+		return nil
+	}
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(vpn, nil, nil)
+		return nil
+	}
+	raw := vpn.Raw()
+	view := vpnTunnelGetView{}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.VPNType != nil {
+		view.VPNType = string(*raw.Properties.VPNType)
+	}
+	if raw.Properties.VPNClientProtocol != nil {
+		view.Protocol = string(*raw.Properties.VPNClientProtocol)
+	}
+	if raw.Properties.VPNClientSettingsCommon != nil && raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP != nil {
+		view.PeerIP = *raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP
+	}
+	if err := renderGet(vpnTunnelGetTmpl, view); err != nil {
+		return err
+	}
+	// IP Configuration section — dynamic nested content rendered after template
+	if raw.Properties.IPConfigurationsCommon != nil {
+		fmt.Println("\nIP Configuration:")
+		if raw.Properties.IPConfigurationsCommon.VPC != nil {
+			fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurationsCommon.VPC.URI)
 		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		if raw.Properties.VPNType != nil {
-			fmt.Printf("VPN Type:        %s\n", *raw.Properties.VPNType)
-		}
-		if raw.Properties.VPNClientProtocol != nil {
-			fmt.Printf("Protocol:        %s\n", *raw.Properties.VPNClientProtocol)
-		}
-		if raw.Properties.VPNClientSettingsCommon != nil && raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP != nil {
-			fmt.Printf("Peer IP:         %s\n", *raw.Properties.VPNClientSettingsCommon.PeerClientPublicIP)
-		}
-		if raw.Properties.IPConfigurationsCommon != nil {
-			fmt.Println("\nIP Configuration:")
-			if raw.Properties.IPConfigurationsCommon.VPC != nil {
-				fmt.Printf("  VPC:           %s\n", raw.Properties.IPConfigurationsCommon.VPC.URI)
+		if raw.Properties.IPConfigurationsCommon.Subnet != nil {
+			fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.CIDR)
+			if raw.Properties.IPConfigurationsCommon.Subnet.Name != "" {
+				fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.Name)
 			}
-			if raw.Properties.IPConfigurationsCommon.Subnet != nil {
-				fmt.Printf("  Subnet CIDR:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.CIDR)
-				if raw.Properties.IPConfigurationsCommon.Subnet.Name != "" {
-					fmt.Printf("  Subnet Name:   %s\n", raw.Properties.IPConfigurationsCommon.Subnet.Name)
-				}
-			}
-			if raw.Properties.IPConfigurationsCommon.PublicIP != nil {
-				fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurationsCommon.PublicIP.URI)
-			}
 		}
-		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-			fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
+		if raw.Properties.IPConfigurationsCommon.PublicIP != nil {
+			fmt.Printf("  Public IP:     %s\n", raw.Properties.IPConfigurationsCommon.PublicIP.URI)
 		}
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
+	}
+	if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+		fmt.Printf("\nBilling Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
+	}
+	if raw.Metadata.CreationDate != nil {
+		fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+	}
+	if raw.Metadata.CreatedBy != nil {
+		fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+	} else {
+		fmt.Printf("Tags:            []\n")
+	}
+	if raw.Status.State != nil {
+		fmt.Printf("Status:          %s\n", *raw.Status.State)
 	}
 	return nil
 }

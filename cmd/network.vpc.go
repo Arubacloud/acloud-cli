@@ -85,6 +85,10 @@ func completeVPCID(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 // VPC subcommands
+type vpcGetView struct {
+	ID, URI, Name, Region, Default, LinkedResources, CreatedAt, CreatedBy, Tags, Status string
+}
+
 var vpcCmd = &cobra.Command{
 	Use:   "vpc",
 	Short: "Manage VPCs",
@@ -460,47 +464,46 @@ func NetworkVPCGet(ctx context.Context, client aruba.Client, args NetworkVPCGetA
 		return fmt.Errorf("getting VPC details: %w", apiErrFromV2(err))
 	}
 
-	if vpc != nil && vpc.Raw() != nil {
-		raw := vpc.Raw()
-
-		fmt.Println("\nVPC Details:")
-		fmt.Println("============")
-
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		fmt.Printf("Default:         %t\n", raw.Properties.Default)
-		fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
-
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if vpc == nil || vpc.Raw() == nil {
 		fmt.Println("VPC not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(vpc, nil, nil)
+		return nil
+	}
+	raw := vpc.Raw()
+	view := vpcGetView{
+		Default:         fmt.Sprintf("%t", raw.Properties.Default),
+		LinkedResources: fmt.Sprintf("%d", len(raw.Properties.LinkedResources)),
+		Tags:            "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Metadata.CreationDate != nil {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(vpcGetTmpl, view)
 }
 
 // NetworkVPCUpdate updates a VPC's name and/or tags.

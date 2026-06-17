@@ -104,6 +104,11 @@ func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string
 }
 
 // SecurityRule subcommands
+type securityRuleGetView struct {
+	ID, URI, Name, Region, Direction, Protocol, Port, TargetKind, TargetValue string
+	CreatedAt, CreatedBy, Tags, Status                                        string
+}
+
 var securityruleCmd = &cobra.Command{
 	Use:   "securityrule",
 	Short: "Manage security rules",
@@ -570,47 +575,51 @@ func NetworkSecurityRuleGet(ctx context.Context, client aruba.Client, args Netwo
 		return fmt.Errorf("getting security rule: %w", apiErrFromV2(err))
 	}
 
-	if rule != nil && rule.Raw() != nil {
-		raw := rule.Raw()
-		fmt.Println("\nSecurity Rule Details:")
-		fmt.Println("=====================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		fmt.Printf("Direction:       %s\n", raw.Properties.Direction)
-		fmt.Printf("Protocol:        %s\n", raw.Properties.Protocol)
-		fmt.Printf("Port:            %s\n", raw.Properties.Port)
-		if raw.Properties.Target != nil {
-			fmt.Printf("Target Kind:     %s\n", raw.Properties.Target.Kind)
-			fmt.Printf("Target Value:    %s\n", raw.Properties.Target.Value)
-		}
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if rule == nil || rule.Raw() == nil {
 		fmt.Println("Security rule not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(rule, nil, nil)
+		return nil
+	}
+	raw := rule.Raw()
+	view := securityRuleGetView{
+		Direction: string(raw.Properties.Direction),
+		Protocol:  string(raw.Properties.Protocol),
+		Port:      raw.Properties.Port,
+		Tags:      "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Target != nil {
+		view.TargetKind = string(raw.Properties.Target.Kind)
+		view.TargetValue = raw.Properties.Target.Value
+	}
+	if raw.Metadata.CreationDate != nil {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(securityRuleGetTmpl, view)
 }
 
 // NetworkSecurityRuleUpdate updates an existing security rule.
@@ -708,47 +717,55 @@ func NetworkSecurityRuleList(ctx context.Context, client aruba.Client, args Netw
 		return fmt.Errorf("listing security rules: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "DIRECTION", Width: 12},
-			{Header: "PROTOCOL", Width: 12},
-			{Header: "PORT", Width: 12},
-			{Header: "TARGET", Width: 30},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, rule := range list.Items() {
-			raw := rule.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			direction := string(raw.Properties.Direction)
-			protocol := string(raw.Properties.Protocol)
-			port := raw.Properties.Port
-			target := ""
-			if raw.Properties.Target != nil {
-				target = fmt.Sprintf("%s:%s", raw.Properties.Target.Kind, raw.Properties.Target.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, direction, protocol, port, target, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No security rules found.")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.SecurityRule]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.Name != nil {
+				return *raw.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil && raw.Metadata.ID != nil {
+				return *raw.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "DIRECTION", Width: 12}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil {
+				return string(raw.Properties.Direction)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "PROTOCOL", Width: 12}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil {
+				return string(raw.Properties.Protocol)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "PORT", Width: 12}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil {
+				return raw.Properties.Port
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "TARGET", Width: 30}, Value: func(r *aruba.SecurityRule) string {
+			raw := r.Raw()
+			if raw == nil || raw.Properties.Target == nil {
+				return ""
+			}
+			return fmt.Sprintf("%s:%s", raw.Properties.Target.Kind, raw.Properties.Target.Value)
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(r *aruba.SecurityRule) string {
+			if raw := r.Raw(); raw != nil && raw.Status.State != nil {
+				return string(*raw.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(r *aruba.SecurityRule) bool { return r.Raw() != nil })
 	return nil
 }
 

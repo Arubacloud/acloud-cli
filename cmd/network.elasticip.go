@@ -84,6 +84,10 @@ func completeElasticIPID(cmd *cobra.Command, args []string, toComplete string) (
 }
 
 // ElasticIP subcommands
+type elasticIPGetView struct {
+	ID, URI, Name, Region, Address, BillingPeriod, LinkedResources, CreatedAt, CreatedBy, Tags, Status string
+}
+
 var elasticipCmd = &cobra.Command{
 	Use:   "elasticip",
 	Short: "Manage Elastic IPs",
@@ -472,47 +476,50 @@ func NetworkElasticIPGet(ctx context.Context, client aruba.Client, args NetworkE
 		return fmt.Errorf("getting Elastic IP details: %w", apiErrFromV2(err))
 	}
 
-	if eip != nil && eip.Raw() != nil {
-		raw := eip.Raw()
-
-		fmt.Println("\nElastic IP Details:")
-		fmt.Println("===================")
-
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil && raw.Metadata.LocationResponse.Value != "" {
-			fmt.Printf("Region:          %s\n", raw.Metadata.LocationResponse.Value)
-		}
-		if raw.Properties.Address != nil {
-			fmt.Printf("Address:         %s\n", *raw.Properties.Address)
-		}
-		if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
-			fmt.Printf("Billing Period:  %s\n", *raw.Properties.BillingPlanCommon.BillingPeriod)
-		}
-		fmt.Printf("Linked Resources: %d\n", len(raw.Properties.LinkedResources))
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
+	if eip == nil || eip.Raw() == nil {
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(eip, nil, nil)
+		return nil
+	}
+	raw := eip.Raw()
+	view := elasticIPGetView{
+		LinkedResources: fmt.Sprintf("%d", len(raw.Properties.LinkedResources)),
+		Tags:            "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Address != nil {
+		view.Address = *raw.Properties.Address
+	}
+	if raw.Properties.BillingPlanCommon != nil && raw.Properties.BillingPlanCommon.BillingPeriod != nil {
+		view.BillingPeriod = string(*raw.Properties.BillingPlanCommon.BillingPeriod)
+	}
+	if raw.Metadata.CreationDate != nil {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(elasticIPGetTmpl, view)
 }
 
 // NetworkElasticIPUpdate updates an Elastic IP's name and/or tags.
@@ -592,48 +599,42 @@ func NetworkElasticIPList(ctx context.Context, client aruba.Client, args Network
 		return fmt.Errorf("listing Elastic IPs: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "REGION", Width: 18},
-			{Header: "ADDRESS", Width: 16},
-			{Header: "STATUS", Width: 15},
-		}
-
-		var rows [][]string
-		for _, eip := range list.Items() {
-			raw := eip.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			address := ""
-			if raw.Properties.Address != nil {
-				address = *raw.Properties.Address
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, address, status})
-		}
-
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No Elastic IPs found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.ElasticIP]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(e *aruba.ElasticIP) string {
+			if r := e.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(e *aruba.ElasticIP) string {
+			if r := e.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 18}, Value: func(e *aruba.ElasticIP) string {
+			if r := e.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ADDRESS", Width: 16}, Value: func(e *aruba.ElasticIP) string {
+			if r := e.Raw(); r != nil && r.Properties.Address != nil {
+				return *r.Properties.Address
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(e *aruba.ElasticIP) string {
+			if r := e.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(e *aruba.ElasticIP) bool { return e.Raw() != nil })
 	return nil
 }
 

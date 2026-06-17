@@ -402,27 +402,16 @@ func DatabaseDBaaSGrantList(ctx context.Context, client aruba.Client, args Datab
 		return fmt.Errorf("listing grants: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "GRANT ID", Width: 30},
-			{Header: "USERNAME", Width: 30},
-			{Header: "ROLE", Width: 20},
-			{Header: "DATABASE", Width: 25},
-		}
-		var rows [][]string
-		for _, g := range list.Items() {
-			row := []string{
-				g.ID(),
-				g.Username(),
-				g.RoleName(),
-				g.DatabaseName(),
-			}
-			rows = append(rows, row)
-		}
-		PrintOutput(nil, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No grants found")
+		return nil
 	}
+	renderList(nil, []ListColumn[*aruba.Grant]{
+		{TableColumn: TableColumn{Header: "GRANT ID", Width: 30}, Value: func(g *aruba.Grant) string { return g.ID() }},
+		{TableColumn: TableColumn{Header: "USERNAME", Width: 30}, Value: func(g *aruba.Grant) string { return g.Username() }},
+		{TableColumn: TableColumn{Header: "ROLE", Width: 20}, Value: func(g *aruba.Grant) string { return g.RoleName() }},
+		{TableColumn: TableColumn{Header: "DATABASE", Width: 25}, Value: func(g *aruba.Grant) string { return g.DatabaseName() }},
+	}, list.Items())
 	return nil
 }
 

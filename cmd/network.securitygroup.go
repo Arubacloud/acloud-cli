@@ -10,6 +10,10 @@ import (
 )
 
 // securityGroupRef is shared with securityrule.go; uses hyphenated path segment (/security-groups/) to match SDK ID parser.
+type securityGroupGetView struct {
+	ID, URI, Name, Region, CreatedAt, CreatedBy, Tags, Status string
+}
+
 func securityGroupRef(projectID, vpcID, sgID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Network/vpcs/" + vpcID + "/security-groups/" + sgID)
 }
@@ -450,40 +454,42 @@ func NetworkSecurityGroupGet(ctx context.Context, client aruba.Client, args Netw
 		return fmt.Errorf("getting security group: %w", apiErrFromV2(err))
 	}
 
-	if sg != nil && sg.Raw() != nil {
-		raw := sg.Raw()
-		fmt.Println("\nSecurity Group Details:")
-		fmt.Println("======================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if sg == nil || sg.Raw() == nil {
 		fmt.Println("Security group not found or no data returned.")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(sg, nil, nil)
+		return nil
+	}
+	raw := sg.Raw()
+	view := securityGroupGetView{Tags: "[]"}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Metadata.CreationDate != nil {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	return renderGet(securityGroupGetTmpl, view)
 }
 
 // NetworkSecurityGroupUpdate updates an existing security group.
@@ -582,41 +588,36 @@ func NetworkSecurityGroupList(ctx context.Context, client aruba.Client, args Net
 		return fmt.Errorf("listing security groups: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "REGION", Width: 18},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, sg := range list.Items() {
-			raw := sg.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No security groups found.")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.SecurityGroup]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(sg *aruba.SecurityGroup) string {
+			if r := sg.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(sg *aruba.SecurityGroup) string {
+			if r := sg.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 18}, Value: func(sg *aruba.SecurityGroup) string {
+			if r := sg.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(sg *aruba.SecurityGroup) string {
+			if r := sg.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(sg *aruba.SecurityGroup) bool { return sg.Raw() != nil })
 	return nil
 }
 

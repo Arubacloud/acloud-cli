@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type snapshotGetView struct {
+	ID, URI, Name, Size, SourceVolume, Region, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func snapshotRef(projectID, snapshotID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/snapshots/" + snapshotID)
 }
@@ -468,54 +472,48 @@ func StorageSnapshotGet(ctx context.Context, client aruba.Client, args StorageSn
 		return fmt.Errorf("getting snapshot: %w", apiErrFromV2(err))
 	}
 
-	if snap != nil && snap.Raw() != nil {
-		raw := snap.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(snap, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nSnapshot Details:")
-		fmt.Println("=================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Properties.SizeGB != nil {
-			fmt.Printf("Size (GB):       %d\n", *raw.Properties.SizeGB)
-		}
-		if raw.Properties.Volume != nil && raw.Properties.Volume.URI != nil {
-			fmt.Printf("Source Volume:   %s\n", *raw.Properties.Volume.URI)
-		}
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if snap == nil || snap.Raw() == nil {
 		fmt.Println("Snapshot not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(snap, nil, nil)
+		return nil
+	}
+	raw := snap.Raw()
+	view := snapshotGetView{Tags: "[]"}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Properties.SizeGB != nil {
+		view.Size = fmt.Sprintf("%d", *raw.Properties.SizeGB)
+	}
+	if raw.Properties.Volume != nil && raw.Properties.Volume.URI != nil {
+		view.SourceVolume = *raw.Properties.Volume.URI
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(snapshotGetTmpl, view)
 }
 
 // StorageSnapshotUpdate updates a snapshot.
@@ -575,49 +573,39 @@ func StorageSnapshotList(ctx context.Context, client aruba.Client, args StorageS
 		return fmt.Errorf("listing snapshots: %w", apiErrFromV2(err))
 	}
 
-	headers := []TableColumn{
-		{Header: "NAME", Width: 30},
-		{Header: "ID", Width: 26},
-		{Header: "SIZE(GB)", Width: 12},
-		{Header: "STATUS", Width: 15},
-	}
-
-	var rows [][]string
-	if list != nil {
-		for _, snap := range list.Items() {
-			if snap.VolumeURI() != volumeRef(args.ProjectID, args.VolumeID).URI() {
-				continue
-			}
-			raw := snap.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			size := "0"
-			if raw.Properties.SizeGB != nil {
-				size = fmt.Sprintf("%d", *raw.Properties.SizeGB)
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, size, status})
-		}
-	}
-
-	if len(rows) == 0 {
+	volumeURI := volumeRef(args.ProjectID, args.VolumeID).URI()
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Printf("No snapshots found for volume: %s\n", args.VolumeID)
 		return nil
 	}
-
-	PrintOutput(list, headers, rows)
+	renderList(list, []ListColumn[*aruba.Snapshot]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(s *aruba.Snapshot) string {
+			if r := s.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(s *aruba.Snapshot) string {
+			if r := s.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "SIZE(GB)", Width: 12}, Value: func(s *aruba.Snapshot) string {
+			if r := s.Raw(); r != nil && r.Properties.SizeGB != nil {
+				return fmt.Sprintf("%d", *r.Properties.SizeGB)
+			}
+			return "0"
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(s *aruba.Snapshot) string {
+			if r := s.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(s *aruba.Snapshot) bool {
+		return s.VolumeURI() == volumeURI && s.Raw() != nil
+	})
 	return nil
 }
 

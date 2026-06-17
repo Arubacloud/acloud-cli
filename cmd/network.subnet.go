@@ -56,6 +56,10 @@ func init() {
 }
 
 // Subnet subcommands
+type subnetGetView struct {
+	ID, URI, Name, Region, Type, CIDR string
+}
+
 var subnetCmd = &cobra.Command{
 	Use:   "subnet",
 	Short: "Manage subnets",
@@ -552,56 +556,61 @@ func NetworkSubnetGet(ctx context.Context, client aruba.Client, args NetworkSubn
 	if err != nil {
 		return fmt.Errorf("getting subnet: %w", apiErrFromV2(err))
 	}
-	if subnet != nil && subnet.Raw() != nil {
-		raw := subnet.Raw()
-		fmt.Println("\nSubnet Details:")
-		fmt.Println("===============")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		if raw.Metadata.LocationResponse != nil && string(raw.Metadata.LocationResponse.Value) != "" {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Properties.Type != "" {
-			fmt.Printf("Type:            %s\n", raw.Properties.Type)
-		}
-		if raw.Properties.Network != nil {
-			fmt.Printf("CIDR:            %s\n", raw.Properties.Network.Address)
-		}
-		if raw.Properties.DHCP != nil {
-			fmt.Printf("DHCP Enabled:    %v\n", raw.Properties.DHCP.Enabled)
-			if len(raw.Properties.DHCP.Routes) > 0 {
-				fmt.Printf("DHCP Routes:\n")
-				for _, route := range raw.Properties.DHCP.Routes {
-					fmt.Printf("  - %s -> %s\n", route.Address, route.Gateway)
-				}
-			}
-			if len(raw.Properties.DHCP.DNS) > 0 {
-				fmt.Printf("DHCP DNS:        %v\n", raw.Properties.DHCP.DNS)
-			}
-		}
-		if raw.Metadata.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", *raw.Status.State)
-		}
-	} else {
+	if subnet == nil || subnet.Raw() == nil {
 		fmt.Println("Subnet not found or no data returned.")
+		return nil
+	}
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(subnet, nil, nil)
+		return nil
+	}
+	raw := subnet.Raw()
+	view := subnetGetView{Type: string(raw.Properties.Type)}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Network != nil {
+		view.CIDR = raw.Properties.Network.Address
+	}
+	if err := renderGet(subnetGetTmpl, view); err != nil {
+		return err
+	}
+	// DHCP details rendered after the template (dynamic nested content)
+	if raw.Properties.DHCP != nil {
+		fmt.Printf("DHCP Enabled:    %v\n", raw.Properties.DHCP.Enabled)
+		if len(raw.Properties.DHCP.Routes) > 0 {
+			fmt.Printf("DHCP Routes:\n")
+			for _, route := range raw.Properties.DHCP.Routes {
+				fmt.Printf("  - %s -> %s\n", route.Address, route.Gateway)
+			}
+		}
+		if len(raw.Properties.DHCP.DNS) > 0 {
+			fmt.Printf("DHCP DNS:        %v\n", raw.Properties.DHCP.DNS)
+		}
+	}
+	if raw.Metadata.CreationDate != nil {
+		fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
+	}
+	if raw.Metadata.CreatedBy != nil {
+		fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
+	} else {
+		fmt.Printf("Tags:            []\n")
+	}
+	if raw.Status.State != nil {
+		fmt.Printf("Status:          %s\n", *raw.Status.State)
 	}
 	return nil
 }
@@ -612,46 +621,42 @@ func NetworkSubnetList(ctx context.Context, client aruba.Client, args NetworkSub
 	if err != nil {
 		return fmt.Errorf("listing subnets: %w", apiErrFromV2(err))
 	}
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "NAME", Width: 30},
-			{Header: "ID", Width: 26},
-			{Header: "REGION", Width: 18},
-			{Header: "CIDR", Width: 18},
-			{Header: "STATUS", Width: 15},
-		}
-		var rows [][]string
-		for _, subnet := range list.Items() {
-			raw := subnet.Raw()
-			if raw == nil {
-				continue
-			}
-			name := ""
-			if raw.Metadata.Name != nil {
-				name = *raw.Metadata.Name
-			}
-			id := ""
-			if raw.Metadata.ID != nil {
-				id = *raw.Metadata.ID
-			}
-			region := ""
-			if raw.Metadata.LocationResponse != nil {
-				region = string(raw.Metadata.LocationResponse.Value)
-			}
-			cidr := ""
-			if raw.Properties.Network != nil {
-				cidr = raw.Properties.Network.Address
-			}
-			status := ""
-			if raw.Status.State != nil {
-				status = string(*raw.Status.State)
-			}
-			rows = append(rows, []string{name, id, region, cidr, status})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No subnets found.")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.Subnet]{
+		{TableColumn: TableColumn{Header: "NAME", Width: 30}, Value: func(s *aruba.Subnet) string {
+			if r := s.Raw(); r != nil && r.Metadata.Name != nil {
+				return *r.Metadata.Name
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "ID", Width: 26}, Value: func(s *aruba.Subnet) string {
+			if r := s.Raw(); r != nil && r.Metadata.ID != nil {
+				return *r.Metadata.ID
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "REGION", Width: 18}, Value: func(s *aruba.Subnet) string {
+			if r := s.Raw(); r != nil && r.Metadata.LocationResponse != nil {
+				return string(r.Metadata.LocationResponse.Value)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CIDR", Width: 18}, Value: func(s *aruba.Subnet) string {
+			if r := s.Raw(); r != nil && r.Properties.Network != nil {
+				return r.Properties.Network.Address
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "STATUS", Width: 15}, Value: func(s *aruba.Subnet) string {
+			if r := s.Raw(); r != nil && r.Status.State != nil {
+				return string(*r.Status.State)
+			}
+			return ""
+		}},
+	}, list.Items(), func(s *aruba.Subnet) bool { return s.Raw() != nil })
 	return nil
 }
 

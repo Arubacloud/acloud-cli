@@ -10,6 +10,10 @@ import (
 )
 
 // userRef returns a Ref for a specific user inside a DBaaS instance.
+type userGetView struct {
+	Username, CreatedAt, CreatedBy string
+}
+
 func userRef(projectID, dbaasID, username string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Database/dbaas/" + dbaasID +
@@ -460,29 +464,24 @@ func DatabaseDBaaSUserGet(ctx context.Context, client aruba.Client, args Databas
 		return fmt.Errorf("getting user: %w", apiErrFromV2(err))
 	}
 
-	if u != nil && u.Raw() != nil {
-		raw := u.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(u, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nUser Details:")
-		fmt.Println("=============")
-		fmt.Printf("Username:        %s\n", raw.Username)
-		if raw.CreationDate != nil {
-			fmt.Printf("Creation Date:   %s\n", raw.CreationDate.Format(DateLayout))
-		}
-		if raw.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.CreatedBy)
-		}
-		fmt.Println()
-	} else {
+	if u == nil || u.Raw() == nil {
 		fmt.Println("User not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(u, nil, nil)
+		return nil
+	}
+	raw := u.Raw()
+	view := userGetView{Username: raw.Username}
+	if raw.CreationDate != nil {
+		view.CreatedAt = raw.CreationDate.Format(DateLayout)
+	}
+	if raw.CreatedBy != nil {
+		view.CreatedBy = *raw.CreatedBy
+	}
+	return renderGet(userGetTmpl, view)
 }
 
 // DatabaseDBaaSUserUpdate updates a user's password.
@@ -528,33 +527,30 @@ func DatabaseDBaaSUserList(ctx context.Context, client aruba.Client, args Databa
 		return fmt.Errorf("listing users: %w", apiErrFromV2(err))
 	}
 
-	if list != nil && len(list.Items()) > 0 {
-		headers := []TableColumn{
-			{Header: "USERNAME", Width: 40},
-			{Header: "CREATION DATE", Width: 25},
-			{Header: "CREATED BY", Width: 30},
-		}
-
-		var rows [][]string
-		for _, user := range list.Items() {
-			raw := user.Raw()
-			if raw == nil {
-				continue
-			}
-			creationDate := ""
-			if raw.CreationDate != nil {
-				creationDate = raw.CreationDate.Format(DateLayout)
-			}
-			createdBy := ""
-			if raw.CreatedBy != nil {
-				createdBy = *raw.CreatedBy
-			}
-			rows = append(rows, []string{raw.Username, creationDate, createdBy})
-		}
-		PrintOutput(list, headers, rows)
-	} else {
+	if list == nil || len(list.Items()) == 0 {
 		fmt.Println("No users found")
+		return nil
 	}
+	renderList(list, []ListColumn[*aruba.User]{
+		{TableColumn: TableColumn{Header: "USERNAME", Width: 40}, Value: func(u *aruba.User) string {
+			if r := u.Raw(); r != nil {
+				return r.Username
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CREATION DATE", Width: 25}, Value: func(u *aruba.User) string {
+			if r := u.Raw(); r != nil && r.CreationDate != nil {
+				return r.CreationDate.Format(DateLayout)
+			}
+			return ""
+		}},
+		{TableColumn: TableColumn{Header: "CREATED BY", Width: 30}, Value: func(u *aruba.User) string {
+			if r := u.Raw(); r != nil && r.CreatedBy != nil {
+				return *r.CreatedBy
+			}
+			return ""
+		}},
+	}, list.Items(), func(u *aruba.User) bool { return u.Raw() != nil })
 	return nil
 }
 
