@@ -144,12 +144,16 @@ Aruba Cloud CLI richiede credenziali API per autenticarsi con i servizi Aruba Cl
 
 ### File di Configurazione
 
-Le credenziali sono memorizzate in `~/.acloud.yaml`:
+Le credenziali sono memorizzate in `~/.config/acloud/config.yaml` (percorso XDG Base Directory, permessi `0600`):
 
 ```yaml
-clientId: your-client-id
-clientSecret: your-client-secret
+profiles:
+  default:
+    clientId: your-client-id
+    clientSecret: your-client-secret
 ```
+
+> **Percorso legacy**: Se hai usato una versione precedente di acloud che salvava le credenziali in `~/.acloud.yaml`, la CLI migra automaticamente quel file alla nuova posizione al primo avvio e mostra un avviso una tantum. Non è necessaria alcuna azione manuale.
 
 **Nota sulla Sicurezza**: Mantieni le tue credenziali sicure. Il file di configurazione contiene informazioni sensibili.
 
@@ -246,6 +250,110 @@ acloud config set --base-url "https://custom-api.example.com"
 
 **Nota**: Sia `--client-id` che `--client-secret` devono sempre essere presenti nella configurazione. Se stai aggiornando uno, assicurati che l'altro sia già impostato o fornisci entrambi.
 
+## Gestione dei Profili di Credenziali
+
+Quando lavori con più account Aruba Cloud — ad esempio un account personale, un ambiente di staging e uno di produzione — i profili ti permettono di memorizzare ogni set di credenziali sotto un nome e passare dall'uno all'altro con un singolo flag.
+
+### Creare un Profilo
+
+Usa `acloud config profile set <nome>` per creare o aggiornare un profilo. Il client secret viene letto dalla variabile `ACLOUD_CLIENT_SECRET` (consigliato per l'automazione) o richiesto in modo sicuro con input nascosto:
+
+```bash
+# Crea il profilo "staging" — secret inserito in modo interattivo
+acloud config profile set staging --client-id YOUR_STAGING_CLIENT_ID
+
+# Crea il profilo "prod" — secret dalla variabile d'ambiente
+ACLOUD_CLIENT_SECRET=YOUR_PROD_SECRET \
+  acloud config profile set prod \
+  --client-id YOUR_PROD_CLIENT_ID \
+  --base-url "https://api.arubacloud.com"
+```
+
+Puoi aggiornare un singolo campo di un profilo esistente senza toccare gli altri:
+
+```bash
+# Rinnova il client ID nel profilo prod mantenendo il secret esistente
+acloud config profile set prod --client-id NEW_PROD_CLIENT_ID
+```
+
+### Selezionare il Profilo Attivo
+
+Tre modi per selezionare il profilo che un comando utilizza, in ordine di priorità:
+
+| Metodo | Esempio | Note |
+|--------|---------|------|
+| Flag `--profile` | `acloud --profile prod network vpc list` | Priorità massima; sovrascrive la variabile d'ambiente |
+| Variabile `ACLOUD_PROFILE` | `ACLOUD_PROFILE=staging acloud storage blockstorage list` | Utile nelle pipeline CI/CD |
+| Default | *(nessun flag o variabile)* | Usa il profilo `default` |
+
+```bash
+# Comando singolo su prod
+acloud --profile prod management project list
+
+# Imposta il profilo per l'intera sessione shell
+export ACLOUD_PROFILE=staging
+acloud network vpc list
+acloud storage blockstorage list
+
+# Ripristina il comportamento predefinito
+unset ACLOUD_PROFILE
+```
+
+### Elencare i Profili
+
+```bash
+acloud config profile list
+```
+
+Esempio di output (il profilo attivo è contrassegnato con `*`):
+
+```
+PROFILE              CLIENT_ID                        BASE_URL
+* default            default-client-id
+  prod               prod-client-id                   https://api.arubacloud.com
+  staging            staging-client-id
+```
+
+### Eliminare un Profilo
+
+```bash
+acloud config profile delete staging
+# Profile "staging" deleted.
+```
+
+### Formato del File di Configurazione (Multi-Profilo)
+
+Tutti i profili sono memorizzati insieme in `~/.config/acloud/config.yaml` sotto la chiave `profiles:`:
+
+```yaml
+profiles:
+  default:
+    clientId: default-client-id
+    clientSecret: default-secret
+  prod:
+    clientId: prod-client-id
+    clientSecret: prod-secret
+    baseUrl: https://api.arubacloud.com
+  staging:
+    clientId: staging-client-id
+    clientSecret: staging-secret
+```
+
+> **Compatibilità con le versioni precedenti**: I file di configurazione a profilo singolo (il vecchio formato piatto `clientId: / clientSecret:`) continuano a funzionare e vengono automaticamente trattati come profilo `default`. Non vengono riscritti finché non si esegue `acloud config profile set` o `acloud config set`.
+
+### Usare i Profili con la Gestione del Contesto
+
+I profili (credenziali) e i contesti (ID progetto) sono indipendenti — puoi combinarli liberamente:
+
+```bash
+# Usa le credenziali prod + un ID progetto da un contesto salvato
+acloud --profile prod context use my-prod-project
+acloud --profile prod network vpc list
+
+# Oppure passa l'ID progetto esplicitamente
+acloud --profile prod network vpc list --project-id YOUR_PROJECT_ID
+```
+
 ## Gestione del Contesto {#context-management}
 
 La CLI fornisce la gestione del contesto per evitare di passare `--project-id` ripetutamente. I contesti ti permettono di salvare gli ID progetto e passare tra di essi facilmente.
@@ -305,7 +413,7 @@ acloud context delete my-dev
 
 ### File del Contesto
 
-I contesti sono memorizzati in `~/.acloud-context.yaml`:
+I contesti sono memorizzati in `~/.config/acloud/context.yaml`:
 
 ```yaml
 current-context: my-prod
@@ -315,6 +423,8 @@ contexts:
   my-dev:
     project-id: 66a10244f62b99c686572a9e
 ```
+
+> **Percorso legacy**: Le versioni precedenti salvavano questo file in `~/.acloud-context.yaml`. La CLI lo migra automaticamente al primo avvio.
 
 ### Override del Contesto
 
@@ -553,6 +663,35 @@ acloud network vpc list -o json
 ```bash
 acloud storage blockstorage list -o table-json | jq '.[].name'
 ```
+
+## Provisioning Sincrono (--wait)
+
+Per impostazione predefinita, i comandi `create` e `update` ritornano non appena l'API accetta la richiesta — la risorsa potrebbe essere ancora in fase di provisioning in background. Usa `--wait` per attendere finché la risorsa raggiunge uno stato operativo (`Active`, `Running`, ecc.) o fallisce.
+
+```bash
+# Attendi che il VPC sia Active
+acloud network vpc create --name "prod-vpc" --region "IT-BG" --wait
+
+# Attendi che il DBaaS sia Active; estendi il timeout a 10 minuti
+acloud --timeout 10m database dbaas create --name "prod-db" --region "IT-BG" \
+  --engine-id "mysql-8.0" --flavor "DBO4A8" --storage-size 50 \
+  --zone "ITBG-1" --wait
+```
+
+Il progresso viene stampato su stderr (per non mescolarsi con l'output `-o json`):
+```
+Waiting for VPC 'prod-vpc' to become Active... [12s]
+VPC 'prod-vpc' is Active after 15s.
+```
+
+**Risorse supportate:** `cloudserver`, `vpc`, `subnet`, `securitygroup`, `vpntunnel`, `elasticip`, `kaas`, `containerregistry`, `dbaas`, `kms`, `blockstorage` — sia nei comandi create che update.
+
+**Timeout:** `--wait` rispetta il flag globale `--timeout` (default `30s`). Per risorse che richiedono più tempo per il provisioning (cluster KaaS, istanze DBaaS), imposta un timeout più lungo:
+```bash
+acloud --timeout 15m container kaas create ... --wait
+```
+
+**Codice di uscita:** Ritorna non-zero se la risorsa raggiunge uno stato di errore (`Error`, `Failed`) o il timeout scade prima che la risorsa diventi operativa.
 
 ## Eliminazione Sicura (Dry Run)
 
