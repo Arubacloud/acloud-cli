@@ -3,9 +3,12 @@ package client
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sync"
+	"time"
 
+	"github.com/Arubacloud/acloud-cli/internal/middleware"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 )
 
@@ -17,17 +20,21 @@ type Params struct {
 	TokenIssuerURL string
 	UserAgent      string
 	Debug          bool
+	Retries        int
+	RetryBackoff   time.Duration
 }
 
 type cachedState struct {
-	mu          sync.Mutex
-	client      aruba.Client
-	clientID    string
-	secret      string
-	debug       bool
-	baseURL     string
-	tokenIssuer string
-	override    aruba.Client // set by SetForTesting only
+	mu           sync.Mutex
+	client       aruba.Client
+	clientID     string
+	secret       string
+	debug        bool
+	baseURL      string
+	tokenIssuer  string
+	retries      int
+	retryBackoff time.Duration
+	override     aruba.Client // set by SetForTesting only
 }
 
 var s = &cachedState{}
@@ -43,7 +50,9 @@ func Get(p Params) (aruba.Client, error) {
 		s.secret == p.ClientSecret &&
 		s.debug == p.Debug &&
 		s.baseURL == p.BaseURL &&
-		s.tokenIssuer == p.TokenIssuerURL {
+		s.tokenIssuer == p.TokenIssuerURL &&
+		s.retries == p.Retries &&
+		s.retryBackoff == p.RetryBackoff {
 		return s.client, nil
 	}
 
@@ -66,6 +75,17 @@ func Get(p Params) (aruba.Client, error) {
 		options = options.WithUserAgent(p.UserAgent)
 	}
 
+	if p.Retries > 0 {
+		options = options.WithCustomHTTPClient(&http.Client{
+			Transport: &middleware.RetryTransport{
+				Base:       http.DefaultTransport,
+				MaxRetries: p.Retries,
+				BaseDelay:  p.RetryBackoff,
+				Debug:      p.Debug,
+			},
+		})
+	}
+
 	c, err := aruba.NewClient(options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Aruba Cloud client: %w", err)
@@ -77,6 +97,8 @@ func Get(p Params) (aruba.Client, error) {
 	s.debug = p.Debug
 	s.baseURL = p.BaseURL
 	s.tokenIssuer = p.TokenIssuerURL
+	s.retries = p.Retries
+	s.retryBackoff = p.RetryBackoff
 
 	return c, nil
 }

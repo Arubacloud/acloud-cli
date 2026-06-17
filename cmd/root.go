@@ -42,6 +42,8 @@ func init() {
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 	rootCmd.PersistentFlags().String("timeout", "30s", "Timeout for API calls (e.g. 30s, 2m, 5m)")
 	rootCmd.PersistentFlags().String("profile", "", "Credential profile to use (overrides ACLOUD_PROFILE env var)")
+	rootCmd.PersistentFlags().Int("retries", 2, "Number of retries for transient API failures (0 = fail-fast)")
+	rootCmd.PersistentFlags().Duration("retry-backoff", time.Second, "Base delay between retries (doubles on each attempt)")
 }
 
 // GetProjectID returns the project ID from the flag or current context.

@@ -57,6 +57,8 @@ func GetArubaClient() (aruba.Client, error) {
 	}
 
 	debug, _ := rootCmd.PersistentFlags().GetBool("debug")
+	retries, _ := rootCmd.PersistentFlags().GetInt("retries")
+	retryBackoff, _ := rootCmd.PersistentFlags().GetDuration("retry-backoff")
 
 	return client.Get(client.Params{
 		ClientID:       cfg.ClientID,
@@ -65,6 +67,8 @@ func GetArubaClient() (aruba.Client, error) {
 		TokenIssuerURL: tokenIssuer,
 		Debug:          debug,
 		UserAgent:      "acloud-cli@" + rootCmd.Version,
+		Retries:        retries,
+		RetryBackoff:   retryBackoff,
 	})
 }
 
