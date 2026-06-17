@@ -8,6 +8,7 @@ import (
 
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 // ─── Command-level tests ─────────────────────────────────────────────────────
@@ -519,5 +520,224 @@ func TestSecurityKeyCreateRun_ValidationError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "checking args") {
 		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestSecurityKeyCreate_WithStatus(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "key-new", "my-key"
+	algo := types.KeyAlgorithmAes
+	keyType := types.KeyTypeSymmetric
+	status := types.KeyStatusActive
+	src := types.KeyCreationSourceCmp
+	privID := "priv-key-001"
+	srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms/kms-001/keys", jsonResponse(200, types.KeyResponse{
+		KeyID: &id, Name: &name, Algorithm: &algo,
+		Type: &keyType, Status: &status, CreationSource: &src, PrivateKeyID: &privID,
+	}))
+
+	out := captureStdout(func() {
+		err := SecurityKeyCreate(context.Background(), srv.Client(), validKeyCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "key-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+
+func TestSecurityKeyGet_WithAllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "key-001", "my-key"
+	algo := types.KeyAlgorithmRsa
+	keyType := types.KeyTypeAsymmetric
+	status := types.KeyStatusActive
+	src := types.KeyCreationSourceCmp
+	privID := "priv-key-001"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/keys/key-001", jsonResponse(200, types.KeyResponse{
+		KeyID: &id, Name: &name, Algorithm: &algo,
+		Type: &keyType, Status: &status, CreationSource: &src, PrivateKeyID: &privID,
+	}))
+
+	out := captureStdout(func() {
+		args := SecurityKeyGetArgs{ProjectID: "proj-123", KMSID: "kms-001", ID: "key-001"}
+		if err := SecurityKeyGet(context.Background(), srv.Client(), args); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "Rsa") {
+		t.Errorf("expected algorithm in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Asymmetric") {
+		t.Errorf("expected type in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Active") {
+		t.Errorf("expected status in output, got: %s", out)
+	}
+	if !strings.Contains(out, "priv-key-001") {
+		t.Errorf("expected private key ID in output, got: %s", out)
+	}
+}
+
+func TestSecurityKeyGetArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKeyGetArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid",
+			args:    SecurityKeyGetArgs{ProjectID: "p", KMSID: "k", ID: "key-001"},
+			wantErr: false,
+		},
+		{
+			name:        "empty kms-id",
+			args:        SecurityKeyGetArgs{ProjectID: "p", KMSID: "", ID: "key-001"},
+			wantErr:     true,
+			errContains: "--kms-id is required",
+		},
+		{
+			name:        "empty id",
+			args:        SecurityKeyGetArgs{ProjectID: "p", KMSID: "k", ID: ""},
+			wantErr:     true,
+			errContains: "key ID is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityKeyDeleteArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKeyDeleteArgs
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid",
+			args:    SecurityKeyDeleteArgs{ProjectID: "p", KMSID: "k", ID: "key-001"},
+			wantErr: false,
+		},
+		{
+			name:        "empty kms-id",
+			args:        SecurityKeyDeleteArgs{ProjectID: "p", KMSID: "", ID: "key-001"},
+			wantErr:     true,
+			errContains: "--kms-id is required",
+		},
+		{
+			name:        "empty id",
+			args:        SecurityKeyDeleteArgs{ProjectID: "p", KMSID: "k", ID: ""},
+			wantErr:     true,
+			errContains: "key ID is required",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityKeyListArgs_Validate(t *testing.T) {
+	a1 := SecurityKeyListArgs{ProjectID: "p", KMSID: ""}
+	if err := a1.Validate(); err == nil || !strings.Contains(err.Error(), "--kms-id is required") {
+		t.Errorf("expected kms-id error, got: %v", err)
+	}
+	a2 := SecurityKeyListArgs{ProjectID: "p", KMSID: "k"}
+	if err := a2.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompleteKeyID_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "key-001", "my-key"
+	algo := types.KeyAlgorithmAes
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/keys", jsonResponse(200, types.KeyListResponse{
+		Values: []types.KeyResponse{{KeyID: &id, Name: &name, Algorithm: &algo}},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(keyGetCmd)
+	if err := keyGetCmd.Flags().Set("kms-id", "kms-001"); err != nil {
+		t.Fatalf("set kms-id: %v", err)
+	}
+	if err := keyGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+
+	completions, directive := completeKeyID(keyGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteKeyID_NoKMSID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(keyGetCmd)
+	if err := keyGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+	// kms-id not set — should return early with NoFileComp
+	_, directive := completeKeyID(keyGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+}
+
+func TestCompleteKeyID_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/keys", errorResponse(500, "Internal Server Error", "boom"))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(keyGetCmd)
+	if err := keyGetCmd.Flags().Set("kms-id", "kms-001"); err != nil {
+		t.Fatalf("set kms-id: %v", err)
+	}
+	if err := keyGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+
+	completions, directive := completeKeyID(keyGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+	if len(completions) != 0 {
+		t.Errorf("expected no completions on error, got: %v", completions)
 	}
 }

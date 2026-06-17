@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Arubacloud/sdk-go/pkg/types"
+	"github.com/spf13/cobra"
 )
 
 // ─── Command-level tests ─────────────────────────────────────────────────────
@@ -565,5 +566,230 @@ func TestSecurityKmipCreateRun_ValidationError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "checking args") {
 		t.Errorf("expected 'checking args', got: %v", err)
+	}
+}
+
+func TestSecurityKmipCreate_WithAllFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kmip-new", "my-kmip"
+	kmipType := "KMIP"
+	status := types.ServiceStatusInCreation
+	srv.OnPost("/projects/proj-123/providers/Aruba.Security/kms/kms-001/kmip", jsonResponse(200, types.KmipResponse{
+		ID: &id, Name: &name, Type: &kmipType, Status: &status,
+	}))
+
+	out := captureStdout(func() {
+		err := SecurityKmipCreate(context.Background(), srv.Client(), validKmipCreateArgs())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "kmip-new") {
+		t.Errorf("expected ID in output, got: %s", out)
+	}
+}
+
+
+func TestSecurityKmipGet_WithAllOptionalFields(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kmip-001", "my-kmip"
+	kmipType := "KMIP"
+	status := types.ServiceStatusCertificateAvailable
+	created := "2026-01-01T00:00:00Z"
+	deleted := "2026-12-31T00:00:00Z"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/kmip/kmip-001", jsonResponse(200, types.KmipResponse{
+		ID: &id, Name: &name, Type: &kmipType, Status: &status,
+		CreationDate: &created, DeletionDate: &deleted,
+	}))
+
+	out := captureStdout(func() {
+		args := SecurityKmipGetArgs{ProjectID: "proj-123", KMSID: "kms-001", ID: "kmip-001"}
+		if err := SecurityKmipGet(context.Background(), srv.Client(), args); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "KMIP") {
+		t.Errorf("expected type in output, got: %s", out)
+	}
+	if !strings.Contains(out, "CertificateAvailable") {
+		t.Errorf("expected status in output, got: %s", out)
+	}
+	if !strings.Contains(out, "2026-01-01") {
+		t.Errorf("expected creation date in output, got: %s", out)
+	}
+}
+
+func TestSecurityKmipDownload_NilCert(t *testing.T) {
+	srv := newArubaTestServer(t)
+	// Return empty cert response — Raw() will be nil → "No certificate available"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/kmip/kmip-001/download", jsonResponse(200, types.KmipCertificateResponse{}))
+
+	out := captureStdout(func() {
+		args := SecurityKmipDownloadArgs{ProjectID: "proj-123", KMSID: "kms-001", ID: "kmip-001"}
+		if err := SecurityKmipDownload(context.Background(), srv.Client(), args); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	// Empty cert still prints (cert and key are empty strings), so just verify no error occurred
+	_ = out
+}
+
+func TestSecurityKmipGetArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKmipGetArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", args: SecurityKmipGetArgs{ProjectID: "p", KMSID: "k", ID: "kmip-001"}},
+		{name: "empty kms-id", args: SecurityKmipGetArgs{ProjectID: "p", KMSID: "", ID: "kmip-001"}, wantErr: true, errContains: "--kms-id is required"},
+		{name: "empty id", args: SecurityKmipGetArgs{ProjectID: "p", KMSID: "k", ID: ""}, wantErr: true, errContains: "KMIP ID is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityKmipDeleteArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKmipDeleteArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", args: SecurityKmipDeleteArgs{ProjectID: "p", KMSID: "k", ID: "kmip-001"}},
+		{name: "empty kms-id", args: SecurityKmipDeleteArgs{ProjectID: "p", KMSID: "", ID: "kmip-001"}, wantErr: true, errContains: "--kms-id is required"},
+		{name: "empty id", args: SecurityKmipDeleteArgs{ProjectID: "p", KMSID: "k", ID: ""}, wantErr: true, errContains: "KMIP ID is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityKmipDownloadArgs_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        SecurityKmipDownloadArgs
+		wantErr     bool
+		errContains string
+	}{
+		{name: "valid", args: SecurityKmipDownloadArgs{ProjectID: "p", KMSID: "k", ID: "kmip-001"}},
+		{name: "empty kms-id", args: SecurityKmipDownloadArgs{ProjectID: "p", KMSID: "", ID: "kmip-001"}, wantErr: true, errContains: "--kms-id is required"},
+		{name: "empty id", args: SecurityKmipDownloadArgs{ProjectID: "p", KMSID: "k", ID: ""}, wantErr: true, errContains: "KMIP ID is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.args.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errContains)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecurityKmipListArgs_Validate(t *testing.T) {
+	a1 := SecurityKmipListArgs{ProjectID: "p", KMSID: ""}
+	if err := a1.Validate(); err == nil || !strings.Contains(err.Error(), "--kms-id is required") {
+		t.Errorf("expected kms-id error, got: %v", err)
+	}
+	a2 := SecurityKmipListArgs{ProjectID: "p", KMSID: "k"}
+	if err := a2.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompleteKmipID_HappyPath(t *testing.T) {
+	srv := newArubaTestServer(t)
+	id, name := "kmip-001", "my-kmip"
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/kmip", jsonResponse(200, types.KmipListResponse{
+		Values: []types.KmipResponse{{ID: &id, Name: &name}},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(kmipGetCmd)
+	if err := kmipGetCmd.Flags().Set("kms-id", "kms-001"); err != nil {
+		t.Fatalf("set kms-id: %v", err)
+	}
+	if err := kmipGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+
+	completions, directive := completeKmipID(kmipGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteKmipID_NoKMSID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(kmipGetCmd)
+	if err := kmipGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+	// kms-id not set — should return early with NoFileComp
+	_, directive := completeKmipID(kmipGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+}
+
+func TestCompleteKmipID_APIError(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Security/kms/kms-001/kmip", errorResponse(500, "Internal Server Error", "boom"))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	resetCmdFlags(kmipGetCmd)
+	if err := kmipGetCmd.Flags().Set("kms-id", "kms-001"); err != nil {
+		t.Fatalf("set kms-id: %v", err)
+	}
+	if err := kmipGetCmd.Flags().Set("project-id", "proj-123"); err != nil {
+		t.Fatalf("set project-id: %v", err)
+	}
+
+	completions, directive := completeKmipID(kmipGetCmd, []string{}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("unexpected directive: %v", directive)
+	}
+	if len(completions) != 0 {
+		t.Errorf("expected no completions on error, got: %v", completions)
 	}
 }
