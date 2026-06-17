@@ -42,6 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("output", "o", OutputFormatTable, "Output format: table|std|standard, table-json|std-json, table-yaml|std-yaml, json, yaml")
 	rootCmd.PersistentFlags().String("timeout", "30s", "Timeout for API calls (e.g. 30s, 2m, 5m)")
 	rootCmd.PersistentFlags().String("profile", "", "Credential profile to use (overrides ACLOUD_PROFILE env var)")
+	rootCmd.PersistentFlags().Bool("telemetry", false, "Enable OpenTelemetry tracing (set OTEL_EXPORTER_OTLP_ENDPOINT to configure the collector)")
 }
 
 // GetProjectID returns the project ID from the flag or current context.
@@ -58,7 +59,8 @@ func GetProjectID(cmd *cobra.Command) (string, error) {
 }
 
 // newCtx returns a context whose timeout is governed by the global --timeout flag
-// (default 30s). Invalid or missing flag values fall back to 30s.
+// (default 30s). When a root tracing span is active it is used as the parent
+// context so that SDK calls nest under the command span.
 func newCtx() (context.Context, context.CancelFunc) {
 	d := 30 * time.Second
 	if rootCmd != nil {
@@ -68,5 +70,5 @@ func newCtx() (context.Context, context.CancelFunc) {
 			}
 		}
 	}
-	return context.WithTimeout(context.Background(), d)
+	return context.WithTimeout(activeSpanCtx, d)
 }

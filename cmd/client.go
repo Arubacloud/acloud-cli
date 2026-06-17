@@ -1,20 +1,68 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
+
+	"go.opentelemetry.io/otel"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/Arubacloud/acloud-cli/internal/client"
+	"github.com/Arubacloud/acloud-cli/internal/telemetry"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 	"github.com/spf13/cobra"
 )
 
+// activeSpanCtx carries the root span context created in PersistentPreRunE so
+// that newCtx() in root.go can derive child contexts from it. Package-level
+// because cobra provides no other cross-hook context propagation mechanism.
+var activeSpanCtx = context.Background()
+
+// traceShutdown is the OTLP provider shutdown function set when --telemetry is
+// active. Called in PersistentPostRunE to flush spans before the process exits.
+var traceShutdown func(context.Context)
+
+// activeSpan is the root command span; ended in PersistentPostRunE.
+var activeSpan oteltrace.Span
+
 func init() {
+	telemetry.NoopSetup() // default no-op until --telemetry enables the real provider
+
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if skipClientInit(cmd) {
 			return nil
 		}
+
+		// Telemetry: initialise OTLP provider and start root span when --telemetry is set.
+		if enabled, _ := rootCmd.PersistentFlags().GetBool("telemetry"); enabled {
+			endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+			shutdown, err := telemetry.Setup(context.Background(), endpoint)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[warn] telemetry setup failed: %v\n", err)
+			} else {
+				traceShutdown = shutdown
+				ctx, span := telemetry.StartSpan(context.Background(), cmd.CommandPath())
+				activeSpan = span
+				activeSpanCtx = ctx
+			}
+		}
+
 		_, err := GetArubaClient()
 		return err
+	}
+
+	rootCmd.PersistentPostRunE = func(cmd *cobra.Command, args []string) error {
+		if activeSpan != nil {
+			activeSpan.End()
+			activeSpan = nil
+		}
+		if traceShutdown != nil {
+			traceShutdown(context.Background())
+			traceShutdown = nil
+		}
+		activeSpanCtx = context.Background()
+		return nil
 	}
 }
 
@@ -57,15 +105,26 @@ func GetArubaClient() (aruba.Client, error) {
 	}
 
 	debug, _ := rootCmd.PersistentFlags().GetBool("debug")
+	telemetryEnabled, _ := rootCmd.PersistentFlags().GetBool("telemetry")
 
 	return client.Get(client.Params{
-		ClientID:       cfg.ClientID,
-		ClientSecret:   cfg.ClientSecret,
-		BaseURL:        baseURL,
-		TokenIssuerURL: tokenIssuer,
-		Debug:          debug,
-		UserAgent:      "acloud-cli@" + rootCmd.Version,
+		ClientID:        cfg.ClientID,
+		ClientSecret:    cfg.ClientSecret,
+		BaseURL:         baseURL,
+		TokenIssuerURL:  tokenIssuer,
+		Debug:           debug,
+		UserAgent:       "acloud-cli@" + rootCmd.Version,
+		TelemetryTracer: tracerWhenEnabled(telemetryEnabled),
 	})
+}
+
+// tracerWhenEnabled returns the global OTel tracer when telemetry is active,
+// nil otherwise. A nil tracer in client.Params means no TracingTransport is injected.
+func tracerWhenEnabled(enabled bool) oteltrace.Tracer {
+	if !enabled {
+		return nil
+	}
+	return otel.Tracer("github.com/Arubacloud/acloud-cli")
 }
 
 func resetClientState() {

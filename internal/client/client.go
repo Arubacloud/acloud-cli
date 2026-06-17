@@ -3,31 +3,37 @@ package client
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Arubacloud/acloud-cli/internal/middleware"
 	"github.com/Arubacloud/sdk-go/pkg/aruba"
 )
 
 // Params holds the fully-resolved configuration used to build or look up a cached SDK client.
 type Params struct {
-	ClientID       string
-	ClientSecret   string
-	BaseURL        string
-	TokenIssuerURL string
-	UserAgent      string
-	Debug          bool
+	ClientID        string
+	ClientSecret    string
+	BaseURL         string
+	TokenIssuerURL  string
+	UserAgent       string
+	Debug           bool
+	TelemetryTracer trace.Tracer // non-nil when --telemetry is active
 }
 
 type cachedState struct {
-	mu          sync.Mutex
-	client      aruba.Client
-	clientID    string
-	secret      string
-	debug       bool
-	baseURL     string
-	tokenIssuer string
-	override    aruba.Client // set by SetForTesting only
+	mu              sync.Mutex
+	client          aruba.Client
+	clientID        string
+	secret          string
+	debug           bool
+	baseURL         string
+	tokenIssuer     string
+	telemetryActive bool
+	override        aruba.Client // set by SetForTesting only
 }
 
 var s = &cachedState{}
@@ -38,12 +44,14 @@ func Get(p Params) (aruba.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	telemetryActive := p.TelemetryTracer != nil
 	if s.client != nil &&
 		s.clientID == p.ClientID &&
 		s.secret == p.ClientSecret &&
 		s.debug == p.Debug &&
 		s.baseURL == p.BaseURL &&
-		s.tokenIssuer == p.TokenIssuerURL {
+		s.tokenIssuer == p.TokenIssuerURL &&
+		s.telemetryActive == telemetryActive {
 		return s.client, nil
 	}
 
@@ -66,6 +74,15 @@ func Get(p Params) (aruba.Client, error) {
 		options = options.WithUserAgent(p.UserAgent)
 	}
 
+	if p.TelemetryTracer != nil {
+		options = options.WithCustomHTTPClient(&http.Client{
+			Transport: &middleware.TracingTransport{
+				Base:   http.DefaultTransport,
+				Tracer: p.TelemetryTracer,
+			},
+		})
+	}
+
 	c, err := aruba.NewClient(options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Aruba Cloud client: %w", err)
@@ -77,6 +94,7 @@ func Get(p Params) (aruba.Client, error) {
 	s.debug = p.Debug
 	s.baseURL = p.BaseURL
 	s.tokenIssuer = p.TokenIssuerURL
+	s.telemetryActive = telemetryActive
 
 	return c, nil
 }
