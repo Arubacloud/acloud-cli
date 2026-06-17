@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type blockStorageGetView struct {
+	ID, URI, Name, Size, Type, Zone, Region, Bootable, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func volumeRef(projectID, volumeID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID + "/providers/Aruba.Storage/blockStorages/" + volumeID)
 }
@@ -526,54 +530,50 @@ func StorageBlockStorageGet(ctx context.Context, client aruba.Client, args Stora
 		return fmt.Errorf("getting block storage: %w", apiErrFromV2(err))
 	}
 
-	if vol != nil && vol.Raw() != nil {
-		raw := vol.Raw()
-
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(vol, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nBlock Storage Details:")
-		fmt.Println("======================")
-		if raw.Metadata.ID != nil {
-			fmt.Printf("ID:              %s\n", *raw.Metadata.ID)
-		}
-		if raw.Metadata.URI != nil {
-			fmt.Printf("URI:             %s\n", *raw.Metadata.URI)
-		}
-		if raw.Metadata.Name != nil {
-			fmt.Printf("Name:            %s\n", *raw.Metadata.Name)
-		}
-		fmt.Printf("Size (GB):       %d\n", raw.Properties.SizeGB)
-		fmt.Printf("Type:            %s\n", string(raw.Properties.Type))
-		fmt.Printf("Zone:            %s\n", string(raw.Properties.Zone))
-		if raw.Metadata.LocationResponse != nil {
-			fmt.Printf("Region:          %s\n", string(raw.Metadata.LocationResponse.Value))
-		}
-		if raw.Properties.Bootable != nil {
-			fmt.Printf("Bootable:        %t\n", *raw.Properties.Bootable)
-		}
-		if raw.Status.State != nil {
-			fmt.Printf("Status:          %s\n", string(*raw.Status.State))
-		}
-		if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
-			fmt.Printf("Creation Date:   %s\n", raw.Metadata.CreationDate.Format(DateLayout))
-		}
-		if raw.Metadata.CreatedBy != nil {
-			fmt.Printf("Created By:      %s\n", *raw.Metadata.CreatedBy)
-		}
-		if len(raw.Metadata.Tags) > 0 {
-			fmt.Printf("Tags:            %v\n", raw.Metadata.Tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if vol == nil || vol.Raw() == nil {
 		fmt.Println("Block storage not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(vol, nil, nil)
+		return nil
+	}
+	raw := vol.Raw()
+	view := blockStorageGetView{
+		Size: fmt.Sprintf("%d", raw.Properties.SizeGB),
+		Type: string(raw.Properties.Type),
+		Zone: string(raw.Properties.Zone),
+		Tags: "[]",
+	}
+	if raw.Metadata.ID != nil {
+		view.ID = *raw.Metadata.ID
+	}
+	if raw.Metadata.URI != nil {
+		view.URI = *raw.Metadata.URI
+	}
+	if raw.Metadata.Name != nil {
+		view.Name = *raw.Metadata.Name
+	}
+	if raw.Metadata.LocationResponse != nil {
+		view.Region = string(raw.Metadata.LocationResponse.Value)
+	}
+	if raw.Properties.Bootable != nil {
+		view.Bootable = fmt.Sprintf("%t", *raw.Properties.Bootable)
+	}
+	if raw.Status.State != nil {
+		view.Status = string(*raw.Status.State)
+	}
+	if raw.Metadata.CreationDate != nil && !raw.Metadata.CreationDate.IsZero() {
+		view.CreatedAt = raw.Metadata.CreationDate.Format(DateLayout)
+	}
+	if raw.Metadata.CreatedBy != nil {
+		view.CreatedBy = *raw.Metadata.CreatedBy
+	}
+	if len(raw.Metadata.Tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", raw.Metadata.Tags)
+	}
+	return renderGet(blockStorageGetTmpl, view)
 }
 
 // StorageBlockStorageUpdate mutates and persists a block storage volume.

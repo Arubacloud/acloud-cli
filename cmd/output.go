@@ -31,3 +31,9 @@ func resolveOutputFormat() string {
 func PrintOutput(obj any, headers []TableColumn, rows [][]string) {
 	output.Print(resolveOutputFormat(), obj, headers, rows)
 }
+
+// renderGet renders a text/template string against data for the table-mode detail
+// view of get commands. Call only after the JSON/YAML early-return path.
+func renderGet(tmpl string, data any) error {
+	return output.RenderGet(tmpl, data)
+}

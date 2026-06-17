@@ -96,6 +96,10 @@ func init() {
 }
 
 // kaasRef builds the URI for a specific KaaS cluster.
+type kaasGetView struct {
+	ID, URI, Name, Region, Version, Status, CreatedAt, CreatedBy, Tags string
+}
+
 func kaasRef(projectID, kaasID string) aruba.Ref {
 	return aruba.URI("/projects/" + projectID +
 		"/providers/Aruba.Container/kaas/" + kaasID)
@@ -784,45 +788,32 @@ func ContainerKaaSGet(ctx context.Context, client aruba.Client, args ContainerKa
 		return fmt.Errorf("getting KaaS cluster: %w", apiErrFromV2(err))
 	}
 
-	if kaas != nil && kaas.KaaSID() != "" {
-		format := resolveOutputFormat()
-		if format == OutputFormatJSON || format == OutputFormatYAML {
-			PrintOutput(kaas, nil, nil)
-			return nil
-		}
-
-		fmt.Println("\nKaaS Cluster Details:")
-		fmt.Println("====================")
-		fmt.Printf("ID:              %s\n", kaas.KaaSID())
-		if kaas.URI() != "" {
-			fmt.Printf("URI:             %s\n", kaas.URI())
-		}
-		fmt.Printf("Name:            %s\n", kaas.Name())
-		if r := kaas.Region(); r != "" {
-			fmt.Printf("Region:          %s\n", string(r))
-		}
-		if v := kaas.KubernetesVersion(); v != "" {
-			fmt.Printf("Kubernetes Version: %s\n", string(v))
-		}
-		if s := kaas.State(); s != "" {
-			fmt.Printf("Status:          %s\n", string(s))
-		}
-		if !kaas.CreatedAt().IsZero() {
-			fmt.Printf("Creation Date:   %s\n", kaas.CreatedAt().Format(DateLayout))
-		}
-		if v := kaas.CreatedBy(); v != "" {
-			fmt.Printf("Created By:      %s\n", v)
-		}
-		if tags := kaas.Tags(); len(tags) > 0 {
-			fmt.Printf("Tags:            %v\n", tags)
-		} else {
-			fmt.Printf("Tags:            []\n")
-		}
-		fmt.Println()
-	} else {
+	if kaas == nil || kaas.KaaSID() == "" {
 		fmt.Println("KaaS cluster not found")
+		return nil
 	}
-	return nil
+	format := resolveOutputFormat()
+	if format == OutputFormatJSON || format == OutputFormatYAML {
+		PrintOutput(kaas, nil, nil)
+		return nil
+	}
+	view := kaasGetView{
+		ID:      kaas.KaaSID(),
+		URI:     kaas.URI(),
+		Name:    kaas.Name(),
+		Region:  string(kaas.Region()),
+		Version: string(kaas.KubernetesVersion()),
+		Status:  string(kaas.State()),
+		Tags:    "[]",
+	}
+	if !kaas.CreatedAt().IsZero() {
+		view.CreatedAt = kaas.CreatedAt().Format(DateLayout)
+	}
+	view.CreatedBy = kaas.CreatedBy()
+	if tags := kaas.Tags(); len(tags) > 0 {
+		view.Tags = fmt.Sprintf("%v", tags)
+	}
+	return renderGet(kaasGetTmpl, view)
 }
 
 // ContainerKaaSList lists all KaaS clusters in a project.
