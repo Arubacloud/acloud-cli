@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-17
+
+### Added
+
+- **`--wait` flag for create and update commands** — all resource families now
+  support `--wait` to block until the provisioned resource reaches `Active`
+  status, turning an asynchronous API call into a synchronous one. Combines
+  with `--timeout` to control the maximum wait duration (closes #174).
+- **`--timeout` global flag** — overrides the hardcoded 30-second API timeout
+  on a per-invocation basis (e.g. `--timeout 5m`). Accepted by every command
+  (closes #175).
+- **XDG Base Directory Specification** — the config file is now stored at
+  `$XDG_CONFIG_HOME/acloud/config.yaml` (defaults to
+  `~/.config/acloud/config.yaml`). The legacy `~/.acloud.yaml` path is
+  transparently migrated on first read (closes #176).
+- **Multi-profile credential support** — a single config file can now hold
+  multiple named credential profiles. Switch between dev, staging, and
+  production accounts with `--profile <name>` or `ACLOUD_PROFILE=<name>`
+  without editing the file (closes #180).
+- **Shell completion caching** — completion results (resource IDs, names) are
+  cached in memory with a short TTL, eliminating one API round-trip per
+  keystroke in interactive shells (closes #179).
+
+### Refactored
+
+These changes improve code organisation and testability; user-facing behaviour
+is unchanged.
+
+- **`cmd/root.go` decomposed into `internal/` packages** — the 659-line
+  god-file has been split into three focused packages with dedicated test files:
+  `internal/errs` (error formatting), `internal/client` (SDK client caching),
+  and `internal/output` (rendering). `cmd/root.go` is now 72 lines (closes
+  #173).
+- **`RenderList[T]` generic helper** — a new `internal/output.RenderList[T]`
+  function co-locates each table column's header definition with its value
+  extractor, eliminating the repeated `headers + rows + PrintOutput` block from
+  all 26 list commands. A `cmd`-level type alias keeps existing call sites
+  unchanged (closes #206).
+- **`RenderGet` template helper** — a new `internal/output.RenderGet` function
+  renders a `text/template` string against a per-resource view struct. All 22
+  `get` command detail views are now driven by template constants consolidated
+  in `cmd/templates.go`, replacing hand-written `fmt.Printf` blocks (closes
+  #207).
+- **`PersistentPreRunE` for early client init** — `GetArubaClient()` is now
+  called once in `rootCmd.PersistentPreRunE`, validating credentials before any
+  resource command's `RunE` fires. Commands that work without credentials
+  (`config`, `context`, `completion`) are automatically skipped (closes #208).
+
+### Fixed
+
+- **e2e**: `cleanup()` in the `network` and `storage` suites was missing a
+  terminal `echo "Cleanup completed"` guard. Without it, the bash `EXIT` trap
+  propagated a non-zero exit status through the suite when `BOOTSTRAP_PROJECT_ID`
+  was empty (CI environments with `ACLOUD_PROJECT_ID` pre-set), causing false
+  positive suite failures.
+
 ## [0.3.0] - 2026-06-16
 
 ### Added
@@ -146,6 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2e**: project `DELETE` failure now propagates correctly in the management
   suite (closes #128).
 
-[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.1.9...v0.2.0
