@@ -50,10 +50,17 @@ Issues are grouped by severity. Address Critical items before new features ship;
 
 ---
 
-### TD-027 · `acloud security key` and `acloud security kmip` commands not yet implemented
-The v0.2.0 SDK exposes `KeysClient` and `KmipsClient` sub-clients under `client.FromSecurity()`, but the CLI only wraps `KMS()` today (`cmd/security.kms.go`). Per #109 scope ("match issue strictly"), Key and KMIP CLI surfaces were intentionally deferred. Users who need these features must use the SDK directly.
+### ~~TD-027~~ · RESOLVED
 
-**Fix:** Add `cmd/security.key.go` and `cmd/security.kmip.go` following the same fluent-builder + `arubaTestServer` patterns documented in `ai/ARCHITECTURE.md` and `ai/CONVENTIONS.md`. Track as a follow-up sub-issue against #99 (or a successor parent issue post-v0.2.0 release).
+~~`acloud security key` and `acloud security kmip` commands not yet implemented~~
+
+Implemented in branch `feat/security-key-kmip` (closes #185):
+- `cmd/security.key.go` — `acloud security key` with List/Get/Create/Delete, full 4-symbol Args/Operation/Run decomposition, `--kms-id` required flag, completion via `completeKeyID`.
+- `cmd/security.kmip.go` — `acloud security kmip` with List/Get/Create/Delete/Download (certificate PEM), `--wait` flag on create, completion via `completeKmipID`.
+- `cmd/enums.go` — `validKeyAlgorithms` added (Aes, Rsa).
+- `cmd/templates.go` — `keyGetTmpl`, `kmipGetTmpl` added.
+- Table-driven tests in `cmd/security.key_test.go` and `cmd/security.kmip_test.go`.
+- **Note on KMIP Refs:** `kmipRef(...)` uses path segment `"kmips"` (plural) in the URI for SDK ID extraction, while the actual HTTP path uses singular `"kmip"` (per `internal/clients/security/path.go`). This is an SDK-internal quirk.
 
 ---
 

@@ -26,6 +26,47 @@ acloud security kms update <kms-id> --name "updated-name" --tags "production"
 acloud security kms delete <kms-id>
 ```
 
+### [Cryptographic Keys](security/key.md)
+
+Cryptographic keys are nested inside a KMS instance and provide AES or RSA encryption material.
+
+**Quick Commands:**
+```bash
+# List all keys in a KMS instance
+acloud security key list --kms-id <kms-id>
+
+# Get key details
+acloud security key get <key-id> --kms-id <kms-id>
+
+# Create a key
+acloud security key create --kms-id <kms-id> --name "my-key" --algorithm "Aes"
+
+# Delete a key
+acloud security key delete <key-id> --kms-id <kms-id>
+```
+
+### [KMIP Services](security/kmip.md)
+
+KMIP services are nested inside a KMS instance and expose a KMIP endpoint for certificate-based client authentication.
+
+**Quick Commands:**
+```bash
+# List all KMIP services in a KMS instance
+acloud security kmip list --kms-id <kms-id>
+
+# Get KMIP service details
+acloud security kmip get <kmip-id> --kms-id <kms-id>
+
+# Create a KMIP service (and wait for certificate)
+acloud security kmip create --kms-id <kms-id> --name "my-kmip" --wait
+
+# Download certificate and private key (PEM)
+acloud security kmip download <kmip-id> --kms-id <kms-id>
+
+# Delete a KMIP service
+acloud security kmip delete <kmip-id> --kms-id <kms-id>
+```
+
 ## Command Structure
 
 All security commands follow this structure:
