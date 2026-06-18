@@ -109,12 +109,12 @@ The Aruba Cloud CLI requires API credentials to authenticate with Aruba Cloud se
    # Enter client secret: (hidden input, does not appear in shell history)
    ```
 
-   Alternatively, pass both flags at once (suitable for CI/automation where shell history is not a concern):
+   For CI/automation, provide the secret via environment variable instead of the prompt:
    ```bash
-   acloud config set --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+   ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
    ```
 
-   > **Security note**: Avoid passing `--client-secret` interactively — it will appear in your shell history. Omitting the flag causes the CLI to prompt for it with echo disabled, keeping the value out of history.
+   > **Security note**: `--client-secret` is intentionally not a supported flag — passing secrets on the command line exposes them in process lists and shell history. Use the interactive prompt or `ACLOUD_CLIENT_SECRET`.
 
 3. **Verify configuration**:
    ```bash
@@ -123,11 +123,13 @@ The Aruba Cloud CLI requires API credentials to authenticate with Aruba Cloud se
 
 ### Configuration File
 
-Credentials are stored in `~/.acloud.yaml` (file permissions `0600`):
+Credentials are stored in `~/.config/acloud/config.yaml` (XDG Base Directory, file permissions `0600`):
 
 ```yaml
-clientId: your-client-id
-clientSecret: your-client-secret
+profiles:
+  default:
+    clientId: your-client-id
+    clientSecret: your-client-secret
 ```
 
 **Security Note**: Keep your credentials secure. The configuration file contains sensitive information.

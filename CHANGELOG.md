@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-19
+
+### Fixed
+
+- **Config**: `acloud config set --client-id <new>` now always collects a new
+  client-secret — via `ACLOUD_CLIENT_SECRET` or the interactive prompt — even
+  when a secret is already stored in the config file. The client-id and
+  client-secret are a matched credential pair; previously only the ID was
+  updated, leaving the config in an inconsistent state (closes #227).
+- **Config**: `acloud config profile list` now shows the effective base URL for
+  every profile. Profiles that rely on the implicit default (`https://api.arubacloud.com`)
+  were previously shown with a blank `BASE_URL` column (closes #228).
+
 ## [0.5.0] - 2026-06-18
 
 ### Added
@@ -249,7 +262,9 @@ is unchanged.
 - **E2e**: project `DELETE` failure now propagates correctly in the management
   suite (closes #128).
 
-[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.1.9...v0.2.0
