@@ -462,8 +462,9 @@ func ConfigSet(_ context.Context, args ConfigSetArgs) error {
 		return fmt.Errorf("--client-id is required")
 	}
 
-	// If no client-secret is available yet, prompt interactively.
-	if config.ClientSecret == "" && args.ClientSecret == "" {
+	// If no client-secret is available yet, or if the client-id is being
+	// replaced (the two are a credential pair), prompt for a new secret.
+	if args.ClientSecret == "" && (config.ClientSecret == "" || args.ClientID != "") {
 		prompted, err := readSecret("Enter client secret: ")
 		if err != nil {
 			return fmt.Errorf("client secret is required (set ACLOUD_CLIENT_SECRET or provide interactive input): %w", err)

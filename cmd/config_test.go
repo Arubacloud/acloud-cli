@@ -604,6 +604,54 @@ func TestConfigSet_Operation_UpdatesExistingConfig(t *testing.T) {
 	}
 }
 
+func TestConfigSet_Operation_UpdateClientID_RequiresNewSecret(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	// Existing config has both credentials set.
+	if err := SaveConfig(&Config{ClientID: "old-id", ClientSecret: "old-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	// Updating only --client-id without providing a new secret must fail in
+	// non-interactive mode, because the old secret belongs to the old credential pair.
+	err := ConfigSet(context.Background(), ConfigSetArgs{ClientID: "new-id"})
+	if err == nil {
+		t.Fatal("expected error when updating client-id without a new secret in non-interactive mode")
+	}
+	if !strings.Contains(err.Error(), "set ACLOUD_CLIENT_SECRET") {
+		t.Errorf("expected ACLOUD_CLIENT_SECRET guidance, got: %v", err)
+	}
+}
+
+func TestConfigSet_Operation_UpdateClientID_AcceptsNewSecretViaEnv(t *testing.T) {
+	defer withTempHome(t)()
+	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
+	os.Setenv("ACLOUD_CLIENT_SECRET", "new-secret")
+	defer os.Setenv("ACLOUD_CLIENT_SECRET", origSecret)
+
+	// Existing config has both credentials set.
+	if err := SaveConfig(&Config{ClientID: "old-id", ClientSecret: "old-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	err := ConfigSet(context.Background(), ConfigSetArgs{ClientID: "new-id"})
+	if err != nil {
+		t.Fatalf("ConfigSet() error: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.ClientID != "new-id" {
+		t.Errorf("ClientID = %q, want new-id", loaded.ClientID)
+	}
+	if loaded.ClientSecret != "new-secret" {
+		t.Errorf("ClientSecret = %q, want new-secret", loaded.ClientSecret)
+	}
+}
+
 func TestConfigSet_Operation_UsesEnvClientSecret(t *testing.T) {
 	defer withTempHome(t)()
 	origSecret := os.Getenv("ACLOUD_CLIENT_SECRET")
