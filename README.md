@@ -33,7 +33,7 @@ A single, unified command-line interface for managing the full range of Aruba Cl
 | **Network** | VPC, Subnet, Security Group, Security Rule, Elastic IP, Load Balancer, VPC Peering, VPN Tunnel, VPN Route |
 | **Container** | Kubernetes as a Service (KaaS), Container Registry |
 | **Database** | DBaaS instances, Databases, Users, Grants, Backups |
-| **Security** | KMS Keys |
+| **Security** | KMS Instances, Cryptographic Keys, KMIP Services |
 | **Schedule** | Jobs (OneShot and Recurring) |
 
 ---
@@ -114,7 +114,7 @@ ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIEN
 
 > **Security note**: The CLI does not accept `--client-secret` as a flag to avoid exposure in process lists and shell history.
 
-Credentials are stored in `~/.acloud.yaml`.
+Credentials are stored in `~/.config/acloud/config.yaml`.
 
 ### 2. Set a context
 
