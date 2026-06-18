@@ -10,6 +10,8 @@ import (
 // ─── getActiveProfile ─────────────────────────────────────────────────────────
 
 func TestGetActiveProfile_Default(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
 	t.Setenv("ACLOUD_PROFILE", "")
 	resetCmdFlags(rootCmd)
 
@@ -37,6 +39,49 @@ func TestGetActiveProfile_FlagOverridesEnvVar(t *testing.T) {
 
 	if got := getActiveProfile(); got != "prod" {
 		t.Errorf("getActiveProfile() = %q, want %q (flag should override env)", got, "prod")
+	}
+}
+
+func TestGetActiveProfile_FromFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := setActiveProfile("prod"); err != nil {
+		t.Fatalf("setActiveProfile() error: %v", err)
+	}
+
+	if got := getActiveProfile(); got != "prod" {
+		t.Errorf("getActiveProfile() = %q, want %q (from file)", got, "prod")
+	}
+}
+
+func TestGetActiveProfile_EnvVarOverridesFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "staging")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	if err := saveAllProfiles(map[string]configFile{
+		"prod": {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := setActiveProfile("prod"); err != nil {
+		t.Fatalf("setActiveProfile() error: %v", err)
+	}
+
+	if got := getActiveProfile(); got != "staging" {
+		t.Errorf("getActiveProfile() = %q, want %q (env var should override file)", got, "staging")
 	}
 }
 
@@ -403,6 +448,92 @@ func TestConfigProfileSet_WithBaseURL(t *testing.T) {
 		t.Errorf("TokenIssuerURL = %q", profiles["custom"].TokenIssuerURL)
 	}
 	resetCmdFlags(cmd)
+}
+
+func TestSaveAllProfiles_PreservesActiveProfile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := setActiveProfile("prod"); err != nil {
+		t.Fatalf("setActiveProfile() error: %v", err)
+	}
+
+	// Save profiles again (simulates updating a profile's credentials).
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod-updated", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// activeProfile must survive the second save.
+	if got := loadActiveProfileFromFile(); got != "prod" {
+		t.Errorf("activeProfile = %q after saveAllProfiles, want %q", got, "prod")
+	}
+}
+
+// ─── ConfigProfileUseRun ──────────────────────────────────────────────────────
+
+func TestConfigProfileUse_SwitchesProfile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(func() {
+		if err := ConfigProfileUseRun(nil, []string{"prod"}); err != nil {
+			t.Errorf("ConfigProfileUseRun() error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "prod") {
+		t.Errorf("expected profile name in output, got: %s", out)
+	}
+
+	if got := getActiveProfile(); got != "prod" {
+		t.Errorf("getActiveProfile() = %q after use, want %q", got, "prod")
+	}
+
+	// Verify LoadConfig returns the prod profile's credentials.
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.ClientID != "id-prod" {
+		t.Errorf("ClientID = %q, want id-prod after switching to prod", cfg.ClientID)
+	}
+}
+
+func TestConfigProfileUse_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ConfigProfileUseRun(nil, []string{"nonexistent"})
+	if err == nil {
+		t.Fatal("expected error when switching to nonexistent profile")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the profile name, got: %v", err)
+	}
 }
 
 // ─── loadAllProfiles edge cases ───────────────────────────────────────────────
