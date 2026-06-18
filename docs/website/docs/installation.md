@@ -1,6 +1,11 @@
 # Installation
 
-This guide covers installing the Aruba Cloud CLI on your platform and initial configuration.
+This guide covers installing the Aruba Cloud CLI on your platform, verifying the installation, and managing upgrades and uninstallation.
+
+## Prerequisites
+
+- Internet access to download binaries or packages
+- For building from source: Go 1.24 or later
 
 ## Installation
 
@@ -106,458 +111,6 @@ cd acloud-cli
 go build -o acloud
 ```
 
-## Authentication
-
-The Aruba Cloud CLI requires API credentials to authenticate with Aruba Cloud services.
-
-### Setting up Credentials
-
-1. **Obtain API Credentials**: Get your Client ID and Client Secret from the Aruba Cloud console.
-
-2. **Configure the CLI** — pass `--client-id` on the command line; the secret is read securely with echo disabled:
-   ```bash
-   acloud config set --client-id YOUR_CLIENT_ID
-   # Enter client secret: (hidden input, does not appear in shell history)
-   ```
-
-  For CI/automation, set the secret via environment variable:
-   ```bash
-  ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
-   ```
-
-  > **Security note**: `--client-secret` is intentionally not supported to avoid exposing secrets in process lists and shell history.
-
-3. **Verify configuration**:
-   ```bash
-   acloud config show
-   ```
-
-### Configuration File
-
-Credentials are stored in `~/.config/acloud/config.yaml` (XDG Base Directory, file permissions `0600`):
-
-```yaml
-profiles:
-  default:
-    clientId: your-client-id
-    clientSecret: your-client-secret
-```
-
-> **Legacy path**: If you used an earlier version of acloud that stored credentials in `~/.acloud.yaml`, the CLI automatically migrates that file to the new location the first time it runs and prints a one-time notice. No manual action is needed.
-
-**Security Note**: Keep your credentials secure. The configuration file contains sensitive information.
-
-## Configuration
-
-The CLI configuration allows you to manage API credentials and optional settings like custom API endpoints.
-
-### Setting Configuration
-
-**Required Settings:**
-
-`--client-id` is required. `clientSecret` is sourced from `ACLOUD_CLIENT_SECRET` (automation) or prompted securely with echo disabled (interactive):
-
-```bash
-# Recommended: secret entered via hidden prompt (does not appear in shell history)
-acloud config set --client-id YOUR_CLIENT_ID
-
-# CI/automation: provide secret via environment variable
-ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET acloud config set --client-id YOUR_CLIENT_ID
-```
-
-**Optional Settings:**
-
-You can optionally configure custom API endpoints:
-
-```bash
-# Set base URL (default: https://api.arubacloud.com)
-acloud config set --base-url "https://api.arubacloud.com"
-
-# Set token issuer URL (default: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token)
-acloud config set --token-issuer-url "https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token"
-```
-
-You can also set all values at once:
-
-```bash
-ACLOUD_CLIENT_SECRET=YOUR_CLIENT_SECRET \
-acloud config set \
-  --client-id YOUR_CLIENT_ID \
-  --base-url "https://api.arubacloud.com" \
-  --token-issuer-url "https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token"
-```
-
-### Viewing Configuration
-
-To view your current configuration:
-
-```bash
-acloud config show
-```
-
-Output example:
-```
-Current configuration:
-  Client ID: your-client-id
-  Client Secret: ********
-  Base URL: https://api.arubacloud.com (default)
-  Token Issuer URL: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token (default)
-```
-
-### Configuration File Format
-
-The configuration is stored in `~/.config/acloud/config.yaml` using a multi-profile envelope:
-
-```yaml
-profiles:
-  default:
-    clientId: your-client-id
-    clientSecret: your-client-secret
-    baseUrl: https://api.arubacloud.com          # optional
-    tokenIssuerUrl: https://login.aruba.it/...   # optional
-  prod:
-    clientId: prod-client-id
-    clientSecret: prod-client-secret
-```
-
-**Default Values:**
-
-If `baseUrl` and `tokenIssuerUrl` are not specified, the CLI uses these defaults:
-- **Base URL**: `https://api.arubacloud.com`
-- **Token Issuer URL**: `https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token`
-
-### Updating Configuration
-
-You can update individual settings without affecting others:
-
-```bash
-# Update only the client secret
-ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id YOUR_CLIENT_ID
-
-# Update only the base URL
-acloud config set --base-url "https://custom-api.example.com"
-```
-
-**Note**: Both `clientId` and `clientSecret` must always be present in the configuration. If you're updating one, make sure the other is already set in config/environment. For interactive secret updates, run with `--client-id` and provide the secret when prompted:
-
-```bash
-acloud config set --client-id YOUR_CLIENT_ID   # prompted securely
-```
-
-## Multi-Profile Credential Management
-
-When you work with multiple Aruba Cloud accounts — for example a personal account, a staging environment, and a production environment — profiles let you store each set of credentials under a named key and switch between them with a single flag.
-
-### Creating a Profile
-
-Use `acloud config profile set <name>` to create or update a named profile. The client secret is read from `ACLOUD_CLIENT_SECRET` (recommended for automation) or prompted securely with echo disabled:
-
-```bash
-# Create a "staging" profile — secret entered interactively
-acloud config profile set staging --client-id YOUR_STAGING_CLIENT_ID
-
-# Create a "prod" profile — secret from environment variable
-ACLOUD_CLIENT_SECRET=YOUR_PROD_SECRET \
-  acloud config profile set prod \
-  --client-id YOUR_PROD_CLIENT_ID \
-  --base-url "https://api.arubacloud.com"
-```
-
-You can update a single field of an existing profile without touching the other fields:
-
-```bash
-# Rotate the client ID in the prod profile while keeping the existing secret
-acloud config profile set prod --client-id NEW_PROD_CLIENT_ID
-```
-
-### Selecting the Active Profile
-
-Three ways to select which profile a command uses, in order of precedence:
-
-| Method | Example | Notes |
-|--------|---------|-------|
-| `--profile` flag | `acloud --profile prod network vpc list` | Highest priority; overrides the env var |
-| `ACLOUD_PROFILE` env var | `ACLOUD_PROFILE=staging acloud storage blockstorage list` | Useful in CI/CD pipelines |
-| Default | *(no flag or env var)* | Uses the `default` profile |
-
-```bash
-# One-off command against prod
-acloud --profile prod management project list
-
-# Set profile for the whole shell session
-export ACLOUD_PROFILE=staging
-acloud network vpc list
-acloud storage blockstorage list
-
-# Restore default behaviour
-unset ACLOUD_PROFILE
-```
-
-### Listing Profiles
-
-```bash
-acloud config profile list
-```
-
-Example output (active profile marked with `*`):
-
-```
-PROFILE              CLIENT_ID                        BASE_URL
-* default            default-client-id
-  prod               prod-client-id                   https://api.arubacloud.com
-  staging            staging-client-id
-```
-
-### Deleting a Profile
-
-```bash
-acloud config profile delete staging
-# Profile "staging" deleted.
-```
-
-### Config File Format (Multi-Profile)
-
-All profiles are stored together in `~/.config/acloud/config.yaml` under a `profiles:` key:
-
-```yaml
-profiles:
-  default:
-    clientId: default-client-id
-    clientSecret: default-secret
-  prod:
-    clientId: prod-client-id
-    clientSecret: prod-secret
-    baseUrl: https://api.arubacloud.com
-  staging:
-    clientId: staging-client-id
-    clientSecret: staging-secret
-```
-
-> **Backward compatibility**: Existing single-profile config files (the old flat `clientId: / clientSecret:` format) continue to work and are automatically treated as the `default` profile. They are **not** rewritten until you run `acloud config profile set` or `acloud config set`, at which point they are converted to multi-profile format.
-
-### Using Profiles with Context Management
-
-Profiles (credentials) and contexts (project IDs) are independent — you can combine them freely:
-
-```bash
-# Use prod credentials + a project ID from a saved context
-acloud --profile prod context use my-prod-project
-acloud --profile prod network vpc list
-
-# Or pass the project ID explicitly
-acloud --profile prod network vpc list --project-id YOUR_PROJECT_ID
-```
-
-## Context Management
-
-The CLI provides context management to avoid passing `--project-id` repeatedly. Contexts allow you to save project IDs and switch between them easily.
-
-### Setting up a Context
-
-Create a context with a project ID:
-
-```bash
-acloud context set my-prod --project-id "66a10244f62b99c686572a9f"
-```
-
-### Using a Context
-
-Switch to a saved context:
-
-```bash
-acloud context use my-prod
-```
-
-Once a context is active, you can run commands without specifying `--project-id`:
-
-```bash
-# Works without --project-id
-acloud storage blockstorage list
-acloud storage snapshot list
-acloud management project get <project-id>
-```
-
-### Managing Contexts
-
-**List all contexts:**
-```bash
-acloud context list
-```
-
-Output shows all contexts with the current one marked with `*`:
-```
-Contexts:
-=========
-my-prod              Project ID: 66a10244f62b99c686572a9f *
-my-dev               Project ID: 66a10244f62b99c686572a9e
-my-staging           Project ID: 66a10244f62b99c686572a9d
-
-* = current context
-```
-
-**Show current context:**
-```bash
-acloud context current
-```
-
-**Delete a context:**
-```bash
-acloud context delete my-dev
-```
-
-### Context File
-
-Contexts are stored in `~/.config/acloud/context.yaml`:
-
-```yaml
-current-context: my-prod
-contexts:
-  my-prod:
-    project-id: 66a10244f62b99c686572a9f
-  my-dev:
-    project-id: 66a10244f62b99c686572a9e
-```
-
-> **Legacy path**: Earlier versions stored this file at `~/.acloud-context.yaml`. The CLI migrates it automatically on first run.
-
-### Overriding Context
-
-You can always override the context by explicitly passing `--project-id`:
-
-```bash
-# Uses context project ID
-acloud storage blockstorage list
-
-# Overrides with specific project ID
-acloud storage blockstorage list --project-id "different-project-id"
-```
-
-## Auto-completion
-
-The CLI supports shell auto-completion for commands, flags, and resource IDs.
-
-### Bash
-
-#### Current Session
-```bash
-source <(acloud completion bash)
-```
-
-#### Permanent Installation
-
-**Linux:**
-```bash
-acloud completion bash | sudo tee /etc/bash_completion.d/acloud
-```
-
-**macOS:**
-```bash
-acloud completion bash > $(brew --prefix)/etc/bash_completion.d/acloud
-```
-
-After installation, restart your shell or run:
-```bash
-source ~/.bashrc  # or ~/.bash_profile on macOS
-```
-
-### Zsh
-
-Add to `~/.zshrc`:
-
-```bash
-# Enable completion
-autoload -Uz compinit
-compinit
-
-# Load acloud completion
-source <(acloud completion zsh)
-```
-
-Or for permanent installation:
-```bash
-acloud completion zsh > "${fpath[1]}/_acloud"
-```
-
-### Fish
-
-```bash
-acloud completion fish | source
-```
-
-Or for permanent installation:
-```bash
-acloud completion fish > ~/.config/fish/completions/acloud.fish
-```
-
-### PowerShell
-
-Add to your PowerShell profile:
-
-```powershell
-acloud completion powershell | Out-String | Invoke-Expression
-```
-
-## Features of Auto-completion
-
-The auto-completion system provides:
-
-1. **Command completion**: Tab-complete commands and subcommands
-   ```bash
-   acloud man<TAB>  # completes to "management"
-   ```
-
-2. **Flag completion**: Tab-complete available flags
-   ```bash
-   acloud config set --<TAB>  # shows available flags
-   ```
-
-3. **Resource ID completion**: Tab-complete resource IDs with descriptions
-
-   **Management Resources:**
-   ```bash
-   acloud management project get <TAB>
-   # Shows:
-   # 655b2822af30f667f826994e    defaultproject
-   # 66a10244f62b99c686572a9f    develop
-   # ...
-   ```
-
-   **Storage Resources:**
-   ```bash
-   # Block Storage
-   acloud storage blockstorage get <TAB>
-   # Shows:
-   # 6965a6c3ffc0fd1ef8ba5612    MyVolume
-   # 6965a6c3ffc0fd1ef8ba5613    DataVolume
-   # ...
-
-   # Snapshots
-   acloud storage snapshot get <TAB>
-   # Shows:
-   # 696c9edce63c1af07d60d0c7    MySnapshot
-   # 696c9edce63c1af07d60d0c8    BackupSnapshot
-   # ...
-
-   # Backups
-   acloud storage backup get <TAB>
-   # Shows:
-   # 67649dac8c7bb1c5d7c80631    MyBackup
-   # 67649dac8c7bb1c5d7c80632    DailyBackup
-   # ...
-
-   # Restores (hierarchical: backup-id then restore-id)
-   acloud storage restore get <TAB>
-   # First shows backup IDs:
-   # 67649dac8c7bb1c5d7c80631    MyBackup
-   # ...
-   acloud storage restore get 67649dac8c7bb1c5d7c80631 <TAB>
-   # Then shows restore IDs for that backup:
-   # 67664dde0aca19a92c2c48bb    RestoreOperation1
-   # ...
-   ```
-
-   Auto-completion works with `get`, `update`, and `delete` commands for all resources.
-
 ## Verifying Installation
 
 ```bash
@@ -572,151 +125,95 @@ acloud --help
 acloud management project list
 ```
 
+## Upgrading
+
+### macOS (Homebrew)
+
+```bash
+brew upgrade acloud
+```
+
+### Linux (apt)
+
+```bash
+sudo apt update && sudo apt upgrade acloud
+```
+
+### Linux (rpm)
+
+Download and install the latest package with the upgrade flag:
+
+```bash
+sudo rpm -U https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud_linux_amd64.rpm
+```
+
+### Windows (Scoop)
+
+```powershell
+scoop update acloud
+```
+
+### Manual Binary
+
+Download the latest binary from the [releases page](https://github.com/Arubacloud/acloud-cli/releases/latest) and replace the existing one:
+
+```bash
+curl -LO https://github.com/Arubacloud/acloud-cli/releases/latest/download/acloud-linux-amd64
+sudo install -m 755 acloud-linux-amd64 /usr/local/bin/acloud
+```
+
+## Uninstallation
+
+### macOS (Homebrew)
+
+```bash
+brew uninstall acloud
+brew untap Arubacloud/tap
+```
+
+### Linux (apt)
+
+```bash
+sudo apt remove acloud
+sudo rm /etc/apt/sources.list.d/arubacloud.list
+sudo rm /etc/apt/keyrings/arubacloud.gpg
+sudo apt update
+```
+
+### Linux (rpm)
+
+```bash
+sudo rpm -e acloud
+```
+
+### Windows (Scoop)
+
+```powershell
+scoop uninstall acloud
+scoop bucket rm arubacloud
+```
+
+### Manual Binary
+
+```bash
+sudo rm /usr/local/bin/acloud
+```
+
+### Removing Configuration Files
+
+To completely remove all CLI data including credentials and contexts:
+
+```bash
+rm -rf ~/.config/acloud
+```
+
+> **Warning**: This permanently deletes all your stored profiles, credentials, and context settings. Back up your credentials before running this command if you plan to reinstall.
+
 ## Next Steps
 
-- Learn about [Project Management](resources/management/project.md)
-- Explore [Management Resources](resources/management.md)
-- Explore [Storage Resources](resources/storage.md)
-- Explore the [Resource Documentation](resources/management.md)
-
-## Debug Mode
-
-The CLI provides a global `--debug` (or `-d`) flag that enables verbose logging to help troubleshoot issues. When enabled, it shows:
-
-- **HTTP Request/Response details**: All HTTP requests and responses made by the SDK
-- **Request payloads**: JSON-formatted request bodies being sent to the API
-- **Error details**: Full error response bodies when requests fail
-
-> **Security Warning**: Debug output may include credentials and tokens from HTTP headers. Do not use `--debug` in shared terminal sessions or paste its output publicly.
-
-### Usage
-
-Add the `--debug` flag to any command:
-
-```bash
-# Enable debug logging for a command
-acloud --debug network securityrule update <vpc-id> <securitygroup-id> <securityrule-id> --tags test
-
-# Short form
-acloud -d network vpc list
-```
-
-### Example Output
-
-When debug mode is enabled, you'll see additional output like:
-
-```
-[ArubaSDK] 2025-01-15 10:30:45.123456 HTTP Request: PUT https://api.arubacloud.com/...
-[ArubaSDK] 2025-01-15 10:30:45.234567 Request Headers: ...
-[ArubaSDK] 2025-01-15 10:30:45.345678 Request Body: {...}
-
-=== DEBUG: Security Rule Update Request ===
-VPC ID: 69495ef64d0cdc87949b71ec
-Security Group ID: 694b05ac4d0cdc87949b75f9
-Security Rule ID: 694b06564d0cdc87949b7608
-Request Payload:
-{
-  "metadata": {
-    "name": "my-rule",
-    "tags": ["test"],
-    ...
-  },
-  ...
-}
-==========================================
-
-[ArubaSDK] 2025-01-15 10:30:46.456789 HTTP Response: 200 OK
-[ArubaSDK] 2025-01-15 10:30:46.567890 Response Body: {...}
-```
-
-**Note**: Debug output is sent to `stderr`, so it won't interfere with normal command output and can be redirected separately if needed.
-
-## Output Format
-
-All list and get commands support a global `--output` (or `-o`) flag that controls the output format.
-
-| Value | Description |
-|-------|-------------|
-| `table` | Human-readable fixed-width table (default) |
-| `table-json` | JSON array of flat snake_case objects (one per row) |
-| `table-yaml` | YAML sequence of flat snake_case mappings (one per row) |
-| `json` | Full SDK response object as indented JSON |
-| `yaml` | Full SDK response object as YAML |
-
-```bash
-# Default table output
-acloud network vpc list
-
-# Flat JSON array — easy to pipe to jq
-acloud network vpc list -o table-json
-
-# Full SDK response envelope
-acloud network vpc list -o json
-```
-
-`table-json` is the best choice for scripting with tools like `jq`:
-```bash
-acloud storage blockstorage list -o table-json | jq '.[].name'
-```
-
-## Synchronous Provisioning (--wait)
-
-By default, `create` and `update` commands return as soon as the API accepts the request — the resource may still be provisioning in the background. Pass `--wait` to block until the resource reaches an operational state (`Active`, `Running`, etc.) or fails.
-
-```bash
-# Block until the VPC is Active
-acloud network vpc create --name "prod-vpc" --region "IT-BG" --wait
-
-# Block until the DBaaS is Active; extend the timeout to 10 minutes
-acloud --timeout 10m database dbaas create --name "prod-db" --region "IT-BG" \
-  --engine-id "mysql-8.0" --flavor "DBO4A8" --storage-size 50 \
-  --zone "ITBG-1" --wait
-```
-
-Progress is printed to stderr (so it doesn't mix with `-o json` output):
-```
-Waiting for VPC 'prod-vpc' to become Active... [12s]
-VPC 'prod-vpc' is Active after 15s.
-```
-
-**Supported resources:** `cloudserver`, `vpc`, `subnet`, `securitygroup`, `vpntunnel`, `elasticip`, `kaas`, `containerregistry`, `dbaas`, `kms`, `blockstorage` — on both create and update commands.
-
-**Timeout:** `--wait` respects the global `--timeout` flag (default `30s`). For resources that take longer to provision (KaaS clusters, DBaaS instances), set a longer timeout:
-```bash
-acloud --timeout 15m container kaas create ... --wait
-```
-
-**Exit code:** Returns non-zero if the resource reaches a failure state (`Error`, `Failed`) or the timeout expires before the resource becomes operational.
-
-## Safe Delete (Dry Run)
-
-Every delete command supports `--dry-run` to validate that a resource exists without deleting it:
-
-```bash
-acloud storage blockstorage delete <volume-id> --dry-run
-# [dry-run] Would delete block storage '<volume-id>'. Resource exists and is accessible.
-```
-
-Pass `--yes` (or `-y`) to skip the interactive confirmation prompt.
-
-## Pagination
-
-All list commands support `--limit` and `--offset` flags to paginate large result sets.
-
-| Flag | Description |
-|------|-------------|
-| `--limit N` | Return at most N results |
-| `--offset N` | Skip the first N results |
-
-```bash
-# First page of 10 results
-acloud storage blockstorage list --limit 10
-
-# Second page
-acloud storage blockstorage list --limit 10 --offset 10
-```
-
-When neither flag is passed the API returns its default result set.
+- [Configure authentication](authentication.md) — Set up API credentials and manage profiles
+- [Explore configuration options](configuration.md) — Context management, output formats, and more
+- [Resources](resources.md) — Explore available resource types
 
 ## Troubleshooting
 
@@ -738,43 +235,3 @@ sudo chmod +x /usr/local/bin/acloud
 ```
 
 The Ubuntu 20.04 compatible binaries work on Ubuntu 20.04, 22.04, 24.04, and newer versions.
-
-### "Error initializing client"
-
-This usually means credentials are not configured. Run:
-```bash
-acloud config set
-```
-
-### "No projects found"
-
-Ensure your credentials have the correct permissions and you have projects in your account.
-
-### Debugging API Errors
-
-If you encounter API errors (e.g., 500 Internal Server Error), use the `--debug` flag to see the full request and response:
-
-```bash
-acloud --debug network securityrule update <vpc-id> <securitygroup-id> <securityrule-id> --tags test
-```
-
-This will show:
-- The exact request payload being sent
-- The full HTTP response (including error details)
-- Any SDK-level logging
-
-### Auto-completion not working
-
-1. Ensure bash-completion is installed:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install bash-completion
-   
-   # macOS
-   brew install bash-completion
-   ```
-
-2. Reload your shell configuration:
-   ```bash
-   source ~/.bashrc
-   ```

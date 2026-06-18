@@ -11,5 +11,7 @@ Questa sezione fornisce scenari pratici e guide passo-passo per l'utilizzo della
 - [Uso Base](examples/basic-usage)
 - [CloudServer](examples/cloudserver)
 - [Kubernetes](examples/kubernetes)
+- [Database (DBaaS)](examples/database)
+- [Container Registry](examples/containerregistry)
 
 Scegli uno scenario per iniziare.

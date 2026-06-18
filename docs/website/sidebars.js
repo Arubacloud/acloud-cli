@@ -26,6 +26,14 @@ const sidebars = {
       label: 'Installation',
     },
     {
+      type: 'category',
+      label: 'Authentication & Configuration',
+      items: [
+        'authentication',
+        'configuration',
+      ],
+    },
+    {
       type: 'doc',
       id: 'resources',
       label: 'Resources',
@@ -123,10 +131,11 @@ const sidebars = {
         'examples/basic-usage',
         'examples/cloudserver',
         'examples/kubernetes',
+        'examples/database',
+        'examples/containerregistry',
       ],
     },
   ],
 };
 
 module.exports = sidebars;
-
