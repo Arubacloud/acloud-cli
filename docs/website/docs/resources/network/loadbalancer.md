@@ -365,7 +365,7 @@ The get command shows detailed information:
 
 - [VPC](vpc.md) - View VPC associated with Load Balancers
 - [Elastic IP](elasticip.md) - View Elastic IPs used by Load Balancers
-- [Context Management](../../installation.md#context-management) - Manage project contexts
+- [Context Management](../../configuration.md#context-management) - Manage project contexts
 
 ## Future Enhancements
 
