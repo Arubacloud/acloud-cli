@@ -266,6 +266,28 @@ func TestConfigProfileList_ShowsProfiles(t *testing.T) {
 	}
 }
 
+func TestConfigProfileList_ShowsDefaultBaseURL(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "default")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	// Profile with no explicit BaseURL — the list should show the default.
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "secret"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(func() {
+		_ = ConfigProfileListRun(nil, nil)
+	})
+	if !strings.Contains(out, DefaultBaseURL) {
+		t.Errorf("expected DefaultBaseURL %q in list output, got: %s", DefaultBaseURL, out)
+	}
+}
+
 func TestConfigProfileDelete(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
