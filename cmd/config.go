@@ -62,7 +62,7 @@ var configCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set configuration values",
-	Long:  `Set configuration values for acloud. Pass clientId as a flag; clientSecret is read from ACLOUD_CLIENT_SECRET or prompted securely.`,
+	Long:  `Set or update acloud configuration values. Provide only the fields you want to change; existing values are preserved. clientSecret is read from ACLOUD_CLIENT_SECRET or prompted when not yet set.`,
 	RunE:  ConfigSetRun,
 }
 
@@ -85,7 +85,7 @@ func init() {
 	configProfileCmd.AddCommand(configProfileUseCmd)
 
 	// Flags for config set command
-	configSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID (required)")
+	configSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID")
 	configSetCmd.Flags().String("base-url", "", "Base URL for Aruba Cloud API (optional, default: https://api.arubacloud.com)")
 	configSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication (optional, default: https://login.aruba.it/auth/realms/cmp-new-apikey/protocol/openid-connect/token)")
 
@@ -445,16 +445,24 @@ func ConfigSet(_ context.Context, args ConfigSetArgs) error {
 		config = &Config{}
 	}
 
-	// If no client-id is available from either the existing config or the flag, fail.
-	if config.ClientID == "" && args.ClientID == "" {
-		return fmt.Errorf("--client-id is required")
-	}
-	// ACLOUD_CLIENT_SECRET is accepted for automation and takes precedence over prompt.
+	// Read the secret from env early so we can tell whether any update is incoming.
 	if args.ClientSecret == "" {
 		args.ClientSecret = os.Getenv("ACLOUD_CLIENT_SECRET")
 	}
 
-	// If no client-secret is available, prompt interactively.
+	// If nothing is being provided and the existing config is already complete,
+	// there is nothing to update — fail instead of silently re-saving identical values.
+	nothingProvided := args.ClientID == "" && args.ClientSecret == "" && args.BaseURL == "" && args.TokenIssuerURL == ""
+	if nothingProvided && config.ClientID != "" && config.ClientSecret != "" {
+		return fmt.Errorf("no configuration values provided. Use --client-id, --base-url, --token-issuer-url, or ACLOUD_CLIENT_SECRET to update")
+	}
+
+	// Need a clientId (from the existing config or the flag).
+	if config.ClientID == "" && args.ClientID == "" {
+		return fmt.Errorf("--client-id is required")
+	}
+
+	// If no client-secret is available yet, prompt interactively.
 	if config.ClientSecret == "" && args.ClientSecret == "" {
 		prompted, err := readSecret("Enter client secret: ")
 		if err != nil {
