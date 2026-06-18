@@ -103,6 +103,8 @@ const sidebars = {
       items: [
         'resources/security',
         'resources/security/kms',
+        'resources/security/key',
+        'resources/security/kmip',
       ],
     },
     {
