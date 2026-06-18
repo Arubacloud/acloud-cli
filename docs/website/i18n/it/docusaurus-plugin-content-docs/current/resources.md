@@ -53,7 +53,9 @@ Gestisci job pianificati per l'automazione.
 
 Gestisci risorse di sicurezza e crittografia.
 
-- [Chiavi KMS](resources/security/kms.md) - Chiavi Key Management System
+- [Istanze KMS](resources/security/kms.md) - Istanze Key Management System
+- [Chiavi Crittografiche](resources/security/key.md) - Chiavi AES/RSA annidate in un'istanza KMS
+- [Servizi KMIP](resources/security/kmip.md) - Endpoint KMIP con autenticazione basata su certificati
 
 ### [Risorse Compute](resources/compute.md)
 

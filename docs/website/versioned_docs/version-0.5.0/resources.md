@@ -53,7 +53,9 @@ Manage scheduled jobs for automation.
 
 Manage security and encryption resources.
 
-- [KMS Keys](resources/security/kms.md) - Key Management System keys
+- [KMS Instances](resources/security/kms.md) - Key Management System instances
+- [Cryptographic Keys](resources/security/key.md) - AES/RSA keys nested inside a KMS instance
+- [KMIP Services](resources/security/kmip.md) - KMIP endpoints with certificate-based authentication
 
 ### [Compute Resources](resources/compute.md)
 
