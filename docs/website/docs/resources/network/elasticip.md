@@ -465,4 +465,4 @@ acloud network elasticip delete <eip-id> --yes
 
 - [VPC](vpc.md) - Network isolation for Elastic IPs
 - [Load Balancer](loadbalancer.md) - Use Elastic IPs with load balancers
-- [Context Management](../../installation.md#context-management) - Manage project contexts
+- [Context Management](../../configuration.md#context-management) - Manage project contexts
