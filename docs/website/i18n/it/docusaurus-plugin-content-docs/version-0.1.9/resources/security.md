@@ -26,47 +26,6 @@ acloud security kms update <kms-id> --name "updated-name" --tags "production"
 acloud security kms delete <kms-id>
 ```
 
-### [Chiavi Crittografiche](security/key.md)
-
-Le chiavi crittografiche sono annidate in un'istanza KMS e forniscono materiale di cifratura AES o RSA.
-
-**Comandi Rapidi:**
-```bash
-# Elenca tutte le chiavi in un'istanza KMS
-acloud security key list --kms-id <kms-id>
-
-# Ottieni i dettagli di una chiave
-acloud security key get <key-id> --kms-id <kms-id>
-
-# Crea una chiave
-acloud security key create --kms-id <kms-id> --name "my-key" --algorithm "Aes"
-
-# Elimina una chiave
-acloud security key delete <key-id> --kms-id <kms-id>
-```
-
-### [Servizi KMIP](security/kmip.md)
-
-I servizi KMIP sono annidati in un'istanza KMS ed espongono un endpoint KMIP per l'autenticazione client basata su certificati.
-
-**Comandi Rapidi:**
-```bash
-# Elenca tutti i servizi KMIP in un'istanza KMS
-acloud security kmip list --kms-id <kms-id>
-
-# Ottieni i dettagli di un servizio KMIP
-acloud security kmip get <kmip-id> --kms-id <kms-id>
-
-# Crea un servizio KMIP (e attendi il certificato)
-acloud security kmip create --kms-id <kms-id> --name "my-kmip" --wait
-
-# Scarica certificato e chiave privata (PEM)
-acloud security kmip download <kmip-id> --kms-id <kms-id>
-
-# Elimina un servizio KMIP
-acloud security kmip delete <kmip-id> --kms-id <kms-id>
-```
-
 ## Struttura dei Comandi
 
 Tutti i comandi di sicurezza seguono questa struttura:

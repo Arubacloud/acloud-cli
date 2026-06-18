@@ -86,10 +86,14 @@ versions.forEach(version => {
       fs.mkdirSync(destDir, { recursive: true });
     }
     
-    // For markdown files and other files, copy as-is
-    fs.copyFileSync(sourceFile, destFile);
+    // Only copy if the file does not already exist in this version directory.
+    // This preserves version-specific content and prevents current docs from
+    // overwriting old versions with links to pages that didn't exist yet.
+    if (!fs.existsSync(destFile)) {
+      fs.copyFileSync(sourceFile, destFile);
+    }
   });
-  console.log(`  version-${version}: ${sourceFiles.length} files synced`);
+  console.log(`  version-${version}: synced (new files only, existing files preserved)`);
   
   // Copy and update current.json if it exists (it's in the parent directory, not in current/)
   // Docusaurus expects the JSON file at the same level as the version directory, not inside it
