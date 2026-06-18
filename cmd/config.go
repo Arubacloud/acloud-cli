@@ -677,7 +677,11 @@ func ConfigProfileListRun(_ *cobra.Command, _ []string) error {
 		if name == active {
 			marker = "* "
 		}
-		rows = append(rows, []string{marker + name, p.ClientID, p.BaseURL})
+		baseURL := p.BaseURL
+		if baseURL == "" {
+			baseURL = DefaultBaseURL
+		}
+		rows = append(rows, []string{marker + name, p.ClientID, baseURL})
 	}
 	PrintOutput(nil, headers, rows)
 	return nil
