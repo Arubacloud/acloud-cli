@@ -39,6 +39,10 @@
     "message": "Container",
     "description": "The label for category Container in sidebar tutorialSidebar"
   },
+  "sidebar.tutorialSidebar.category.Authentication & Configuration": {
+    "message": "Autenticazione e Configurazione",
+    "description": "The label for category Authentication & Configuration in sidebar tutorialSidebar"
+  },
   "sidebar.tutorialSidebar.link.Introduction": {
     "message": "Introduzione",
     "description": "The label for link Introduction in sidebar tutorialSidebar"
@@ -50,5 +54,13 @@
   "sidebar.tutorialSidebar.link.Resources": {
     "message": "Risorse",
     "description": "The label for link Resources in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Authentication": {
+    "message": "Autenticazione",
+    "description": "The label for link Authentication in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Configuration": {
+    "message": "Configurazione",
+    "description": "The label for link Configuration in sidebar tutorialSidebar"
   }
 }
