@@ -34,7 +34,8 @@ type configFile struct {
 // profiles. Detection: if the YAML has a top-level "profiles" mapping the file
 // is in multi-profile format; otherwise it is treated as single-profile (#180).
 type multiProfileConfigFile struct {
-	Profiles map[string]configFile `yaml:"profiles"`
+	ActiveProfile string                `yaml:"activeProfile,omitempty"`
+	Profiles      map[string]configFile `yaml:"profiles"`
 }
 
 type configShowDisplay struct {
@@ -81,6 +82,7 @@ func init() {
 	configProfileCmd.AddCommand(configProfileListCmd)
 	configProfileCmd.AddCommand(configProfileSetCmd)
 	configProfileCmd.AddCommand(configProfileDeleteCmd)
+	configProfileCmd.AddCommand(configProfileUseCmd)
 
 	// Flags for config set command
 	configSetCmd.Flags().String("client-id", "", "Aruba Cloud API client ID (required)")
@@ -156,7 +158,7 @@ func migrateLegacyConfig() {
 // ─── Multi-profile support (#180) ────────────────────────────────────────────
 
 // getActiveProfile returns the profile name for the current invocation.
-// Priority: --profile persistent flag > ACLOUD_PROFILE env var > "default".
+// Priority: --profile flag > ACLOUD_PROFILE env var > activeProfile in config file > "default".
 func getActiveProfile() string {
 	if rootCmd != nil {
 		if p, _ := rootCmd.PersistentFlags().GetString("profile"); p != "" {
@@ -166,7 +168,54 @@ func getActiveProfile() string {
 	if p := os.Getenv("ACLOUD_PROFILE"); p != "" {
 		return p
 	}
+	if p := loadActiveProfileFromFile(); p != "" {
+		return p
+	}
 	return "default"
+}
+
+// loadActiveProfileFromFile reads the activeProfile field from the config file.
+// Returns empty string if the file is missing or has no activeProfile set.
+func loadActiveProfileFromFile() string {
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	var mpf multiProfileConfigFile
+	if yaml.Unmarshal(data, &mpf) == nil {
+		return mpf.ActiveProfile
+	}
+	return ""
+}
+
+// setActiveProfile persists the given profile name as the active profile in the
+// config file. Flag (--profile) and env var (ACLOUD_PROFILE) still take precedence
+// at runtime.
+func setActiveProfile(name string) error {
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), FilePermDirAll); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	var mpf multiProfileConfigFile
+	if data, err := os.ReadFile(configPath); err == nil {
+		_ = yaml.Unmarshal(data, &mpf)
+	}
+	if mpf.Profiles == nil {
+		mpf.Profiles = make(map[string]configFile)
+	}
+	mpf.ActiveProfile = name
+	data, err := yaml.Marshal(mpf)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, FilePermConfig)
 }
 
 // loadAllProfiles reads the config file and returns a map of all profiles.
@@ -195,7 +244,8 @@ func loadAllProfiles() (map[string]configFile, error) {
 	return map[string]configFile{"default": fileCfg}, nil
 }
 
-// saveAllProfiles writes all profiles to the config file in multi-profile format.
+// saveAllProfiles writes all profiles to the config file in multi-profile format,
+// preserving the activeProfile field if one was already stored.
 func saveAllProfiles(profiles map[string]configFile) error {
 	configPath, err := GetConfigPath()
 	if err != nil {
@@ -204,7 +254,14 @@ func saveAllProfiles(profiles map[string]configFile) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), FilePermDirAll); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	data, err := yaml.Marshal(multiProfileConfigFile{Profiles: profiles})
+	mpf := multiProfileConfigFile{Profiles: profiles}
+	if existing, err := os.ReadFile(configPath); err == nil {
+		var existingMpf multiProfileConfigFile
+		if yaml.Unmarshal(existing, &existingMpf) == nil {
+			mpf.ActiveProfile = existingMpf.ActiveProfile
+		}
+	}
+	data, err := yaml.Marshal(mpf)
 	if err != nil {
 		return err
 	}
@@ -583,6 +640,14 @@ var configProfileDeleteCmd = &cobra.Command{
 	RunE:  ConfigProfileDeleteRun,
 }
 
+var configProfileUseCmd = &cobra.Command{
+	Use:   "use <profile-name>",
+	Short: "Switch the active profile",
+	Long:  `Switch the active credential profile. The selection is persisted in the config file and overridden by --profile flag or ACLOUD_PROFILE env var.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  ConfigProfileUseRun,
+}
+
 // ConfigProfileListRun lists all profiles, marking the active one with *.
 func ConfigProfileListRun(_ *cobra.Command, _ []string) error {
 	profiles, err := loadAllProfiles()
@@ -679,5 +744,24 @@ func ConfigProfileDeleteRun(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("saving profiles: %w", err)
 	}
 	fmt.Printf("Profile %q deleted.\n", profileName)
+	return nil
+}
+
+// ConfigProfileUseRun switches the active profile persisted in the config file.
+func ConfigProfileUseRun(_ *cobra.Command, args []string) error {
+	profileName := args[0]
+
+	profiles, err := loadAllProfiles()
+	if err != nil {
+		return fmt.Errorf("loading profiles: %w", err)
+	}
+	if _, ok := profiles[profileName]; !ok {
+		return fmt.Errorf("profile %q not found. Run 'acloud config profile list' to see available profiles", profileName)
+	}
+
+	if err := setActiveProfile(profileName); err != nil {
+		return fmt.Errorf("switching profile: %w", err)
+	}
+	fmt.Printf("Switched to profile %q.\n", profileName)
 	return nil
 }
