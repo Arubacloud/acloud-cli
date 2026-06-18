@@ -392,4 +392,4 @@ acloud network vpc update <vpc-id> --tags tag1,tag2
 
 - [Elastic IP](elasticip.md) - Assign public IPs within VPCs
 - [Load Balancer](loadbalancer.md) - Distribute traffic within VPCs
-- [Context Management](../../installation.md#context-management) - Manage project contexts
+- [Context Management](../../configuration.md#context-management) - Manage project contexts

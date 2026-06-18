@@ -128,7 +128,7 @@ Le risorse di sicurezza sono limitate a un progetto. Puoi:
    acloud security kms list  # Usa l'ID progetto del contesto
    ```
 
-Vedi [Installazione - Gestione Contesto](../installation.md#context-management) per maggiori informazioni.
+Vedi [Configurazione - Gestione Contesto](../configuration.md#context-management) per maggiori informazioni.
 
 ## Prossimi Passi
 

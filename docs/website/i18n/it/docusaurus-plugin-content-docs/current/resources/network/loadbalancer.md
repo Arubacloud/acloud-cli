@@ -183,4 +183,4 @@ La CLI fornisce accesso in sola lettura per monitoraggio e riferimento.
 
 - [VPC](vpc.md) - Visualizza VPC associato ai Load Balancer
 - [Elastic IP](elasticip.md) - Visualizza Elastic IP usati dai Load Balancer
-- [Gestione Contesto](../../installation.md#context-management) - Gestisci contesti progetto
+- [Gestione Contesto](../../configuration.md#context-management) - Gestisci contesti progetto

@@ -154,7 +154,7 @@ I job pianificati sono limitati a un progetto. Puoi:
    acloud schedule job list  # Usa l'ID progetto del contesto
    ```
 
-Vedi [Installazione - Gestione Contesto](../installation.md#context-management) per maggiori informazioni.
+Vedi [Configurazione - Gestione Contesto](../configuration.md#context-management) per maggiori informazioni.
 
 ## Prossimi Passi
 
