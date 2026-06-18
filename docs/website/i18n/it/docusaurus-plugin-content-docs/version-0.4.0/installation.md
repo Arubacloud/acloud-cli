@@ -222,8 +222,6 @@ rm -rf ~/.config/acloud
 
 ## Prossimi Passi
 
-- [Configura l'autenticazione](authentication.md) — Imposta le credenziali API e gestisci i profili
-- [Esplora le opzioni di configurazione](configuration.md) — Gestione del contesto, formati di output e altro
 - [Risorse](resources.md) — Esplora i tipi di risorse disponibili
 
 ## Risoluzione dei Problemi
