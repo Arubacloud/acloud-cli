@@ -125,19 +125,23 @@ If `baseUrl` and `tokenIssuerUrl` are not specified, the CLI uses these defaults
 
 ### Updating Configuration
 
-```bash
-# Update only the client secret
-ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id YOUR_CLIENT_ID
+`acloud config set` merges changes onto the existing configuration; fields not provided are preserved.
 
-# Update only the base URL
+```bash
+# Rotate credentials — client-id and client-secret are a matched pair.
+# Changing --client-id always asks for a new secret (hidden prompt or ACLOUD_CLIENT_SECRET).
+acloud config set --client-id NEW_CLIENT_ID
+# Enter client secret: (hidden input)
+
+# Same, non-interactively via environment variable
+ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id NEW_CLIENT_ID
+
+# Update only optional fields — credentials are untouched
 acloud config set --base-url "https://custom-api.example.com"
+acloud config set --token-issuer-url "https://custom-idp.example.com/token"
 ```
 
-**Note**: Both `clientId` and `clientSecret` must always be present in the configuration. If you're updating one, make sure the other is already set in config/environment. For interactive secret updates, run with `--client-id` and provide the secret when prompted:
-
-```bash
-acloud config set --client-id YOUR_CLIENT_ID   # prompted securely
-```
+**Note**: When `--client-id` is provided, the CLI always collects a new client-secret — either from `ACLOUD_CLIENT_SECRET` or via the interactive prompt. This ensures the stored credentials remain a matched pair. To update only `--base-url` or `--token-issuer-url` without touching credentials, omit `--client-id`.
 
 ## Multi-Profile Credential Management
 
@@ -161,9 +165,11 @@ ACLOUD_CLIENT_SECRET=YOUR_PROD_SECRET \
 You can update a single field of an existing profile without touching the other fields:
 
 ```bash
-# Rotate the client ID in the prod profile while keeping the existing secret
-acloud config profile set prod --client-id NEW_PROD_CLIENT_ID
+# Update only the base URL of the prod profile — credentials are preserved
+acloud config profile set prod --base-url "https://custom-api.example.com"
 ```
+
+> **Credential rotation**: to rotate the credentials of the default profile use `acloud config set --client-id NEW_ID` (always prompts for a new secret). For named profiles use `acloud config profile set <name> --client-id NEW_ID --client-secret NEW_SECRET` (or `ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config profile set <name> --client-id NEW_ID`).
 
 ### Selecting the Active Profile
 
@@ -198,10 +204,12 @@ Example output (active profile marked with `*`):
 
 ```
 PROFILE              CLIENT_ID                        BASE_URL
-* default            default-client-id
+* default            default-client-id                https://api.arubacloud.com
   prod               prod-client-id                   https://api.arubacloud.com
-  staging            staging-client-id
+  staging            staging-client-id                https://api.arubacloud.com
 ```
+
+Profiles that do not have an explicit `baseUrl` in the config file display the default (`https://api.arubacloud.com`).
 
 ### Deleting a Profile
 

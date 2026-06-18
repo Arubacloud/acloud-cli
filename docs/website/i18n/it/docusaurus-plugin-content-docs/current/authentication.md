@@ -125,19 +125,23 @@ Se `baseUrl` e `tokenIssuerUrl` non sono specificati, la CLI usa questi valori p
 
 ### Aggiornamento della Configurazione
 
-```bash
-# Aggiorna solo il client secret
-ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id YOUR_CLIENT_ID
+`acloud config set` unisce le modifiche alla configurazione esistente; i campi non forniti vengono preservati.
 
-# Aggiorna solo il base URL
+```bash
+# Rinnova le credenziali — client-id e client-secret sono una coppia.
+# Cambiare --client-id richiede sempre un nuovo secret (prompt nascosto o ACLOUD_CLIENT_SECRET).
+acloud config set --client-id NEW_CLIENT_ID
+# Enter client secret: (input nascosto)
+
+# Lo stesso, in modo non interattivo tramite variabile d'ambiente
+ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config set --client-id NEW_CLIENT_ID
+
+# Aggiorna solo i campi opzionali — le credenziali non vengono toccate
 acloud config set --base-url "https://custom-api.example.com"
+acloud config set --token-issuer-url "https://custom-idp.example.com/token"
 ```
 
-**Nota**: Sia `clientId` che `clientSecret` devono sempre essere presenti nella configurazione. Se stai aggiornando uno, assicurati che l'altro sia già impostato in config/ambiente. Per aggiornamenti interattivi del secret, esegui con `--client-id` e fornisci il secret quando richiesto:
-
-```bash
-acloud config set --client-id YOUR_CLIENT_ID   # richiesto in modo sicuro
-```
+**Nota**: Quando viene fornito `--client-id`, la CLI raccoglie sempre un nuovo client-secret — da `ACLOUD_CLIENT_SECRET` o tramite il prompt interattivo. Questo garantisce che le credenziali memorizzate rimangano una coppia corrispondente. Per aggiornare solo `--base-url` o `--token-issuer-url` senza toccare le credenziali, ometti `--client-id`.
 
 ## Gestione dei Profili di Credenziali
 
@@ -161,9 +165,11 @@ ACLOUD_CLIENT_SECRET=YOUR_PROD_SECRET \
 Puoi aggiornare un singolo campo di un profilo esistente senza toccare gli altri:
 
 ```bash
-# Rinnova il client ID nel profilo prod mantenendo il secret esistente
-acloud config profile set prod --client-id NEW_PROD_CLIENT_ID
+# Aggiorna solo il base URL del profilo prod — le credenziali vengono preservate
+acloud config profile set prod --base-url "https://custom-api.example.com"
 ```
+
+> **Rinnovo delle credenziali**: per rinnovare le credenziali del profilo predefinito usa `acloud config set --client-id NEW_ID` (richiede sempre un nuovo secret). Per i profili con nome usa `acloud config profile set <nome> --client-id NEW_ID --client-secret NEW_SECRET` (o `ACLOUD_CLIENT_SECRET=NEW_SECRET acloud config profile set <nome> --client-id NEW_ID`).
 
 ### Selezionare il Profilo Attivo
 
@@ -198,10 +204,12 @@ Esempio di output (il profilo attivo è contrassegnato con `*`):
 
 ```
 PROFILE              CLIENT_ID                        BASE_URL
-* default            default-client-id
+* default            default-client-id                https://api.arubacloud.com
   prod               prod-client-id                   https://api.arubacloud.com
-  staging            staging-client-id
+  staging            staging-client-id                https://api.arubacloud.com
 ```
+
+I profili che non hanno un `baseUrl` esplicito nel file di configurazione mostrano il valore predefinito (`https://api.arubacloud.com`).
 
 ### Eliminare un Profilo
 
