@@ -624,6 +624,55 @@ func TestConfigSet_Operation_UsesEnvClientSecret(t *testing.T) {
 	}
 }
 
+func TestConfigSet_NoArgs_CompleteConfig_Errors(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	// Pre-populate a complete config.
+	if err := SaveConfig(&Config{ClientID: "existing-id", ClientSecret: "existing-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	err := ConfigSet(context.Background(), ConfigSetArgs{})
+	if err == nil {
+		t.Fatal("expected error when no values provided and config is already complete")
+	}
+	if !strings.Contains(err.Error(), "no configuration values provided") {
+		t.Errorf("expected 'no configuration values provided' in error, got: %v", err)
+	}
+}
+
+func TestConfigSet_PartialUpdate_OnlyBaseURL(t *testing.T) {
+	defer withTempHome(t)()
+	os.Unsetenv("ACLOUD_CLIENT_ID")
+	os.Unsetenv("ACLOUD_CLIENT_SECRET")
+
+	if err := SaveConfig(&Config{ClientID: "existing-id", ClientSecret: "existing-secret"}); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	// Update just the base URL — no need to re-supply clientId or clientSecret.
+	err := ConfigSet(context.Background(), ConfigSetArgs{BaseURL: "https://custom.api.example.com"})
+	if err != nil {
+		t.Fatalf("ConfigSet() error: %v", err)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.ClientID != "existing-id" {
+		t.Errorf("ClientID = %q, want existing-id (preserved)", loaded.ClientID)
+	}
+	if loaded.ClientSecret != "existing-secret" {
+		t.Errorf("ClientSecret should be preserved, got %q", loaded.ClientSecret)
+	}
+	if loaded.BaseURL != "https://custom.api.example.com" {
+		t.Errorf("BaseURL = %q, want https://custom.api.example.com", loaded.BaseURL)
+	}
+}
+
 func TestConfigSet_Operation_MissingClientSecret_NonInteractive(t *testing.T) {
 	defer withTempHome(t)()
 	os.Unsetenv("ACLOUD_CLIENT_SECRET")
