@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-18
+
+### Added
+
+- **Database use case documentation** — new end-to-end guide covering the
+  complete workflow for provisioning a MySQL DBaaS instance: VPC/subnet/security
+  group setup, instance creation, database creation, user management, grant
+  assignment, and connecting with a MySQL client. Available in English and
+  Italian.
+- **Container Registry use case documentation** — new end-to-end guide covering
+  the complete workflow for provisioning a private container registry: block
+  storage and network setup, registry creation, Docker authentication, image
+  push/pull operations, and registry administration. Available in English and
+  Italian.
+- **Uninstallation documentation** — new section in the Installation page
+  covering uninstallation procedures for all supported platforms (Homebrew, apt,
+  rpm, Scoop, manual binary) and configuration file cleanup.
+- **Upgrading documentation** — explicit upgrade procedures per platform added
+  to the Installation page.
+
+### Changed
+
+- **Documentation structure reorganised** — the monolithic Installation page has
+  been split into three focused pages:
+  - **Installation** — covers only installation, upgrading, uninstallation,
+    verifying, and platform-specific troubleshooting (GLIBC).
+  - **Authentication** — covers API credential setup, client configuration,
+    multi-profile credential management, and authentication troubleshooting.
+    Moved from the Installation page.
+  - **Configuration** — covers context management, shell auto-completion, output
+    formats, `--wait`, `--dry-run`, pagination, debug mode, and API
+    troubleshooting. Moved from the Installation page.
+- **New "Authentication & Configuration" sidebar section** — the previously
+  flat Installation link has been replaced by a dedicated sidebar category
+  grouping the Authentication and Configuration pages for easier discovery.
+- **Use Cases section extended** — the Use Cases / Examples section now includes
+  Database and Container Registry in addition to the existing Basic Usage,
+  CloudServer, and Kubernetes scenarios.
+
+### Improved
+
+- **English and Italian documentation alignment** — all new and restructured
+  pages are available in both English and Italian (i18n), keeping both language
+  versions at feature parity.
+- **Overall documentation clarity and usability** — consistent structure,
+  terminology, formatting, and navigation hierarchy across all pages.
+
 ## [0.4.0] - 2026-06-17
 
 ### Added
