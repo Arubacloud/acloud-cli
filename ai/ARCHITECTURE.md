@@ -250,7 +250,8 @@ Completion functions that run interactively may keep `context.Background()`.
 
 `GetProjectID(cmd)` in `cmd/root.go` resolves in order:
 1. `--project-id` flag value (if non-empty)
-2. `GetCurrentProjectID()` → reads `CurrentContext` from `~/.acloud-context.yaml`, returns its `ProjectID`
+2. `GetCurrentProjectID()` → reads `CurrentContext` from `~/.acloud-context.yaml`, returns its `ProjectID`;
+   if `CurrentContext` is unset but exactly one context exists, that context is auto-selected
 3. Returns error: `"project ID not specified. Use --project-id flag or set a context with 'acloud context use <name>'"`
 
 ---
@@ -293,6 +294,8 @@ type CtxInfo struct {
 
 **Command behaviours:**
 - `context set <name> --project-id <id>` — creates/updates a named context but does **not** switch to it automatically.
+  When only one context exists and `CurrentContext` is empty, `GetCurrentProjectID()` auto-selects it,
+  so `acloud context use` is not required in the single-context case.
 - `context use <name>` — validates the name exists, then sets `CurrentContext`.
 - `context delete <name>` — removes the context; clears `CurrentContext` if it was the active one.
 - `context list` — prints all contexts with `*` marking the current one.

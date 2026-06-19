@@ -175,7 +175,7 @@ func TestSaveContext_EmptyContext(t *testing.T) {
 	}
 }
 
-func TestGetCurrentProjectID_NoCurrentContext(t *testing.T) {
+func TestGetCurrentProjectID_NoCurrentContext_SingleContext(t *testing.T) {
 	originalHome := os.Getenv("HOME")
 	if originalHome == "" {
 		originalHome = os.Getenv("USERPROFILE")
@@ -199,9 +199,43 @@ func TestGetCurrentProjectID_NoCurrentContext(t *testing.T) {
 		t.Fatalf("SaveContext() error = %v", err)
 	}
 
+	// Single context with no CurrentContext set: auto-selected.
+	projectID, err := GetCurrentProjectID()
+	if err != nil {
+		t.Errorf("GetCurrentProjectID() should auto-select the only context, got error: %v", err)
+	}
+	if projectID != "test-project-id" {
+		t.Errorf("GetCurrentProjectID() = %v, want test-project-id", projectID)
+	}
+}
+
+func TestGetCurrentProjectID_NoCurrentContext_MultipleContexts(t *testing.T) {
+	originalHome := os.Getenv("HOME")
+	if originalHome == "" {
+		originalHome = os.Getenv("USERPROFILE")
+	}
+
+	tmpDir := t.TempDir()
+
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", originalHome)
+
+	testContext := &Context{
+		Contexts: map[string]CtxInfo{
+			"ctx-a": {ProjectID: "pid-a"},
+			"ctx-b": {ProjectID: "pid-b"},
+		},
+	}
+
+	err := SaveContext(testContext)
+	if err != nil {
+		t.Fatalf("SaveContext() error = %v", err)
+	}
+
+	// Multiple contexts with no CurrentContext set: must still error.
 	projectID, err := GetCurrentProjectID()
 	if err == nil {
-		t.Error("GetCurrentProjectID() should return error when no current context is set")
+		t.Error("GetCurrentProjectID() should return error when no current context is set and multiple contexts exist")
 	}
 	if projectID != "" {
 		t.Errorf("GetCurrentProjectID() = %v, want empty string", projectID)
