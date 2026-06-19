@@ -43,6 +43,56 @@ func init() {
 	vpcpeeringListCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	vpcpeeringListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	vpcpeeringListCmd.Flags().Int32("offset", 0, "Number of results to skip")
+
+	vpcpeeringCreateCmd.ValidArgsFunction = completeVPCPeeringID
+	vpcpeeringListCmd.ValidArgsFunction = completeVPCPeeringID
+	vpcpeeringGetCmd.ValidArgsFunction = completeVPCPeeringID
+	vpcpeeringUpdateCmd.ValidArgsFunction = completeVPCPeeringID
+	vpcpeeringDeleteCmd.ValidArgsFunction = completeVPCPeeringID
+}
+
+func completeVPCPeeringID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	if len(args) > 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	vpcID := args[0]
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	key := cacheKey("vpc-peering", projectID, vpcID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	ctx := context.Background()
+	list, err := client.FromNetwork().VPCPeerings().List(ctx, aruba.VPCRef(projectID, vpcID))
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	var completions []string
+	if list != nil {
+		for _, p := range list.Items() {
+			id := p.ID()
+			if id != "" {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, p.Name()))
+			}
+		}
+	}
+
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // Peering subcommands

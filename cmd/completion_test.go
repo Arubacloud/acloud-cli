@@ -772,3 +772,278 @@ func TestCompleteKaaSID_APIError(t *testing.T) {
 		t.Errorf("expected nil completions on API error, got %v", comps)
 	}
 }
+
+// ─── completeSubnetID ────────────────────────────────────────────────────────
+
+func TestCompleteSubnetID_NoArgs_DelegatesToVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSubnetID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected VPC IDs from delegation, got none")
+	}
+}
+
+func TestCompleteSubnetID_NoArgs_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeSubnetID(&cobra.Command{}, []string{}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteSubnetID(t *testing.T) {
+	id, name := "sub-001", "my-subnet"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/subnets", jsonResponse(200, types.SubnetListResponse{
+		Values: []types.SubnetResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSubnetID(makeProjectCmd("proj-123"), []string{"vpc-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteSubnetID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeSubnetID(&cobra.Command{}, []string{"vpc-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteSubnetID_TooManyArgs(t *testing.T) {
+	comps, _ := completeSubnetID(&cobra.Command{}, []string{"vpc-001", "sub-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeSecurityGroupID ─────────────────────────────────────────────────
+
+func TestCompleteSecurityGroupID_NoArgs_DelegatesToVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSecurityGroupID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected VPC IDs from delegation, got none")
+	}
+}
+
+func TestCompleteSecurityGroupID_NoArgs_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeSecurityGroupID(&cobra.Command{}, []string{}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteSecurityGroupID(t *testing.T) {
+	id, name := "sg-001", "my-sg"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
+		Values: []types.SecurityGroupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSecurityGroupID(makeProjectCmd("proj-123"), []string{"vpc-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteSecurityGroupID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeSecurityGroupID(&cobra.Command{}, []string{"vpc-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteSecurityGroupID_TooManyArgs(t *testing.T) {
+	comps, _ := completeSecurityGroupID(&cobra.Command{}, []string{"vpc-001", "sg-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeVPCPeeringID ────────────────────────────────────────────────────
+
+func TestCompleteVPCPeeringID_NoArgs_DelegatesToVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCPeeringID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected VPC IDs from delegation, got none")
+	}
+}
+
+func TestCompleteVPCPeeringID_NoArgs_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeVPCPeeringID(&cobra.Command{}, []string{}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteVPCPeeringID(t *testing.T) {
+	id, name := "peer-001", "my-peering"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringListResponse{
+		Values: []types.VPCPeeringResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCPeeringID(makeProjectCmd("proj-123"), []string{"vpc-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected completions, got none")
+	}
+}
+
+func TestCompleteVPCPeeringID_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeVPCPeeringID(&cobra.Command{}, []string{"vpc-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteVPCPeeringID_TooManyArgs(t *testing.T) {
+	comps, _ := completeVPCPeeringID(&cobra.Command{}, []string{"vpc-001", "peer-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeSecurityRuleID parent-slot fixes ────────────────────────────────
+
+func TestCompleteSecurityRuleID_NoArgs_DelegatesToVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSecurityRuleID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected VPC IDs from delegation, got none")
+	}
+}
+
+func TestCompleteSecurityRuleID_OneArg_DelegatesToSGID(t *testing.T) {
+	id, name := "sg-001", "my-sg"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/securityGroups", jsonResponse(200, types.SecurityGroupListResponse{
+		Values: []types.SecurityGroupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeSecurityRuleID(makeProjectCmd("proj-123"), []string{"vpc-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected SG IDs from delegation, got none")
+	}
+}
+
+func TestCompleteSecurityRuleID_TooManyArgs(t *testing.T) {
+	comps, _ := completeSecurityRuleID(&cobra.Command{}, []string{"vpc-001", "sg-001", "rule-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeVPCPeeringRouteID parent-slot fixes ─────────────────────────────
+
+func TestCompleteVPCPeeringRouteID_NoArgs_DelegatesToVPCID(t *testing.T) {
+	id, name := "vpc-001", "my-vpc"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs", jsonResponse(200, types.VPCListResponse{
+		Values: []types.VPCResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCPeeringRouteID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected VPC IDs from delegation, got none")
+	}
+}
+
+func TestCompleteVPCPeeringRouteID_OneArg_DelegatesToPeeringID(t *testing.T) {
+	id, name := "peer-001", "my-peering"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Network/vpcs/vpc-001/vpcPeerings", jsonResponse(200, types.VPCPeeringListResponse{
+		Values: []types.VPCPeeringResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeVPCPeeringRouteID(makeProjectCmd("proj-123"), []string{"vpc-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected peering IDs from delegation, got none")
+	}
+}
+
+func TestCompleteVPCPeeringRouteID_TooManyArgs(t *testing.T) {
+	comps, _ := completeVPCPeeringRouteID(&cobra.Command{}, []string{"vpc-001", "peer-001", "route-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}

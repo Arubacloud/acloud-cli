@@ -53,6 +53,56 @@ func init() {
 	subnetListCmd.Flags().String("vpc-id", "", "Parent VPC ID (required)")
 	subnetListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	subnetListCmd.Flags().Int32("offset", 0, "Number of results to skip")
+
+	subnetCreateCmd.ValidArgsFunction = completeSubnetID
+	subnetListCmd.ValidArgsFunction = completeSubnetID
+	subnetGetCmd.ValidArgsFunction = completeSubnetID
+	subnetUpdateCmd.ValidArgsFunction = completeSubnetID
+	subnetDeleteCmd.ValidArgsFunction = completeSubnetID
+}
+
+func completeSubnetID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	if len(args) > 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	vpcID := args[0]
+	projectID, err := GetProjectID(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	key := cacheKey("subnet", projectID, vpcID)
+	if cached, _ := completionCacheGet(key); cached != nil {
+		return filterCompletions(cached, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+
+	client, err := GetArubaClient()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	ctx := context.Background()
+	list, err := client.FromNetwork().Subnets().List(ctx, aruba.VPCRef(projectID, vpcID))
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	var completions []string
+	if list != nil {
+		for _, s := range list.Items() {
+			id := s.ID()
+			if id != "" {
+				completions = append(completions, fmt.Sprintf("%s\t%s", id, s.Name()))
+			}
+		}
+	}
+
+	completionCachePut(key, completions)
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // Subnet subcommands
