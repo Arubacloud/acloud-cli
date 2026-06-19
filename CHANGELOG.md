@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-19
+
+### Added
+
+- **Context auto-selection** — when exactly one context is configured and no
+  `CurrentContext` is set, `GetCurrentProjectID()` now automatically selects it.
+  Running `acloud context set` no longer requires a follow-up `acloud context use`
+  in the single-context case (closes #234).
+- **Clear-contexts prompt on profile switch** — switching to a different credential
+  profile with `--profile` (or `ACLOUD_PROFILE`) now detects that existing contexts
+  belong to the previous profile's projects and offers to clear them interactively.
+  Prevents stale contexts from causing "project not found" errors after a profile
+  change (closes #236).
+
+### Fixed
+
+- **Shell completion — network sub-resources** — pressing TAB at any positional
+  argument slot in nested network commands now suggests the correct parent resource
+  IDs instead of falling back to filesystem completion. Previously, only the final
+  slot (the resource's own ID) was completed; all earlier slots returned nothing.
+  Fixed resources and their full TAB sequences:
+  - `subnet list/get/create <TAB>` → VPC IDs; `subnet get <vpc-id> <TAB>` → subnet IDs
+  - `securitygroup list/get/create <TAB>` → VPC IDs; `securitygroup get <vpc-id> <TAB>` → SG IDs
+  - `vpcpeering list/get/create <TAB>` → VPC IDs; `vpcpeering get <vpc-id> <TAB>` → peering IDs
+  - `securityrule get/list <TAB>` → VPC IDs; `… <vpc-id> <TAB>` → SG IDs; `… <sg-id> <TAB>` → rule IDs
+  - `vpcpeeringroute get/list <TAB>` → VPC IDs; slot 2 → peering IDs; slot 3 → route IDs
+
+  Completion is now also registered on `list` and `create` commands that
+  previously had no `ValidArgsFunction` at all (closes #239, PR #240).
+
+- **Shell completion — database and storage sub-resources** — same class of fix
+  extended to the database and storage families (PR #241):
+  - `dbaas database list/create <TAB>` → DBaaS IDs; slot 2 → database names
+  - `dbaas user list/create <TAB>` → DBaaS IDs; slot 2 → usernames
+  - `dbaas grant list/create <TAB>` → DBaaS IDs; slot 2 → database names; slot 3 → grant IDs
+    (`create`, `list`, `get`, `delete` had no `ValidArgsFunction` at all)
+  - `storage backup <TAB>` (create command) → volume IDs
+  - `storage restore <TAB>` (create command) → backup IDs; slot 2 → volume IDs
+
+- **Docs**: corrected zone value from `itbg1-a` to `ITBG-1` in cloud server
+  create examples (closes #238).
+
+### Documentation
+
+- Shell auto-completion sections updated in English and Italian across all
+  resource pages affected by the completion fixes: `subnet`, `securitygroup`,
+  `vpcpeering`, `securityrule`, `vpcpeeringroute`, `dbaas.database`, `dbaas.user`,
+  `dbaas.grant`, `storage/backup`, `storage/restore`. Each section now shows the
+  full hierarchical TAB sequence for every positional argument slot rather than
+  only the final one.
+- `getting-started.md` auto-completion examples extended to cover `storage backup`
+  create (volume ID), `storage restore` create (backup ID then volume ID), and
+  database sub-resource hierarchical completion (DBaaS → database → user/grant).
+
 ## [0.5.1] - 2026-06-19
 
 ### Fixed
@@ -262,7 +316,8 @@ is unchanged.
 - **E2e**: project `DELETE` failure now propagates correctly in the management
   suite (closes #128).
 
-[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.3.0...v0.4.0

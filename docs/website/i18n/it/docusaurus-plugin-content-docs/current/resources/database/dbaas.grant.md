@@ -145,6 +145,25 @@ acloud database dbaas grant create <dbaas-id> "appdb" --username "restapi" --rol
 acloud database dbaas grant list <dbaas-id> "appdb"
 ```
 
+## Auto-completamento Shell
+
+I comandi grant supportano auto-completamento gerarchico su tutti e tre gli
+argomenti posizionali:
+
+```bash
+# Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas grant list <TAB>
+acloud database dbaas grant get <TAB>
+
+# Secondo argomento — mostra i nomi database per l'istanza DBaaS indicata
+acloud database dbaas grant list <dbaas-id> <TAB>
+acloud database dbaas grant get <dbaas-id> <TAB>
+
+# Terzo argomento — mostra gli ID grant per l'istanza e il database indicati
+acloud database dbaas grant get <dbaas-id> <database-name> <TAB>
+acloud database dbaas grant delete <dbaas-id> <database-name> <TAB>
+```
+
 ## Risorse Correlate
 
 - [DBaaS](dbaas.md) - Gestisci istanze DBaaS
