@@ -250,13 +250,19 @@ ID                              STATUS
 
 ## Shell Auto-completion
 
-The security rule commands support intelligent auto-completion for security rule IDs:
+Security rule commands support hierarchical auto-completion across all three
+positional arguments:
 
 ```bash
-# Enable completion (bash)
-source <(acloud completion bash)
+# First argument — shows available VPC IDs
+acloud network securityrule get <TAB>
+acloud network securityrule list <TAB>
 
-# Type command and press TAB to see available security rule IDs
+# Second argument — shows security group IDs for the given VPC
+acloud network securityrule get <vpc-id> <TAB>
+acloud network securityrule list <vpc-id> <TAB>
+
+# Third argument — shows rule IDs for the given VPC and security group
 acloud network securityrule get <vpc-id> <securitygroup-id> <TAB>
 acloud network securityrule update <vpc-id> <securitygroup-id> <TAB>
 acloud network securityrule delete <vpc-id> <securitygroup-id> <TAB>

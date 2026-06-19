@@ -38,6 +38,11 @@ func init() {
 	dbaasGrantDeleteCmd.Flags().String("project-id", "", "Project ID (uses context if not specified)")
 	dbaasGrantDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	dbaasGrantDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
+
+	dbaasGrantCreateCmd.ValidArgsFunction = completeGrantID
+	dbaasGrantListCmd.ValidArgsFunction = completeGrantID
+	dbaasGrantGetCmd.ValidArgsFunction = completeGrantID
+	dbaasGrantDeleteCmd.ValidArgsFunction = completeGrantID
 }
 
 // grantRef returns a Ref for a specific grant inside a database inside a DBaaS instance.
@@ -46,7 +51,13 @@ func grantRef(projectID, dbaasID, dbName, grantID string) aruba.Ref {
 }
 
 func completeGrantID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) < 2 {
+	if len(args) == 0 {
+		return completeDBaaSID(cmd, args, toComplete)
+	}
+	if len(args) == 1 {
+		return completeDBaaSDatabaseID(cmd, args, toComplete)
+	}
+	if len(args) > 2 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	projectID, err := GetProjectID(cmd)

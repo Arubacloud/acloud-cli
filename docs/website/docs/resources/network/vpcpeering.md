@@ -134,7 +134,19 @@ VPC Peering 6949666e4d0cdc87949b7204 deleted successfully!
 
 ## Shell Auto-completion
 
-The VPC Peering commands support auto-completion for VPC IDs and peering IDs.
+VPC Peering commands support hierarchical auto-completion: the first TAB
+completes VPC IDs, the second completes peering IDs scoped to the selected VPC.
+
+```bash
+# First argument — shows available VPC IDs
+acloud network vpcpeering list <TAB>
+acloud network vpcpeering get <TAB>
+
+# Second argument — shows peering IDs for the given VPC
+acloud network vpcpeering get <vpc-id> <TAB>
+acloud network vpcpeering update <vpc-id> <TAB>
+acloud network vpcpeering delete <vpc-id> <TAB>
+```
 
 ## Best Practices
 - Use descriptive names for peering connections.

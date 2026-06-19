@@ -33,8 +33,20 @@ acloud storage restore <backup-id> <volume-id> --name <name> [flags]
 
 ### Arguments
 
-- `backup-id` - The ID of the backup to restore from
-- `volume-id` - The ID of the target volume (will be overwritten)
+- `backup-id` - The ID of the backup to restore from (supports auto-completion)
+- `volume-id` - The ID of the target volume (supports auto-completion; will be overwritten)
+
+### Auto-completion
+
+The create command supports hierarchical auto-completion:
+
+```bash
+# First argument — shows available backup IDs
+acloud storage restore <TAB>
+
+# Second argument — shows volume IDs once a backup is selected
+acloud storage restore <backup-id> <TAB>
+```
 
 ### Required Flags
 

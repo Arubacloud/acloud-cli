@@ -1047,3 +1047,179 @@ func TestCompleteVPCPeeringRouteID_TooManyArgs(t *testing.T) {
 		t.Errorf("expected nil completions with too many args, got %v", comps)
 	}
 }
+
+// ─── completeDBaaSDatabaseID parent-slot fixes ───────────────────────────────
+
+func TestCompleteDBaaSDatabaseID_NoArgs_DelegatesToDBaaSID(t *testing.T) {
+	id, name := "dbaas-001", "my-dbaas"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+		Values: []types.DBaaSResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDBaaSDatabaseID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected DBaaS IDs from delegation, got none")
+	}
+}
+
+func TestCompleteDBaaSDatabaseID_NoArgs_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeDBaaSDatabaseID(&cobra.Command{}, []string{}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteDBaaSDatabaseID_TooManyArgs(t *testing.T) {
+	comps, _ := completeDBaaSDatabaseID(&cobra.Command{}, []string{"dbaas-001", "my-db"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeDBaaSUserID parent-slot fixes ────────────────────────────────────
+
+func TestCompleteDBaaSUserID_NoArgs_DelegatesToDBaaSID(t *testing.T) {
+	id, name := "dbaas-001", "my-dbaas"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+		Values: []types.DBaaSResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeDBaaSUserID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected DBaaS IDs from delegation, got none")
+	}
+}
+
+func TestCompleteDBaaSUserID_NoArgs_NoProjectID(t *testing.T) {
+	cleanup := withTempHomeDir(t)
+	defer cleanup()
+
+	comps, _ := completeDBaaSUserID(&cobra.Command{}, []string{}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions without project-id, got %v", comps)
+	}
+}
+
+func TestCompleteDBaaSUserID_TooManyArgs(t *testing.T) {
+	comps, _ := completeDBaaSUserID(&cobra.Command{}, []string{"dbaas-001", "alice"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeGrantID parent-slot fixes ───────────────────────────────────────
+
+func TestCompleteGrantID_NoArgs_DelegatesToDBaaSID(t *testing.T) {
+	id, name := "dbaas-001", "my-dbaas"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas", jsonResponse(200, types.DBaaSListResponse{
+		Values: []types.DBaaSResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeGrantID(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected DBaaS IDs from delegation, got none")
+	}
+}
+
+func TestCompleteGrantID_OneArg_DelegatesToDatabaseID(t *testing.T) {
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Database/dbaas/dbaas-001/databases", jsonResponse(200, types.DatabaseListResponse{
+		Values: []types.DatabaseResponse{
+			{Name: "my-db"},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeGrantID(makeProjectCmd("proj-123"), []string{"dbaas-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected database names from delegation, got none")
+	}
+}
+
+func TestCompleteGrantID_TooManyArgs(t *testing.T) {
+	comps, _ := completeGrantID(&cobra.Command{}, []string{"dbaas-001", "my-db", "grant-id"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── completeStorageRestoreCreateArgs ────────────────────────────────────────
+
+func TestCompleteStorageRestoreCreateArgs_NoArgs_DelegatesToBackupID(t *testing.T) {
+	id, name := "bkp-001", "my-backup"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/backups", jsonResponse(200, types.StorageBackupListResponse{
+		Values: []types.StorageBackupResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeStorageRestoreCreateArgs(makeProjectCmd("proj-123"), []string{}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected backup IDs from delegation, got none")
+	}
+}
+
+func TestCompleteStorageRestoreCreateArgs_OneArg_DelegatesToBlockStorageID(t *testing.T) {
+	id, name := "vol-001", "my-volume"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
+		Values: []types.BlockStorageResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeStorageRestoreCreateArgs(makeProjectCmd("proj-123"), []string{"bkp-001"}, "")
+	if len(completions) == 0 {
+		t.Errorf("expected volume IDs from delegation, got none")
+	}
+}
+
+func TestCompleteStorageRestoreCreateArgs_TooManyArgs(t *testing.T) {
+	comps, _ := completeStorageRestoreCreateArgs(&cobra.Command{}, []string{"bkp-001", "vol-001"}, "")
+	if comps != nil {
+		t.Errorf("expected nil completions with too many args, got %v", comps)
+	}
+}
+
+// ─── storageBackupCmd create ValidArgsFunction ───────────────────────────────
+
+func TestCompleteBackupCreateArg_DelegatesToBlockStorageID(t *testing.T) {
+	id, name := "vol-001", "my-volume"
+	srv := newArubaTestServer(t)
+	srv.OnGet("/projects/proj-123/providers/Aruba.Storage/blockStorages", jsonResponse(200, types.BlockStorageListResponse{
+		Values: []types.BlockStorageResponse{
+			{Metadata: types.ResourceMetadataResponse{ID: &id, Name: &name}},
+		},
+	}))
+	setClientForTesting(srv.Client())
+	defer resetClientState()
+
+	completions, _ := completeBlockStorageID(makeProjectCmd("proj-123"), nil, "")
+	if len(completions) == 0 {
+		t.Errorf("expected volume IDs, got none")
+	}
+}

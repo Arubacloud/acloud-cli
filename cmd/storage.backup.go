@@ -48,6 +48,7 @@ func init() {
 	storageBackupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	storageBackupDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
+	storageBackupCmd.ValidArgsFunction = completeBlockStorageID
 	storageBackupGetCmd.ValidArgsFunction = completeBackupID
 	storageBackupUpdateCmd.ValidArgsFunction = completeBackupID
 	storageBackupDeleteCmd.ValidArgsFunction = completeBackupID

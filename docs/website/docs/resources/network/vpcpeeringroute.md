@@ -217,13 +217,19 @@ ID                              STATUS
 
 ## Shell Auto-completion
 
-The VPC Peering Route commands support intelligent auto-completion for route IDs:
+VPC Peering Route commands support hierarchical auto-completion across all three
+positional arguments:
 
 ```bash
-# Enable completion (bash)
-source <(acloud completion bash)
+# First argument — shows available VPC IDs
+acloud network vpcpeeringroute get <TAB>
+acloud network vpcpeeringroute list <TAB>
 
-# Type command and press TAB to see available route IDs
+# Second argument — shows peering IDs for the given VPC
+acloud network vpcpeeringroute get <vpc-id> <TAB>
+acloud network vpcpeeringroute list <vpc-id> <TAB>
+
+# Third argument — shows route IDs for the given VPC and peering
 acloud network vpcpeeringroute get <vpc-id> <peering-id> <TAB>
 acloud network vpcpeeringroute update <vpc-id> <peering-id> <TAB>
 acloud network vpcpeeringroute delete <vpc-id> <peering-id> <TAB>

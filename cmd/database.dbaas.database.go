@@ -34,13 +34,18 @@ func init() {
 	dbaasDatabaseListCmd.Flags().Int("limit", 0, "Maximum number of results to return (0 = no limit)")
 	dbaasDatabaseListCmd.Flags().Int("offset", 0, "Number of results to skip")
 
+	dbaasDatabaseCreateCmd.ValidArgsFunction = completeDBaaSDatabaseID
+	dbaasDatabaseListCmd.ValidArgsFunction = completeDBaaSDatabaseID
 	dbaasDatabaseGetCmd.ValidArgsFunction = completeDBaaSDatabaseID
 	dbaasDatabaseUpdateCmd.ValidArgsFunction = completeDBaaSDatabaseID
 	dbaasDatabaseDeleteCmd.ValidArgsFunction = completeDBaaSDatabaseID
 }
 
 func completeDBaaSDatabaseID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) < 1 {
+	if len(args) == 0 {
+		return completeDBaaSID(cmd, args, toComplete)
+	}
+	if len(args) > 1 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
