@@ -55,13 +55,21 @@ func init() {
 	securityruleListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
 	// Set up auto-completion for resource IDs
+	securityruleCreateCmd.ValidArgsFunction = completeSecurityRuleID
+	securityruleListCmd.ValidArgsFunction = completeSecurityRuleID
 	securityruleGetCmd.ValidArgsFunction = completeSecurityRuleID
 	securityruleUpdateCmd.ValidArgsFunction = completeSecurityRuleID
 	securityruleDeleteCmd.ValidArgsFunction = completeSecurityRuleID
 }
 
 func completeSecurityRuleID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) < 2 {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	if len(args) == 1 {
+		return completeSecurityGroupID(cmd, args, toComplete)
+	}
+	if len(args) > 2 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
