@@ -146,6 +146,23 @@ acloud database dbaas database delete <dbaas-id> <database-name> [--yes] [flags]
 acloud database dbaas database delete 69455aa70d0972656501d45d "my-database" --yes
 ```
 
+## Auto-completamento Shell
+
+I comandi database supportano auto-completamento gerarchico: il primo TAB
+completa gli ID istanza DBaaS, il secondo completa i nomi dei database limitati
+a quell'istanza.
+
+```bash
+# Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas database list <TAB>
+acloud database dbaas database get <TAB>
+
+# Secondo argomento — mostra i nomi dei database per l'istanza DBaaS indicata
+acloud database dbaas database get <dbaas-id> <TAB>
+acloud database dbaas database update <dbaas-id> <TAB>
+acloud database dbaas database delete <dbaas-id> <TAB>
+```
+
 ## Risorse Correlate
 
 - [DBaaS](dbaas.md) - Gestisci istanze DBaaS

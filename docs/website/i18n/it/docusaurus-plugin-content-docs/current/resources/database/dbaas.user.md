@@ -156,6 +156,22 @@ acloud database dbaas user delete 69455aa70d0972656501d45d "app-user" --yes
 - Non condividere mai password o committarle nel controllo versione
 - Considera l'uso di un password manager
 
+## Auto-completamento Shell
+
+I comandi utente supportano auto-completamento gerarchico: il primo TAB completa
+gli ID istanza DBaaS, il secondo completa i nomi utente limitati a quell'istanza.
+
+```bash
+# Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas user list <TAB>
+acloud database dbaas user get <TAB>
+
+# Secondo argomento — mostra i nomi utente per l'istanza DBaaS indicata
+acloud database dbaas user get <dbaas-id> <TAB>
+acloud database dbaas user update <dbaas-id> <TAB>
+acloud database dbaas user delete <dbaas-id> <TAB>
+```
+
 ## Risorse Correlate
 
 - [DBaaS](dbaas.md) - Gestisci istanze DBaaS

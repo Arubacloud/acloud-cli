@@ -32,7 +32,7 @@ acloud storage backup <volume-id> --name <name> [flags]
 
 ### Argomenti
 
-- `volume-id` - L'ID del volume di block storage da cui fare il backup
+- `volume-id` - L'ID del volume di block storage da cui fare il backup (supporta auto-completamento)
 
 ### Flag Richiesti
 
