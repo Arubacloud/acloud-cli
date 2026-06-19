@@ -31,6 +31,11 @@ Switch to a saved context when you have more than one:
 acloud context use my-prod
 ```
 
+> **Switching profiles**: Contexts store project IDs that belong to a specific tenant. When you switch credential profiles with `acloud config profile use`, the CLI will ask whether to clear all contexts (since the saved project IDs are likely invalid for the new profile). Pass `--clear-contexts` to clear them without being prompted:
+> ```bash
+> acloud config profile use staging --clear-contexts
+> ```
+
 Once a context is active, you can run commands without specifying `--project-id`:
 
 ```bash

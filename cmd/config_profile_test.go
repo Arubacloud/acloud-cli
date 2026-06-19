@@ -558,6 +558,90 @@ func TestConfigProfileUse_NotFound(t *testing.T) {
 	}
 }
 
+func TestConfigProfileUse_ClearContextsFlag(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate a context to verify it gets cleared.
+	if err := SaveContext(&Context{
+		CurrentContext: "my-ctx",
+		Contexts:       map[string]CtxInfo{"my-ctx": {ProjectID: "proj-123"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := configProfileUseCmd
+	cmd.Flags().Set("clear-contexts", "true")
+	t.Cleanup(func() { cmd.Flags().Set("clear-contexts", "false") })
+
+	out := captureStdout(func() {
+		if err := ConfigProfileUseRun(cmd, []string{"prod"}); err != nil {
+			t.Errorf("ConfigProfileUseRun() error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "cleared") {
+		t.Errorf("expected 'cleared' in output, got: %s", out)
+	}
+
+	loaded, err := LoadContext()
+	if err != nil {
+		t.Fatalf("LoadContext() error: %v", err)
+	}
+	if len(loaded.Contexts) != 0 {
+		t.Errorf("expected no contexts after --clear-contexts, got: %v", loaded.Contexts)
+	}
+	if loaded.CurrentContext != "" {
+		t.Errorf("expected no current context after --clear-contexts, got: %q", loaded.CurrentContext)
+	}
+}
+
+func TestConfigProfileUse_KeepsContextsInNonInteractive(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("ACLOUD_PROFILE", "")
+	resetCmdFlags(rootCmd)
+	t.Cleanup(func() { resetCmdFlags(rootCmd) })
+
+	if err := saveAllProfiles(map[string]configFile{
+		"default": {ClientID: "id-default", ClientSecret: "sec"},
+		"prod":    {ClientID: "id-prod", ClientSecret: "sec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveContext(&Context{
+		CurrentContext: "my-ctx",
+		Contexts:       map[string]CtxInfo{"my-ctx": {ProjectID: "proj-123"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call with nil cmd and non-interactive stdin (test environment).
+	// Contexts must be preserved.
+	if err := ConfigProfileUseRun(nil, []string{"prod"}); err != nil {
+		t.Fatalf("ConfigProfileUseRun() error: %v", err)
+	}
+
+	loaded, err := LoadContext()
+	if err != nil {
+		t.Fatalf("LoadContext() error: %v", err)
+	}
+	if len(loaded.Contexts) != 1 {
+		t.Errorf("expected contexts to be preserved in non-interactive mode, got: %v", loaded.Contexts)
+	}
+}
+
 // ─── loadAllProfiles edge cases ───────────────────────────────────────────────
 
 func TestLoadAllProfiles_FileNotFound(t *testing.T) {

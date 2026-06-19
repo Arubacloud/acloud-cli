@@ -84,6 +84,11 @@ func LoadContext() (*Context, error) {
 	return &ctx, nil
 }
 
+// ClearAllContexts removes all saved contexts and unsets the current context.
+func ClearAllContexts() error {
+	return SaveContext(&Context{Contexts: make(map[string]CtxInfo)})
+}
+
 // SaveContext saves the context configuration
 func SaveContext(ctx *Context) error {
 	contextFile, err := getContextFilePath()

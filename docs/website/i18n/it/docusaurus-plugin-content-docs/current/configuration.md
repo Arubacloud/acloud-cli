@@ -21,13 +21,20 @@ Crea un contesto con un ID progetto:
 acloud context set my-prod --project-id "66a10244f62b99c686572a9f"
 ```
 
+> **Scorciatoia per contesto singolo**: Quando è configurato un solo contesto, la CLI lo utilizza automaticamente — non è necessario eseguire prima `acloud context use`. Se in seguito si aggiunge un secondo contesto, sarà necessario selezionarlo esplicitamente con `acloud context use <nome>`.
+
 ### Utilizzo di un Contesto
 
-Passa a un contesto salvato:
+Passa a un contesto salvato quando ne hai più di uno:
 
 ```bash
 acloud context use my-prod
 ```
+
+> **Cambio di profilo**: I contesti memorizzano gli ID progetto che appartengono a un tenant specifico. Quando si cambia profilo con `acloud config profile use`, la CLI chiederà se cancellare tutti i contesti (poiché gli ID progetto salvati potrebbero non essere validi per il nuovo profilo). Usa `--clear-contexts` per cancellarli senza essere interrogato:
+> ```bash
+> acloud config profile use staging --clear-contexts
+> ```
 
 Una volta che un contesto è attivo, puoi eseguire comandi senza specificare `--project-id`:
 
