@@ -102,7 +102,7 @@ Il container registry richiede block storage dedicato per i layer delle immagini
 acloud storage blockstorage create \
   --name "registry-storage" \
   --region "ITBG-Bergamo" \
-  --zone "itbg1-a" \
+  --zone "ITBG-1" \
   --size 100 \
   --type Performance \
   --billing-period Hour \
