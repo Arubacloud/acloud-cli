@@ -110,9 +110,9 @@ Choose a security group with `STATUS` as `Active` and note its `ID`. If no suita
 
 ---
 
-## Step 5: Note the Elastic IP ID (if using public access)
+## Step 5: Note the Elastic IP ID
 
-If you want public access for your server, note the Elastic IP `ID` from `acloud network elasticip list`. You can verify it with:
+Note the Elastic IP `ID` from `acloud network elasticip list`. You can verify it with:
 
 ```bash
 acloud network elasticip get <elasticip-id>
@@ -120,10 +120,10 @@ acloud network elasticip get <elasticip-id>
 
 Example:
 ```bash
-acloud network elasticip get 694bb7897712ac0032dbe60c
+acloud network elasticip get 6a35162fdf2d456b0f95fd7e
 ```
 
-> **Note:** Note the Elastic IP `ID`. Skip this step if you do not need public access. You can associate an Elastic IP after server creation as well.
+> **Note:** Note the Elastic IP `ID`. An Elastic IP is required to connect to your server from the public internet (used in Step 10 with `--elasticip-id`).
 
 ---
 
@@ -137,7 +137,7 @@ If you want to create a bootable block storage volume (for example, to use a cus
 acloud storage blockstorage create \
   --name boot-ubuntu \
   --region ITBG-Bergamo \
-  --zone itbg1-a \
+  --zone ITBG-1 \
   --set-bootable \
   --billing-period Hour \
   --size 20 \
@@ -277,12 +277,12 @@ acloud compute cloudserver create \
   --region "ITBG-Bergamo" \
   --zone "ITBG-1" \
   --flavor "CSO4A8" \
-  --boot-disk-id "697b3a0dce7dfeef9153256a" \
-  --vpc-id "69495ef64d0cdc87949b71ec" \
-  --subnet-id "694ba1737712ac0032dbe50a" \
-  --security-group-id "694b05ac4d0cdc87949b75f9" \
-  --keypair-id "69007ebf4e7d691466d8621e" \
-  --user-data-file "cloud-init.yaml" \
+  --boot-disk-id "6a3516c275300438a29f15fd" \
+  --vpc-id "69fdbc398675ff21f3c1587b" \
+  --subnet-id "69fdbc8f8675ff21f3c1588a" \
+  --security-group-id "69fdbc8e8675ff21f3c15888" \
+  --keypair-id "6a33ec6b2b2c12d76c120f5e" \
+  --elasticip-id "6a35162fdf2d456b0f95fd7e" \
   --billing-period Hour \
   --tags "production"
 ```
@@ -293,7 +293,8 @@ ID                             NAME         FLAVOR    CPU   RAM(GB)   HD(GB)   R
 697c62605b79733376b3386a       my-server    CSO4A8    4     8         0        ITBG-Bergamo
 ```
 
-- Replace the IDs above with your actual VPC, subnet, security group, keypair, and boot disk IDs.
+- Replace the IDs above with your actual VPC, subnet, security group, keypair, boot disk, and Elastic IP IDs.
+- The `--elasticip-id` flag assigns a public IP at creation time and is required to use the `connect` command afterwards.
 - The `--user-data-file` flag is optional and can be omitted if not needed.
 - You can specify multiple subnets or security groups using comma-separated values.
 - All networking flags (`--vpc-id`, `--subnet-id`, `--security-group-id`) and the `--zone` flag are required.

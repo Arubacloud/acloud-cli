@@ -137,7 +137,7 @@ If you want to create a bootable block storage volume (for example, to use a cus
 acloud storage blockstorage create \
   --name boot-ubuntu \
   --region ITBG-Bergamo \
-  --zone itbg1-a \
+  --zone ITBG-1 \
   --set-bootable \
   --billing-period Hour \
   --size 20 \

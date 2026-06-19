@@ -102,7 +102,7 @@ The container registry requires dedicated block storage for image layers and met
 acloud storage blockstorage create \
   --name "registry-storage" \
   --region "ITBG-Bergamo" \
-  --zone "itbg1-a" \
+  --zone "ITBG-1" \
   --size 100 \
   --type Performance \
   --billing-period Hour \
