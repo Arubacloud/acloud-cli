@@ -24,6 +24,20 @@ func confirmDelete(resourceType, id string) (bool, error) {
 	return true, nil
 }
 
+// promptConfirmOptional asks a yes/no question when stdin is an interactive
+// terminal. Returns false silently in non-interactive mode — the caller treats
+// that as "no" and moves on without erroring.
+func promptConfirmOptional(question string) bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		return false
+	}
+	fmt.Printf("%s (y/N): ", question)
+	var response string
+	fmt.Scanln(&response)
+	return response == "yes" || response == "y"
+}
+
 // readSecret prompts the user for a secret value with echo disabled.
 // Returns an error if stdin is not an interactive terminal.
 func readSecret(prompt string) (string, error) {

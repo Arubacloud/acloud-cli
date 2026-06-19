@@ -94,6 +94,9 @@ func init() {
 	configProfileSetCmd.Flags().String("client-secret", "", "Aruba Cloud API client secret (or use ACLOUD_CLIENT_SECRET)")
 	configProfileSetCmd.Flags().String("base-url", "", "Base URL for Aruba Cloud API")
 	configProfileSetCmd.Flags().String("token-issuer-url", "", "Token issuer URL for authentication")
+
+	// Flags for config profile use
+	configProfileUseCmd.Flags().Bool("clear-contexts", false, "Clear all saved contexts after switching profiles (skips the interactive prompt)")
 }
 
 // xdgConfigDir returns the XDG config home directory (#176).
@@ -652,9 +655,11 @@ var configProfileDeleteCmd = &cobra.Command{
 var configProfileUseCmd = &cobra.Command{
 	Use:   "use <profile-name>",
 	Short: "Switch the active profile",
-	Long:  `Switch the active credential profile. The selection is persisted in the config file and overridden by --profile flag or ACLOUD_PROFILE env var.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  ConfigProfileUseRun,
+	Long: `Switch the active credential profile. The selection is persisted in the config file and overridden by --profile flag or ACLOUD_PROFILE env var.
+
+Contexts (saved project IDs) belong to a specific tenant and may not be valid after switching profiles. The CLI will ask whether to clear them when run interactively. Pass --clear-contexts to clear without prompting.`,
+	Args: cobra.ExactArgs(1),
+	RunE: ConfigProfileUseRun,
 }
 
 // ConfigProfileListRun lists all profiles, marking the active one with *.
@@ -761,7 +766,7 @@ func ConfigProfileDeleteRun(_ *cobra.Command, args []string) error {
 }
 
 // ConfigProfileUseRun switches the active profile persisted in the config file.
-func ConfigProfileUseRun(_ *cobra.Command, args []string) error {
+func ConfigProfileUseRun(cmd *cobra.Command, args []string) error {
 	profileName := args[0]
 
 	profiles, err := loadAllProfiles()
@@ -776,5 +781,19 @@ func ConfigProfileUseRun(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("switching profile: %w", err)
 	}
 	fmt.Printf("Switched to profile %q.\n", profileName)
+
+	clearContexts := false
+	if cmd != nil {
+		clearContexts, _ = cmd.Flags().GetBool("clear-contexts")
+	}
+	if !clearContexts {
+		clearContexts = promptConfirmOptional("Contexts may not be valid for the new profile. Clear all contexts?")
+	}
+	if clearContexts {
+		if err := ClearAllContexts(); err != nil {
+			return fmt.Errorf("clearing contexts: %w", err)
+		}
+		fmt.Println("All contexts cleared.")
+	}
 	return nil
 }
