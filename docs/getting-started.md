@@ -322,14 +322,30 @@ The auto-completion system provides:
    # 696c9edce63c1af07d60d0c8    BackupSnapshot
    # ...
 
-   # Backups
+   # Backup create — completes volume ID
+   acloud storage backup <TAB>
+   # Shows:
+   # 6965a6c3ffc0fd1ef8ba5612    MyVolume
+   # ...
+
+   # Backup get/update/delete — completes backup ID
    acloud storage backup get <TAB>
    # Shows:
    # 67649dac8c7bb1c5d7c80631    MyBackup
    # 67649dac8c7bb1c5d7c80632    DailyBackup
    # ...
 
-   # Restores (hierarchical: backup-id then restore-id)
+   # Restore create — hierarchical: backup-id then volume-id
+   acloud storage restore <TAB>
+   # First shows backup IDs:
+   # 67649dac8c7bb1c5d7c80631    MyBackup
+   # ...
+   acloud storage restore 67649dac8c7bb1c5d7c80631 <TAB>
+   # Then shows volume IDs:
+   # 6965a6c3ffc0fd1ef8ba5612    MyVolume
+   # ...
+
+   # Restore get/update/delete — hierarchical: backup-id then restore-id
    acloud storage restore get <TAB>
    # First shows backup IDs:
    # 67649dac8c7bb1c5d7c80631    MyBackup
@@ -340,7 +356,35 @@ The auto-completion system provides:
    # ...
    ```
 
-   Auto-completion works with `get`, `update`, and `delete` commands for all resources.
+   **Database Resources:**
+   ```bash
+   # DBaaS database commands — hierarchical: dbaas-id then database-name
+   acloud database dbaas database list <TAB>
+   # Shows DBaaS instance IDs:
+   # 69455aa70d0972656501d45d    my-dbaas
+   # ...
+   acloud database dbaas database get 69455aa70d0972656501d45d <TAB>
+   # Shows database names in that instance:
+   # appdb
+   # reporting
+   # ...
+
+   # DBaaS user commands — hierarchical: dbaas-id then username
+   acloud database dbaas user list <TAB>
+   # Shows DBaaS instance IDs
+   acloud database dbaas user get 69455aa70d0972656501d45d <TAB>
+   # Shows usernames in that instance
+
+   # DBaaS grant commands — hierarchical: dbaas-id, database-name, grant-id
+   acloud database dbaas grant list <TAB>
+   # Shows DBaaS instance IDs
+   acloud database dbaas grant list 69455aa70d0972656501d45d <TAB>
+   # Shows database names
+   acloud database dbaas grant get 69455aa70d0972656501d45d appdb <TAB>
+   # Shows grant IDs for that database
+   ```
+
+   Auto-completion works with `get`, `update`, `delete`, `list`, and `create` commands for all resources.
 
 ## Verifying Installation
 

@@ -146,6 +146,22 @@ acloud database dbaas database delete <dbaas-id> <database-name> [--yes] [flags]
 acloud database dbaas database delete 69455aa70d0972656501d45d "my-database" --yes
 ```
 
+## Shell Auto-completion
+
+Database commands support hierarchical auto-completion: the first TAB completes
+DBaaS instance IDs, the second completes database names scoped to that instance.
+
+```bash
+# First argument — shows available DBaaS instance IDs
+acloud database dbaas database list <TAB>
+acloud database dbaas database get <TAB>
+
+# Second argument — shows database names for the given DBaaS instance
+acloud database dbaas database get <dbaas-id> <TAB>
+acloud database dbaas database update <dbaas-id> <TAB>
+acloud database dbaas database delete <dbaas-id> <TAB>
+```
+
 ## Related Resources
 
 - [DBaaS](dbaas.md) - Manage DBaaS instances

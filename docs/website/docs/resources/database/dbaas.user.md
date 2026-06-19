@@ -156,6 +156,22 @@ acloud database dbaas user delete 69455aa70d0972656501d45d "app-user" --yes
 - Never share passwords or commit them to version control
 - Consider using a password manager
 
+## Shell Auto-completion
+
+User commands support hierarchical auto-completion: the first TAB completes
+DBaaS instance IDs, the second completes usernames scoped to that instance.
+
+```bash
+# First argument — shows available DBaaS instance IDs
+acloud database dbaas user list <TAB>
+acloud database dbaas user get <TAB>
+
+# Second argument — shows usernames for the given DBaaS instance
+acloud database dbaas user get <dbaas-id> <TAB>
+acloud database dbaas user update <dbaas-id> <TAB>
+acloud database dbaas user delete <dbaas-id> <TAB>
+```
+
 ## Related Resources
 
 - [DBaaS](dbaas.md) - Manage DBaaS instances
