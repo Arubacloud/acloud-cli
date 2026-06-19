@@ -35,12 +35,8 @@ go.work.sum
 *~
 .DS_Store
 
-# AI agent tools — ignore user-local state but track committed project skills
-.claude/settings.json
-.claude/settings.local.json
-.claude/memory/
-.claude/todos/
-.claude/projects/
+# AI agent tools
+.claude/
 .cursor/
 .cursorignore
 .cursorrules
@@ -48,9 +44,6 @@ go.work.sum
 .aider*
 .continue/
 .copilot-instructions
-
-# Project AI context folder is intentionally tracked — do not ignore ai/
-!ai/
 
 # Build output - acloud binaries
 acloud
