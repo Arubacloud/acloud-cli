@@ -66,15 +66,15 @@ Scegli un security group con `STATUS` pari a `Active` e annota il suo `ID`. Se n
 
 ---
 
-## Step 5: Estrai la URI dell'Elastic IP (se serve accesso pubblico)
+## Step 5: Annota l'ID dell'Elastic IP
 
-Se vuoi assegnare un Elastic IP, estrai la sua URI:
+Annota l'`ID` dell'Elastic IP dall'output di `acloud network elasticip list`. Puoi verificarlo con:
 
 ```bash
-acloud network elasticip get <elasticip-id> | grep URI
+acloud network elasticip get <elasticip-id>
 ```
 
-Salva questa URI per il provisioning. Salta questo step se non ti serve accesso pubblico.
+Un Elastic IP è necessario per connettersi al server dalla rete pubblica (usato al Step 10 con `--elasticip-id`).
 
 ---
 
@@ -147,7 +147,39 @@ Sostituisci `<hashed-password>` con una password hash valida (consulta la docume
 
 ---
 
-## Step 10: Attendi che il Cloud Server sia Attivo
+## Step 10: Crea il Cloud Server
+
+Usa gli ID raccolti nei passaggi precedenti per creare il cloud server:
+
+```bash
+acloud compute cloudserver create \
+  --name "my-server" \
+  --region "ITBG-Bergamo" \
+  --zone "ITBG-1" \
+  --flavor "CSO4A8" \
+  --boot-disk-id "6a3516c275300438a29f15fd" \
+  --vpc-id "69fdbc398675ff21f3c1587b" \
+  --subnet-id "69fdbc8f8675ff21f3c1588a" \
+  --security-group-id "69fdbc8e8675ff21f3c15888" \
+  --keypair-id "6a33ec6b2b2c12d76c120f5e" \
+  --elasticip-id "6a35162fdf2d456b0f95fd7e" \
+  --billing-period Hour \
+  --tags "production"
+```
+
+Esempio output:
+```
+ID                             NAME         FLAVOR    CPU   RAM(GB)   HD(GB)   REGION
+697c62605b79733376b3386a       my-server    CSO4A8    4     8         0        ITBG-Bergamo
+```
+
+- Sostituisci gli ID con i tuoi valori reali di VPC, subnet, security group, keypair, disco di avvio ed Elastic IP.
+- Il flag `--elasticip-id` assegna un IP pubblico alla creazione ed è necessario per usare il comando `connect` successivamente.
+- Il flag `--user-data-file` è opzionale e può essere omesso se non necessario.
+
+---
+
+## Step 11: Attendi che il Cloud Server sia Attivo
 
 Una volta eseguito il comando di creazione, puoi controllare lo stato del server con:
 
@@ -163,7 +195,7 @@ my-server                 697c62605b79733376b3386a       ITBG-Bergamo    CSO4A8 
 
 ---
 
-## Step 11: Connettersi al Cloud Server
+## Step 12: Connettersi al Cloud Server
 
 Per connetterti al cloud server, usa il comando `acloud compute cloudserver connect` specificando l'utente in base all'immagine di avvio. Ad esempio, per Ubuntu usa l'utente `ubuntu`:
 
@@ -182,7 +214,7 @@ Connect by running: ssh ubuntu@85.235.152.94
 
 ---
 
-## Step 12: Spegnere o Accendere il Cloud Server
+## Step 13: Spegnere o Accendere il Cloud Server
 
 Puoi spegnere o accendere il cloud server in qualsiasi momento con i seguenti comandi:
 
@@ -214,7 +246,7 @@ Status: Updating
 
 ---
 
-## Step 13: Eliminare il Cloud Server
+## Step 14: Eliminare il Cloud Server
 
 Per eliminare il cloud server quando non serve più, usa il comando:
 

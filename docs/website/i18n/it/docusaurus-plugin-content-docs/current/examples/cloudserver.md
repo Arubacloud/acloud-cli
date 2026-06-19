@@ -68,15 +68,15 @@ Scegli un security group con `STATUS` pari a `Active` e annota il suo `ID`. Se n
 
 ---
 
-## Step 5: Annota l'ID dell'Elastic IP (se serve accesso pubblico)
+## Step 5: Annota l'ID dell'Elastic IP
 
-Se vuoi accesso pubblico per il server, annota l'`ID` dell'Elastic IP dall'output di `acloud network elasticip list`. Puoi verificarlo con:
+Annota l'`ID` dell'Elastic IP dall'output di `acloud network elasticip list`. Puoi verificarlo con:
 
 ```bash
 acloud network elasticip get <elasticip-id>
 ```
 
-> **Nota:** Annota l'`ID` dell'Elastic IP. Salta questo step se non ti serve accesso pubblico.
+> **Nota:** Annota l'`ID` dell'Elastic IP. Un Elastic IP è necessario per connettersi al server dalla rete pubblica (usato al Step 10 con `--elasticip-id`).
 
 ---
 
@@ -165,12 +165,12 @@ acloud compute cloudserver create \
   --region "ITBG-Bergamo" \
   --zone "ITBG-1" \
   --flavor "CSO4A8" \
-  --boot-disk-id "697b3a0dce7dfeef9153256a" \
-  --vpc-id "69495ef64d0cdc87949b71ec" \
-  --subnet-id "694ba1737712ac0032dbe50a" \
-  --security-group-id "694b05ac4d0cdc87949b75f9" \
-  --keypair-id "69007ebf4e7d691466d8621e" \
-  --user-data-file "cloud-init.yaml" \
+  --boot-disk-id "6a3516c275300438a29f15fd" \
+  --vpc-id "69fdbc398675ff21f3c1587b" \
+  --subnet-id "69fdbc8f8675ff21f3c1588a" \
+  --security-group-id "69fdbc8e8675ff21f3c15888" \
+  --keypair-id "6a33ec6b2b2c12d76c120f5e" \
+  --elasticip-id "6a35162fdf2d456b0f95fd7e" \
   --billing-period Hour \
   --tags "production"
 ```
@@ -181,7 +181,8 @@ ID                             NAME         FLAVOR    CPU   RAM(GB)   HD(GB)   R
 697c62605b79733376b3386a       my-server    CSO4A8    4     8         0        ITBG-Bergamo
 ```
 
-- Sostituisci gli ID con i tuoi valori reali di VPC, subnet, security group, keypair e disco di avvio.
+- Sostituisci gli ID con i tuoi valori reali di VPC, subnet, security group, keypair, disco di avvio ed Elastic IP.
+- Il flag `--elasticip-id` assegna un IP pubblico alla creazione ed è necessario per usare il comando `connect` successivamente.
 - Il flag `--user-data-file` è opzionale e può essere omesso se non necessario.
 - Puoi specificare più subnet o security group usando valori separati da virgola.
 - Tutti i flag di rete (`--vpc-id`, `--subnet-id`, `--security-group-id`) e il flag `--zone` sono richiesti.
