@@ -131,7 +131,20 @@ Security Group 1234567890abcdef deleted successfully!
 
 ## Auto-completamento Shell
 
-I comandi security group supportano auto-completamento per ID VPC e ID security group.
+I comandi security group supportano auto-completamento gerarchico: il primo TAB
+completa gli ID VPC, il secondo completa gli ID security group limitati al VPC
+selezionato.
+
+```bash
+# Primo argomento — mostra gli ID VPC disponibili
+acloud network securitygroup list <TAB>
+acloud network securitygroup get <TAB>
+
+# Secondo argomento — mostra gli ID security group per il VPC indicato
+acloud network securitygroup get <vpc-id> <TAB>
+acloud network securitygroup update <vpc-id> <TAB>
+acloud network securitygroup delete <vpc-id> <TAB>
+```
 
 ## Best Practices
 

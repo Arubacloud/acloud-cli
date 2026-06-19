@@ -176,7 +176,19 @@ Subnet 1234567890abcdef deleted successfully!
 
 ## Auto-completamento Shell
 
-I comandi subnet supportano auto-completamento per ID VPC e ID subnet.
+I comandi subnet supportano auto-completamento gerarchico: il primo TAB completa
+gli ID VPC, il secondo completa gli ID subnet limitati al VPC selezionato.
+
+```bash
+# Primo argomento — mostra gli ID VPC disponibili
+acloud network subnet list <TAB>
+acloud network subnet get <TAB>
+
+# Secondo argomento — mostra gli ID subnet per il VPC indicato
+acloud network subnet get <vpc-id> <TAB>
+acloud network subnet update <vpc-id> <TAB>
+acloud network subnet delete <vpc-id> <TAB>
+```
 
 ## Best Practices
 
