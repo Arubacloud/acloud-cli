@@ -1,0 +1,171 @@
+# Gestione Database DBaaS
+
+I database all'interno di istanze DBaaS memorizzano i tuoi dati. Ogni istanza DBaaS può contenere più database.
+
+## Comandi Disponibili
+
+- `acloud database dbaas database create` - Crea un nuovo database in un'istanza DBaaS
+- `acloud database dbaas database list` - Elenca tutti i database in un'istanza DBaaS
+- `acloud database dbaas database get` - Ottieni i dettagli di un database specifico
+- `acloud database dbaas database update` - Aggiorna nome database
+- `acloud database dbaas database delete` - Elimina un database
+
+## Crea Database
+
+Crea un nuovo database all'interno di un'istanza DBaaS.
+
+### Utilizzo
+
+```bash
+acloud database dbaas database create <dbaas-id> --name <name> [flags]
+```
+
+### Argomenti
+
+- `dbaas-id` (richiesto): L'ID univoco dell'istanza DBaaS
+
+### Flag Richiesti
+
+- `--name` - Nome per il database
+
+### Flag Opzionali
+
+- `--project-id` - ID progetto (usa il contesto se non specificato)
+
+### Esempio
+
+```bash
+acloud database dbaas database create 69455aa70d0972656501d45d \
+  --name "my-database"
+```
+
+## Elenca Database
+
+Elenca tutti i database in un'istanza DBaaS.
+
+### Utilizzo
+
+```bash
+acloud database dbaas database list <dbaas-id> [flags]
+```
+
+### Argomenti
+
+- `dbaas-id` (richiesto): L'ID univoco dell'istanza DBaaS
+
+### Flag
+
+- `--project-id` - ID progetto (usa il contesto se non specificato)
+
+### Esempio
+
+```bash
+acloud database dbaas database list 69455aa70d0972656501d45d
+```
+
+## Ottieni Dettagli Database
+
+Recupera informazioni dettagliate su un database specifico.
+
+### Utilizzo
+
+```bash
+acloud database dbaas database get <dbaas-id> <database-name> [flags]
+```
+
+### Argomenti
+
+- `dbaas-id` (richiesto): L'ID univoco dell'istanza DBaaS
+- `database-name` (richiesto): Il nome del database
+
+### Flag
+
+- `--project-id` - ID progetto (usa il contesto se non specificato)
+
+### Esempio
+
+```bash
+acloud database dbaas database get 69455aa70d0972656501d45d "my-database"
+```
+
+## Aggiorna Database
+
+Rinomina un database.
+
+> **Nota:** La rinomina del database (PUT) **non è supportata** dall'API e restituisce HTTP 405. Usa `delete` seguito da `create` per rinominare un database.
+
+### Utilizzo
+
+```bash
+acloud database dbaas database update <dbaas-id> <database-name> --name <new-name> [flags]
+```
+
+### Argomenti
+
+- `dbaas-id` (richiesto): L'ID univoco dell'istanza DBaaS
+- `database-name` (richiesto): Il nome corrente del database
+
+### Flag Richiesti
+
+- `--name` - Nuovo nome per il database
+
+### Flag Opzionali
+
+- `--project-id` - ID progetto (usa il contesto se non specificato)
+
+### Esempio
+
+```bash
+acloud database dbaas database update 69455aa70d0972656501d45d "my-database" \
+  --name "renamed-database"
+```
+
+## Elimina Database
+
+Elimina un database da un'istanza DBaaS.
+
+### Utilizzo
+
+```bash
+acloud database dbaas database delete <dbaas-id> <database-name> [--yes] [flags]
+```
+
+### Argomenti
+
+- `dbaas-id` (richiesto): L'ID univoco dell'istanza DBaaS
+- `database-name` (richiesto): Il nome del database da eliminare
+
+### Flag
+
+- `--project-id` - ID progetto (usa il contesto se non specificato)
+- `--yes, -y` - Salta il prompt di conferma
+
+### Esempio
+
+```bash
+acloud database dbaas database delete 69455aa70d0972656501d45d "my-database" --yes
+```
+
+## Auto-completamento Shell
+
+I comandi database supportano auto-completamento gerarchico: il primo TAB
+completa gli ID istanza DBaaS, il secondo completa i nomi dei database limitati
+a quell'istanza.
+
+```bash
+# Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas database list <TAB>
+acloud database dbaas database get <TAB>
+
+# Secondo argomento — mostra i nomi dei database per l'istanza DBaaS indicata
+acloud database dbaas database get <dbaas-id> <TAB>
+acloud database dbaas database update <dbaas-id> <TAB>
+acloud database dbaas database delete <dbaas-id> <TAB>
+```
+
+## Risorse Correlate
+
+- [DBaaS](dbaas.md) - Gestisci istanze DBaaS
+- [Utenti DBaaS](dbaas.user.md) - Gestisci utenti per database
+- [Grant DBaaS](dbaas.grant.md) - Controlla l'accesso degli utenti ai database
+- [Backup Database](backup.md) - Crea backup di database
