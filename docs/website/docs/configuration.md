@@ -21,9 +21,11 @@ Create a context with a project ID:
 acloud context set my-prod --project-id "66a10244f62b99c686572a9f"
 ```
 
+> **Single-context shortcut**: When only one context is configured, the CLI uses it automatically — you do not need to run `acloud context use` first. If you add a second context later, you will need to explicitly switch with `acloud context use <name>`.
+
 ### Using a Context
 
-Switch to a saved context:
+Switch to a saved context when you have more than one:
 
 ```bash
 acloud context use my-prod

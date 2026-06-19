@@ -105,7 +105,10 @@ func SaveContext(ctx *Context) error {
 	return os.WriteFile(contextFile, data, FilePermConfig)
 }
 
-// GetCurrentProjectID returns the project ID from the current context
+// GetCurrentProjectID returns the project ID from the current context.
+// When no current context is set but exactly one context exists, that context
+// is used automatically — so `acloud context set` is enough without a follow-up
+// `acloud context use`.
 func GetCurrentProjectID() (string, error) {
 	ctx, err := LoadContext()
 	if err != nil {
@@ -113,6 +116,11 @@ func GetCurrentProjectID() (string, error) {
 	}
 
 	if ctx.CurrentContext == "" {
+		if len(ctx.Contexts) == 1 {
+			for _, info := range ctx.Contexts {
+				return info.ProjectID, nil
+			}
+		}
 		return "", fmt.Errorf("no current context set")
 	}
 
