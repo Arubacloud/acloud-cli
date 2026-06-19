@@ -46,6 +46,7 @@ func init() {
 	storageRestoreDeleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	storageRestoreDeleteCmd.Flags().Bool("dry-run", false, "Validate resource exists without deleting")
 
+	storageRestoreCmd.ValidArgsFunction = completeStorageRestoreCreateArgs
 	storageRestoreGetCmd.ValidArgsFunction = completeRestoreID
 	storageRestoreUpdateCmd.ValidArgsFunction = completeRestoreID
 	storageRestoreDeleteCmd.ValidArgsFunction = completeRestoreID
@@ -94,6 +95,19 @@ func completeRestoreID(cmd *cobra.Command, args []string, toComplete string) ([]
 
 	completionCachePut(key, completions)
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeStorageRestoreCreateArgs completes the two positional args of
+// "storage restore [backup-id] [volume-id]": backup IDs at args[0], block
+// storage (volume) IDs at args[1].
+func completeStorageRestoreCreateArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeBackupID(cmd, args, toComplete)
+	}
+	if len(args) == 1 {
+		return completeBlockStorageID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 var storageRestoreCmd = &cobra.Command{
