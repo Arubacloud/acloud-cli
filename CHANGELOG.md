@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-20
+
+### Changed
+
+- **Repository**: removed `.claude/` folder from git tracking to avoid committing
+  local AI assistant session data and settings.
+
 ## [0.5.2] - 2026-06-19
 
 ### Added
