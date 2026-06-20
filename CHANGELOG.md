@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-20
+
+### Fixed
+
+- **Shell completion — database sub-resources** — TAB completion now works
+  correctly at every positional argument slot for the `dbaas` family (closes #245):
+  - `dbaas database list/create <TAB>` → DBaaS IDs; slot 2 → database names.
+    `completeDBaaSDatabaseID` now delegates to `completeDBaaSID` when no parent
+    argument is present instead of returning nil.
+  - `dbaas user list/create <TAB>` → DBaaS IDs; slot 2 → usernames.
+    `completeDBaaSUserID` received the same parent-slot delegation fix.
+  - `dbaas grant list/create/get/delete <TAB>` → DBaaS IDs; slot 2 → database
+    names; slot 3 → grant IDs. `completeGrantID` previously returned nil for
+    `args[0]` and `args[1]`; it now routes through
+    `completeDBaaSID → completeDBaaSDatabaseID` in order.
+  All five operations (`create`, `list`, `get`, `update`, `delete`) on each
+  sub-resource now have `ValidArgsFunction` registered.
+
+- **Shell completion — storage sub-resources** — hierarchical TAB completion
+  added to the storage family (closes #245):
+  - `storage backup create <TAB>` → volume IDs (`ValidArgsFunction` was missing
+    entirely on the backup create command).
+  - `storage restore create <TAB>` → backup IDs; slot 2 → block-storage (volume)
+    IDs. New `completeStorageRestoreCreateArgs` function handles both slots.
+
+### Changed
+
+- **Repository**: removed `.claude/` folder from git tracking to avoid committing
+  local AI assistant session data and settings.
+
 ## [0.5.2] - 2026-06-19
 
 ### Added
