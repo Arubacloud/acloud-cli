@@ -54,11 +54,18 @@ func init() {
 	subnetListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	subnetListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
-	subnetCreateCmd.ValidArgsFunction = completeSubnetID
+	subnetCreateCmd.ValidArgsFunction = completeSubnetCreate
 	subnetListCmd.ValidArgsFunction = completeSubnetID
 	subnetGetCmd.ValidArgsFunction = completeSubnetID
 	subnetUpdateCmd.ValidArgsFunction = completeSubnetID
 	subnetDeleteCmd.ValidArgsFunction = completeSubnetID
+}
+
+func completeSubnetCreate(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 func completeSubnetID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -132,6 +139,7 @@ DHCP routes format: "destination:gateway" (e.g., "10.1.0.0/24:10.0.0.1").`,
   acloud network subnet create <vpc-id> --name my-subnet --region IT-BG \
     --cidr 10.0.1.0/24 --dhcp-enabled \
     --dhcp-dns 8.8.8.8,8.8.4.4`,
+	Args: cobra.ExactArgs(1),
 	RunE: NetworkSubnetCreateRun,
 }
 

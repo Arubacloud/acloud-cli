@@ -139,6 +139,7 @@ completes VPC IDs, the second completes peering IDs scoped to the selected VPC.
 
 ```bash
 # First argument — shows available VPC IDs
+acloud network vpcpeering create <TAB>
 acloud network vpcpeering list <TAB>
 acloud network vpcpeering get <TAB>
 
@@ -147,6 +148,8 @@ acloud network vpcpeering get <vpc-id> <TAB>
 acloud network vpcpeering update <vpc-id> <TAB>
 acloud network vpcpeering delete <vpc-id> <TAB>
 ```
+
+The `create` command only completes the first argument (VPC ID), since no existing peering ID is needed.
 
 ## Best Practices
 - Use descriptive names for peering connections.

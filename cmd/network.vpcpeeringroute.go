@@ -52,11 +52,21 @@ func init() {
 	vpcpeeringrouteListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
 	// Set up auto-completion for resource IDs
-	vpcpeeringrouteCreateCmd.ValidArgsFunction = completeVPCPeeringRouteID
+	vpcpeeringrouteCreateCmd.ValidArgsFunction = completeVPCPeeringRouteCreate
 	vpcpeeringrouteListCmd.ValidArgsFunction = completeVPCPeeringRouteID
 	vpcpeeringrouteGetCmd.ValidArgsFunction = completeVPCPeeringRouteID
 	vpcpeeringrouteUpdateCmd.ValidArgsFunction = completeVPCPeeringRouteID
 	vpcpeeringrouteDeleteCmd.ValidArgsFunction = completeVPCPeeringRouteID
+}
+
+func completeVPCPeeringRouteCreate(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	if len(args) == 1 {
+		return completeVPCPeeringID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 func completeVPCPeeringRouteID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

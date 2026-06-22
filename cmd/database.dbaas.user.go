@@ -47,11 +47,18 @@ func init() {
 	dbaasUserListCmd.Flags().Int("limit", 0, "Maximum number of results to return (0 = no limit)")
 	dbaasUserListCmd.Flags().Int("offset", 0, "Number of results to skip")
 
-	dbaasUserCreateCmd.ValidArgsFunction = completeDBaaSUserID
+	dbaasUserCreateCmd.ValidArgsFunction = completeDBaaSUserCreate
 	dbaasUserListCmd.ValidArgsFunction = completeDBaaSUserID
 	dbaasUserGetCmd.ValidArgsFunction = completeDBaaSUserID
 	dbaasUserUpdateCmd.ValidArgsFunction = completeDBaaSUserID
 	dbaasUserDeleteCmd.ValidArgsFunction = completeDBaaSUserID
+}
+
+func completeDBaaSUserCreate(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeDBaaSID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 func completeDBaaSUserID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

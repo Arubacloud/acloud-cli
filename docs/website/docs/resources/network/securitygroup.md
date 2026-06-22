@@ -132,6 +132,7 @@ selected VPC.
 
 ```bash
 # First argument — shows available VPC IDs
+acloud network securitygroup create <TAB>
 acloud network securitygroup list <TAB>
 acloud network securitygroup get <TAB>
 
@@ -140,6 +141,8 @@ acloud network securitygroup get <vpc-id> <TAB>
 acloud network securitygroup update <vpc-id> <TAB>
 acloud network securitygroup delete <vpc-id> <TAB>
 ```
+
+The `create` command only completes the first argument (VPC ID), since no existing security group ID is needed.
 
 ## Best Practices
 - Use descriptive names and descriptions for security groups.

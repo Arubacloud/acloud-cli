@@ -44,11 +44,18 @@ func init() {
 	vpcpeeringListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	vpcpeeringListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
-	vpcpeeringCreateCmd.ValidArgsFunction = completeVPCPeeringID
+	vpcpeeringCreateCmd.ValidArgsFunction = completeVPCPeeringCreate
 	vpcpeeringListCmd.ValidArgsFunction = completeVPCPeeringID
 	vpcpeeringGetCmd.ValidArgsFunction = completeVPCPeeringID
 	vpcpeeringUpdateCmd.ValidArgsFunction = completeVPCPeeringID
 	vpcpeeringDeleteCmd.ValidArgsFunction = completeVPCPeeringID
+}
+
+func completeVPCPeeringCreate(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPCID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 func completeVPCPeeringID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
