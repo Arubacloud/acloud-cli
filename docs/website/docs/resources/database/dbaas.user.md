@@ -163,6 +163,7 @@ DBaaS instance IDs, the second completes usernames scoped to that instance.
 
 ```bash
 # First argument — shows available DBaaS instance IDs
+acloud database dbaas user create <TAB>
 acloud database dbaas user list <TAB>
 acloud database dbaas user get <TAB>
 
@@ -171,6 +172,8 @@ acloud database dbaas user get <dbaas-id> <TAB>
 acloud database dbaas user update <dbaas-id> <TAB>
 acloud database dbaas user delete <dbaas-id> <TAB>
 ```
+
+The `create` command only completes the first argument (DBaaS instance ID), since you are creating a new user.
 
 ## Related Resources
 

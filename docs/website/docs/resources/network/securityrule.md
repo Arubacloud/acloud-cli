@@ -250,15 +250,17 @@ ID                              STATUS
 
 ## Shell Auto-completion
 
-Security rule commands support hierarchical auto-completion across all three
-positional arguments:
+Security rule commands support hierarchical auto-completion across all positional
+arguments:
 
 ```bash
 # First argument — shows available VPC IDs
+acloud network securityrule create <TAB>
 acloud network securityrule get <TAB>
 acloud network securityrule list <TAB>
 
 # Second argument — shows security group IDs for the given VPC
+acloud network securityrule create <vpc-id> <TAB>
 acloud network securityrule get <vpc-id> <TAB>
 acloud network securityrule list <vpc-id> <TAB>
 
@@ -267,6 +269,8 @@ acloud network securityrule get <vpc-id> <securitygroup-id> <TAB>
 acloud network securityrule update <vpc-id> <securitygroup-id> <TAB>
 acloud network securityrule delete <vpc-id> <securitygroup-id> <TAB>
 ```
+
+The `create` command completes vpc-id and security-group-id (the two required parent IDs), but not the rule ID since you are creating a new rule.
 
 Auto-completion shows security rule IDs with their names:
 ```

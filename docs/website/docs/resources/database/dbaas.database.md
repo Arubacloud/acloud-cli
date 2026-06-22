@@ -153,6 +153,7 @@ DBaaS instance IDs, the second completes database names scoped to that instance.
 
 ```bash
 # First argument — shows available DBaaS instance IDs
+acloud database dbaas database create <TAB>
 acloud database dbaas database list <TAB>
 acloud database dbaas database get <TAB>
 
@@ -161,6 +162,8 @@ acloud database dbaas database get <dbaas-id> <TAB>
 acloud database dbaas database update <dbaas-id> <TAB>
 acloud database dbaas database delete <dbaas-id> <TAB>
 ```
+
+The `create` command only completes the first argument (DBaaS instance ID), since no existing database name is needed.
 
 ## Related Resources
 

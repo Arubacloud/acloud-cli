@@ -48,13 +48,25 @@ func init() {
 	vpnrouteListCmd.Flags().Int32("limit", 0, "Maximum number of results to return (0 = no limit)")
 	vpnrouteListCmd.Flags().Int32("offset", 0, "Number of results to skip")
 
+	vpnrouteCreateCmd.ValidArgsFunction = completeVPNRouteCreate
+	vpnrouteListCmd.ValidArgsFunction = completeVPNTunnelID
 	vpnrouteGetCmd.ValidArgsFunction = completeVPNRouteID
 	vpnrouteUpdateCmd.ValidArgsFunction = completeVPNRouteID
 	vpnrouteDeleteCmd.ValidArgsFunction = completeVPNRouteID
 }
 
+func completeVPNRouteCreate(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return completeVPNTunnelID(cmd, args, toComplete)
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
 func completeVPNRouteID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) < 1 {
+	if len(args) == 0 {
+		return completeVPNTunnelID(cmd, args, toComplete)
+	}
+	if len(args) > 1 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	projectID, err := GetProjectID(cmd)
