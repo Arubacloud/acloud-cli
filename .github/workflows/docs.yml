@@ -31,7 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     # Skip build for version PR branches (they will be built after merge)
     if: |
-      github.event_name == 'push' || 
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'docs/version-'))
     
     steps:
@@ -132,7 +133,8 @@ jobs:
     runs-on: ubuntu-latest
     # Skip test for version PR branches (they will be tested after merge)
     if: |
-      github.event_name == 'push' || 
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'docs/version-'))
     
     steps:
