@@ -163,6 +163,7 @@ gli ID istanza DBaaS, il secondo completa i nomi utente limitati a quell'istanza
 
 ```bash
 # Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas user create <TAB>
 acloud database dbaas user list <TAB>
 acloud database dbaas user get <TAB>
 
@@ -171,6 +172,8 @@ acloud database dbaas user get <dbaas-id> <TAB>
 acloud database dbaas user update <dbaas-id> <TAB>
 acloud database dbaas user delete <dbaas-id> <TAB>
 ```
+
+Il comando `create` completa solo il primo argomento (ID istanza DBaaS), poiché si sta creando un nuovo utente.
 
 ## Risorse Correlate
 

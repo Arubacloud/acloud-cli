@@ -205,13 +205,17 @@ ID                              STATUS
 
 ## Auto-completamento Shell
 
-I comandi VPN Tunnel Route supportano auto-completamento intelligente per gli ID route:
+I comandi VPN Route supportano auto-completamento gerarchico: il primo TAB
+completa gli ID VPN tunnel, il secondo completa gli ID route limitati al tunnel
+selezionato.
 
 ```bash
-# Abilita completamento (bash)
-source <(acloud completion bash)
+# Primo argomento — mostra gli ID VPN tunnel disponibili
+acloud network vpnroute create <TAB>
+acloud network vpnroute list <TAB>
+acloud network vpnroute get <TAB>
 
-# Digita il comando e premi TAB per vedere gli ID route disponibili
+# Secondo argomento — mostra gli ID route per il VPN tunnel indicato
 acloud network vpnroute get <vpn-tunnel-id> <TAB>
 acloud network vpnroute update <vpn-tunnel-id> <TAB>
 acloud network vpnroute delete <vpn-tunnel-id> <TAB>
@@ -222,6 +226,8 @@ L'auto-completamento mostra gli ID route con i loro nomi:
 1234567890abcdef123456    route-1
 1234567890abcdef123457    route-2
 ```
+
+I comandi `create` e `list` completano solo il primo argomento (ID VPN tunnel).
 
 ## Proprietà VPN Route
 

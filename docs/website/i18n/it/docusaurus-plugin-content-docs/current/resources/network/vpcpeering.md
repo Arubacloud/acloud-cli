@@ -145,6 +145,7 @@ selezionato.
 
 ```bash
 # Primo argomento — mostra gli ID VPC disponibili
+acloud network vpcpeering create <TAB>
 acloud network vpcpeering list <TAB>
 acloud network vpcpeering get <TAB>
 
@@ -153,6 +154,8 @@ acloud network vpcpeering get <vpc-id> <TAB>
 acloud network vpcpeering update <vpc-id> <TAB>
 acloud network vpcpeering delete <vpc-id> <TAB>
 ```
+
+Il comando `create` completa solo il primo argomento (ID VPC), poiché non è necessario un ID peering esistente.
 
 ## Best Practices
 

@@ -154,6 +154,7 @@ a quell'istanza.
 
 ```bash
 # Primo argomento — mostra gli ID istanza DBaaS disponibili
+acloud database dbaas database create <TAB>
 acloud database dbaas database list <TAB>
 acloud database dbaas database get <TAB>
 
@@ -162,6 +163,8 @@ acloud database dbaas database get <dbaas-id> <TAB>
 acloud database dbaas database update <dbaas-id> <TAB>
 acloud database dbaas database delete <dbaas-id> <TAB>
 ```
+
+Il comando `create` completa solo il primo argomento (ID istanza DBaaS), poiché non è necessario un nome di database esistente.
 
 ## Risorse Correlate
 

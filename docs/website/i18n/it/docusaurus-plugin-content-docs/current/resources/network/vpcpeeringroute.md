@@ -217,15 +217,17 @@ ID                              STATUS
 
 ## Auto-completamento Shell
 
-I comandi VPC Peering Route supportano auto-completamento gerarchico su tutti e
-tre gli argomenti posizionali:
+I comandi VPC Peering Route supportano auto-completamento gerarchico su tutti
+gli argomenti posizionali:
 
 ```bash
 # Primo argomento — mostra gli ID VPC disponibili
+acloud network vpcpeeringroute create <TAB>
 acloud network vpcpeeringroute get <TAB>
 acloud network vpcpeeringroute list <TAB>
 
 # Secondo argomento — mostra gli ID peering per il VPC indicato
+acloud network vpcpeeringroute create <vpc-id> <TAB>
 acloud network vpcpeeringroute get <vpc-id> <TAB>
 acloud network vpcpeeringroute list <vpc-id> <TAB>
 
@@ -234,6 +236,8 @@ acloud network vpcpeeringroute get <vpc-id> <peering-id> <TAB>
 acloud network vpcpeeringroute update <vpc-id> <peering-id> <TAB>
 acloud network vpcpeeringroute delete <vpc-id> <peering-id> <TAB>
 ```
+
+Il comando `create` completa vpc-id e peering-id (i due ID padre richiesti), ma non l'ID della route poiché si sta creando una nuova route.
 
 L'auto-completamento mostra gli ID route con i loro nomi:
 ```

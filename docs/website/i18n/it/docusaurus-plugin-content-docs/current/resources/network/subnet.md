@@ -181,6 +181,7 @@ gli ID VPC, il secondo completa gli ID subnet limitati al VPC selezionato.
 
 ```bash
 # Primo argomento — mostra gli ID VPC disponibili
+acloud network subnet create <TAB>
 acloud network subnet list <TAB>
 acloud network subnet get <TAB>
 
@@ -189,6 +190,8 @@ acloud network subnet get <vpc-id> <TAB>
 acloud network subnet update <vpc-id> <TAB>
 acloud network subnet delete <vpc-id> <TAB>
 ```
+
+Il comando `create` completa solo il primo argomento (ID VPC), poiché non è necessario un ID subnet esistente.
 
 ## Best Practices
 
