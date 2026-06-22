@@ -51,17 +51,19 @@ acloud network securitygroup list <vpc-id>
 Se devi creare un nuovo security group:
 
 ```bash
-acloud network securitygroup create \
+# Il vpc-id è il primo argomento posizionale
+acloud network securitygroup create <vpc-id> \
   --name "registry-sg" \
-  --vpc-id "<vpc-id>" \
   --region "ITBG-Bergamo"
 
 acloud network securityrule create <vpc-id> <securitygroup-id> \
-  --direction Inbound \
+  --name "allow-https" \
+  --region "ITBG-Bergamo" \
+  --direction Ingress \
   --protocol TCP \
-  --port-range-min 443 \
-  --port-range-max 443 \
-  --remote-ip-prefix "0.0.0.0/0"
+  --port 443 \
+  --target-kind Ip \
+  --target-value "0.0.0.0/0"
 ```
 
 Annota l'`ID` del security group.

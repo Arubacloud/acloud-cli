@@ -63,19 +63,20 @@ acloud network securitygroup list 69495ef64d0cdc87949b71ec
 Se devi creare un nuovo security group e aggiungere la regola HTTPS:
 
 ```bash
-# Crea security group
-acloud network securitygroup create \
+# Crea security group (il vpc-id è il primo argomento posizionale)
+acloud network securitygroup create 69495ef64d0cdc87949b71ec \
   --name "registry-sg" \
-  --vpc-id "69495ef64d0cdc87949b71ec" \
   --region "ITBG-Bergamo"
 
 # Aggiungi regola inbound per HTTPS (porta 443)
 acloud network securityrule create 69495ef64d0cdc87949b71ec <securitygroup-id> \
-  --direction Inbound \
+  --name "allow-https" \
+  --region "ITBG-Bergamo" \
+  --direction Ingress \
   --protocol TCP \
-  --port-range-min 443 \
-  --port-range-max 443 \
-  --remote-ip-prefix "0.0.0.0/0"
+  --port 443 \
+  --target-kind Ip \
+  --target-value "0.0.0.0/0"
 ```
 
 Annota l'`ID` del security group.
