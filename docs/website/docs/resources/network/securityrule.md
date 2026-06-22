@@ -392,19 +392,21 @@ VPC_ID="689307f4745108d3c6343b5a"
 SG_ID="1234567890abcdef"
 RULE_ID="1234567890abcdef123456"
 
-# Update port range
+# Update security rule name
 acloud network securityrule update $VPC_ID $SG_ID $RULE_ID \
-  --port "8080-8090"
+  --name "allow-http-restricted"
 
-# Update target to restrict access
+# Update tags
 acloud network securityrule update $VPC_ID $SG_ID $RULE_ID \
-  --target-value "192.168.1.0/24"
+  --tags "web,http,restricted"
 
-# Update name and tags
+# Update name and tags together
 acloud network securityrule update $VPC_ID $SG_ID $RULE_ID \
   --name "allow-http-restricted" \
   --tags "web,http,restricted"
 ```
+
+**Note:** Only `--name` and `--tags` can be updated. Properties such as direction, protocol, port, and target cannot be modified after creation. To change these, delete and recreate the rule.
 
 ## Best Practices
 
