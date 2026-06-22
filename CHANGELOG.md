@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-22
+
+This is the first stable, production-ready release of `acloud-cli`.
+It ships on top of the GA `sdk-go v1.0.x` and marks the point at which
+the public command-line interface, flag names, output formats, and shell
+completion behaviour are considered stable. Future breaking changes will
+trigger a new major version.
+
+### Fixed
+
+- **Shell completion — `create` commands for nested resources** — TAB
+  completion on `create` subcommands that take parent resource IDs as
+  positional arguments now correctly stops after the required parent IDs
+  instead of incorrectly offering the resource's own IDs on the next TAB
+  press (closes #250, PR #251).
+  Affected commands and what is now completed:
+  - `network subnet create <TAB>` → VPC IDs; second TAB → nothing (correct)
+  - `network securitygroup create <TAB>` → VPC IDs; second TAB → nothing
+  - `network securityrule create <TAB>` → VPC IDs; `… <vpc-id> <TAB>` → SG IDs; third TAB → nothing
+  - `network vpcpeering create <TAB>` → VPC IDs; second TAB → nothing
+  - `network vpcpeeringroute create <TAB>` → VPC IDs; `… <vpc-id> <TAB>` → peering IDs; third TAB → nothing
+  - `database dbaas database create <TAB>` → DBaaS IDs; second TAB → nothing
+  - `database dbaas user create <TAB>` → DBaaS IDs; second TAB → nothing
+
+- **Shell completion — `vpnroute` first-argument slot** — `vpnroute get`,
+  `update`, and `delete` now complete VPN tunnel IDs on the first TAB press.
+  Previously `completeVPNRouteID` returned nothing when no argument was yet
+  provided (closes #250, PR #251).
+
+- **Shell completion — `vpnroute create` and `vpnroute list` missing** —
+  both commands had no `ValidArgsFunction` at all. They now complete the VPN
+  tunnel ID on the first TAB press (closes #250, PR #251).
+
+- **`subnet create` missing `Args` constraint** — `subnetCreateCmd` was
+  missing `cobra.ExactArgs(1)`, which allowed Cobra to call the completion
+  function with extra arguments and produce incorrect suggestions
+  (closes #250, PR #251).
+
+- **Documentation — `securitygroup create` example used `--vpc-id` flag** —
+  the vpc-id is a positional argument, not a named flag. All example pages
+  (database, container registry — English and Italian) were updated to the
+  correct syntax:
+  `acloud network securitygroup create <vpc-id> --name … --region …`
+  (closes #248, PR #249).
+
+- **Documentation — `securityrule create` examples used wrong flag names** —
+  examples showed non-existent flags (`--direction Inbound`, `--port-range-min`,
+  `--port-range-max`, `--remote-ip-prefix`). Replaced with the correct flags:
+  `--direction Ingress/Egress`, `--port`, `--target-kind`, `--target-value`,
+  plus the required `--name` and `--region` (closes #248, PR #249).
+
+- **Documentation — `securityrule update` examples showed non-updatable flags** —
+  the resource reference page incorrectly listed `--port` and `--target-value`
+  as valid update flags. Only `--name` and `--tags` can be updated; the
+  invalid examples were removed and a clarifying note was added
+  (closes #248, PR #249).
+
+### Documentation
+
+- Shell Auto-completion sections updated in English and Italian for all
+  resources affected by the completion fixes: `subnet`, `securitygroup`,
+  `securityrule`, `vpcpeering`, `vpcpeeringroute`, `vpnroute`,
+  `dbaas.database`, `dbaas.user`. Each section now shows the `create` (and
+  `list`) commands in the first-argument TAB examples.
+
 ## [0.5.3] - 2026-06-20
 
 ### Fixed
@@ -346,7 +411,9 @@ is unchanged.
 - **E2e**: project `DELETE` failure now propagates correctly in the management
   suite (closes #128).
 
-[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Arubacloud/acloud-cli/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.3...v1.0.0
+[0.5.3]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Arubacloud/acloud-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Arubacloud/acloud-cli/compare/v0.4.0...v0.5.0
